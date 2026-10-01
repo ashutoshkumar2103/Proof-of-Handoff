@@ -1,24 +1,37 @@
-import { useState } from 'react';
-import { Link, useNavigate, useParams } from 'react-router-dom';
+import { useEffect, useRef, useState } from 'react';
+import { Link, useLocation, useNavigate, useParams } from 'react-router-dom';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
+import { saveBlob } from '../api/client';
 import { handoffApi, returnApi } from '../api/endpoints';
-import type { CreateReturnInput, HandoffAction, HandoffDetail } from '../api/types';
+import type { CreateReturnInput, HandoffAction, HandoffDetail, ReturnPrefill } from '../api/types';
 import { StatusBadge } from '../components/StatusBadge';
 import { ItemsTable } from '../components/ItemsTable';
 import { ReturnForm } from '../components/ReturnForm';
 import { AttachmentsPanel } from '../components/AttachmentsPanel';
-import { ErrorNotice, Spinner, errorMessage } from '../components/ui';
+import { ErrorNotice, Spinner, errorMessage, useTransient } from '../components/ui';
 import { useConfirm } from '../components/ConfirmDialog';
-import { CONDITION_LABELS, formatDateTime, qty } from '../lib/format';
+import { CONDITION_LABELS, formatDateTime, isFinished, qty } from '../lib/format';
 
 export function HandoffDetailPage() {
   const { id } = useParams();
   const handoffId = Number(id);
   const navigate = useNavigate();
   const qc = useQueryClient();
-  const [showReturn, setShowReturn] = useState(false);
+  const location = useLocation();
+  // Quantities imported via HandoffCheck arrive once in navigation state and reopen the same return form.
+  const [prefill, setPrefill] = useState<ReturnPrefill | null>(
+    (location.state as { returnPrefill?: ReturnPrefill } | null)?.returnPrefill ?? null);
+  const [showReturn, setShowReturn] = useState(prefill !== null);
   const [actionError, setActionError] = useState<string | null>(null);
+  const [notice, setNotice] = useTransient<{ text: string; tone: 'notice-success' | 'notice-info' }>();
+  const [pdfBusy, setPdfBusy] = useState<'download' | 'share' | 'email' | null>(null);
+  // A PDF already fetched for sharing, so a retry can share instantly while the user gesture is fresh.
+  const sharePdf = useRef<{ version: string; file: File } | null>(null);
   const confirm = useConfirm();
+
+  useEffect(() => {
+    if (prefill) navigate(location.pathname, { replace: true, state: null });
+  }, []); // eslint-disable-line react-hooks/exhaustive-deps
 
   const detail = useQuery({
     queryKey: ['handoff', handoffId],
@@ -45,7 +58,7 @@ export function HandoffDetailPage() {
 
   const recordReturn = useMutation({
     mutationFn: (input: CreateReturnInput) => returnApi.create(handoffId, input),
-    onSuccess: () => { setActionError(null); setShowReturn(false); refresh(); },
+    onSuccess: () => { setActionError(null); setShowReturn(false); setPrefill(null); refresh(); },
     onError: (err) => setActionError(errorMessage(err)),
   });
 
@@ -59,6 +72,94 @@ export function HandoffDetailPage() {
   if (detail.isError) return <ErrorNotice error={detail.error} />;
   const h = detail.data!;
   const has = (a: HandoffAction) => h.availableActions.includes(a);
+
+  async function withPdfBusy(kind: 'download' | 'share' | 'email', work: () => Promise<void>) {
+    setActionError(null);
+    setNotice(null);
+    setPdfBusy(kind);
+    try {
+      await work();
+    } catch (err) {
+      setActionError(errorMessage(err));
+    } finally {
+      setPdfBusy(null);
+    }
+  }
+
+  const onDownloadPdf = () => withPdfBusy('download', async () => {
+    const { blob, filename } = await handoffApi.downloadPdf(handoffId);
+    saveBlob(blob, filename);
+  });
+
+  // Shares the PDF file itself through the device's native share sheet. Which apps appear is up to the
+  // OS/browser; where file sharing isn't supported the PDF is downloaded instead.
+  const onSharePdf = () => withPdfBusy('share', async () => {
+    let file = sharePdf.current?.version === h.updatedAt ? sharePdf.current.file : null;
+    if (!file) {
+      const { blob, filename } = await handoffApi.downloadPdf(handoffId);
+      file = new File([blob], filename, { type: 'application/pdf' });
+      sharePdf.current = { version: h.updatedAt, file };
+    }
+    const data: ShareData = {
+      files: [file], title: `Proof of Handoff — ${h.publicCode}`, text: `Proof-of-Handoff record for ${h.publicCode}.`,
+    };
+    if (typeof navigator.canShare !== 'function' || !navigator.canShare(data)) {
+      saveBlob(file, file.name);
+      setNotice({ text: "Sharing files isn't supported in this browser, so the PDF was downloaded instead.", tone: 'notice-info' });
+      return;
+    }
+    try {
+      await navigator.share(data);
+    } catch (err) {
+      if (err instanceof DOMException && err.name === 'AbortError') return;   // the user closed the share sheet
+      if (err instanceof DOMException && err.name === 'NotAllowedError') {     // the gesture expired while the PDF was prepared
+        setNotice({ text: 'The PDF is ready — press Share again to open the share sheet.', tone: 'notice-info' });
+        return;
+      }
+      throw err;
+    }
+  });
+
+  async function onEmailPdf() {
+    const res = await confirm({
+      title: 'Email Proof-of-Handoff PDF',
+      message: `The PDF for ${h.publicCode} will be attached to an email. Sending is only ever done by you, here.`,
+      confirmText: 'Send email',
+      input: { label: 'Send to', placeholder: 'name@example.com', required: true, defaultValue: h.recipientEmail },
+    });
+    if (!res.confirmed) return;
+    if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(res.value)) {
+      setActionError('Enter a valid email address.');
+      return;
+    }
+    await withPdfBusy('email', async () => {
+      const sent = await handoffApi.emailPdf(handoffId, res.value);
+      setNotice(sent.delivered
+        ? { text: `Email sent successfully for ${h.publicCode} to ${sent.sentTo}.`, tone: 'notice-success' }
+        // Development mode: the server only logged the message. Say so rather than claim an email.
+        : { text: `Email isn't set up on this server, so nothing was sent for ${h.publicCode} to ${sent.sentTo}. The message was only logged.`, tone: 'notice-info' });
+    });
+  }
+
+  function closeReturnForm() {
+    setShowReturn(false);
+    setPrefill(null);
+  }
+
+  async function onRecordReturn() {
+    if (showReturn) { closeReturnForm(); return; }
+    const res = await confirm({
+      title: 'How do you want to enter the returned quantities?',
+      message: <span className="muted small">Use Import from File when there are many items.</span>,
+      choices: [
+        { value: 'manual', label: 'Enter Manually', primary: true },
+        { value: 'import', label: 'Import from File' },
+      ],
+    });
+    if (!res.confirmed) return;
+    if (res.value === 'import') navigate(`/handoff-check?returnFor=${handoffId}`);
+    else setShowReturn(true);
+  }
 
   async function onDelete() {
     const res = await confirm({
@@ -127,6 +228,13 @@ export function HandoffDetailPage() {
       </div>
 
       {actionError && <div className="notice notice-error">{actionError}</div>}
+      {/* Floating, so a result is seen wherever the page is scrolled; the sending state is shown while it works. */}
+      {(notice || pdfBusy === 'email') && (
+        <div className="toast-area" role="status" aria-live="polite">
+          {pdfBusy === 'email' && <div className="notice notice-info toast">Sending email… this can take a few seconds.</div>}
+          {notice && <div className={`notice ${notice.tone} toast`}>{notice.text}</div>}
+        </div>
+      )}
 
       {/* Actions */}
       <div className="card">
@@ -136,7 +244,7 @@ export function HandoffDetailPage() {
             onClick={() => action.mutate(() => handoffApi.submit(handoffId))}>Submit & send link</button>}
           {has('RESEND_LINK') && <button className="btn" disabled={action.isPending}
             onClick={() => action.mutate(() => handoffApi.resendLink(handoffId))}>Resend link</button>}
-          {has('RECORD_RETURN') && <button className="btn btn-primary" onClick={() => setShowReturn((s) => !s)}>
+          {has('RECORD_RETURN') && <button className="btn btn-primary" onClick={onRecordReturn}>
             {showReturn ? 'Close return form' : 'Record return'}</button>}
           {has('CLOSE') && <button className="btn btn-danger" disabled={action.isPending}
             onClick={onClose}>Close handoff</button>}
@@ -150,23 +258,35 @@ export function HandoffDetailPage() {
           {has('DELETE') && <button className="btn btn-danger" onClick={onDelete}>Delete draft</button>}
         </div>
         {h.availableActions.length === 0 && <p className="muted small" style={{ margin: 0 }}>This handoff is closed and read-only.</p>}
+        {h.status !== 'DRAFT' && (
+          <div className="row" style={{ marginTop: '0.75rem', paddingTop: '0.75rem', borderTop: '1px solid var(--border)' }}>
+            <span className="muted small">Proof of Handoff</span>
+            <button className={`btn ${h.status === 'CLOSED' ? 'btn-primary' : ''}`} disabled={pdfBusy !== null}
+                    onClick={onDownloadPdf}>{pdfBusy === 'download' ? 'Generating PDF…' : 'Download PDF'}</button>
+            <button className="btn" disabled={pdfBusy !== null} onClick={onSharePdf}>
+              {pdfBusy === 'share' ? 'Preparing PDF…' : 'Share'}</button>
+            <button className="btn" disabled={pdfBusy !== null} onClick={onEmailPdf}>
+              {pdfBusy === 'email' ? 'Sending…' : 'Email PDF'}</button>
+          </div>
+        )}
       </div>
 
       {/* Record return form */}
       {showReturn && has('RECORD_RETURN') && (
         <div className="card">
           <h2>Record a return</h2>
-          <ReturnForm items={h.items} busy={recordReturn.isPending}
+          <ReturnForm items={h.items} prefill={prefill} busy={recordReturn.isPending}
                       onSubmit={(input) => recordReturn.mutate(input)}
-                      onCancel={() => setShowReturn(false)} />
+                      onCancel={closeReturnForm} />
         </div>
       )}
 
-      {/* Missing-items confirmation status */}
-      {Number(h.totalMissing) > 0 && (
-        <div className={`notice ${h.missingConfirmedAt ? (h.status === 'CLOSED' ? 'notice-error' : 'notice-success') : 'notice-info'}`}>
+      {/* Missing-items status. Once finished only the settled outcome is shown (the loss the recipient confirmed);
+          the "waiting for / request confirmation" wording and the wait-for-return banner below are for open work only. */}
+      {Number(h.totalMissing) > 0 && (!isFinished(h.status) || h.missingConfirmedAt) && (
+        <div className={`notice ${h.missingConfirmedAt ? (isFinished(h.status) ? 'notice-error' : 'notice-success') : 'notice-info'}`}>
           {h.missingConfirmedAt
-            ? <><strong>{qty(h.totalMissing)}</strong> item(s) reported missing — confirmed by {h.missingConfirmedByName ? <strong>{h.missingConfirmedByName}</strong> : 'the recipient'} on {formatDateTime(h.missingConfirmedAt)}.{h.status !== 'CLOSED' && ' You can now close this handoff.'}</>
+            ? <><strong>{qty(h.totalMissing)}</strong> item(s) reported missing — confirmed by {h.missingConfirmedByName ? <strong>{h.missingConfirmedByName}</strong> : 'the recipient'} on {formatDateTime(h.missingConfirmedAt)}.{!isFinished(h.status) && ' You can now close this handoff.'}</>
             : h.returnWaitRequestedAt
               ? <><strong>{qty(h.totalMissing)}</strong> item(s) reported missing — the recipient requested to wait for return. You can re-send the confirmation request.</>
               : h.missingConfirmationRequestedAt
@@ -175,7 +295,7 @@ export function HandoffDetailPage() {
         </div>
       )}
       {/* Recipient's return-wait request detail */}
-      {h.returnWaitRequestedAt && !h.missingConfirmedAt && (
+      {!isFinished(h.status) && h.returnWaitRequestedAt && !h.missingConfirmedAt && (
         <div className="notice notice-warning">
           <strong>{h.returnWaitRequestedByName || 'The recipient'}</strong> requested to wait for return on {formatDateTime(h.returnWaitRequestedAt)}:
           <blockquote style={{ margin: '0.4rem 0 0', fontStyle: 'italic' }}>&ldquo;{h.returnWaitReason}&rdquo;</blockquote>

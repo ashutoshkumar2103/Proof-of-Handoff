@@ -75,11 +75,26 @@ export async function upload<T>(path: string, form: FormData): Promise<T> {
   return res.json() as Promise<T>;
 }
 
-/** Builds an authenticated download URL is not possible with headers; fetch as blob. */
-export async function downloadBlob(path: string): Promise<Blob> {
+/** Authenticated download (a plain link can't send the auth header): fetched as a blob, plus the server's filename. */
+export async function downloadFile(path: string): Promise<{ blob: Blob; filename: string | null }> {
   const headers: Record<string, string> = {};
   if (authToken) headers['Authorization'] = `Bearer ${authToken}`;
   const res = await fetch(`${BASE}/api/v1${path}`, { headers });
   if (!res.ok) throw new HttpError(await toApiError(res));
-  return res.blob();
+  const name = res.headers.get('Content-Disposition')?.match(/filename="?([^";]+)"?/i)?.[1];
+  return { blob: await res.blob(), filename: name ?? null };
+}
+
+export async function downloadBlob(path: string): Promise<Blob> {
+  return (await downloadFile(path)).blob;
+}
+
+/** Hands a blob to the browser as a file download. */
+export function saveBlob(blob: Blob, filename: string) {
+  const url = URL.createObjectURL(blob);
+  const link = document.createElement('a');
+  link.href = url;
+  link.download = filename;
+  link.click();
+  URL.revokeObjectURL(url);
 }

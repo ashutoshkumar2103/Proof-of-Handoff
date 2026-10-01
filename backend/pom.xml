@@ -20,6 +20,9 @@
     <properties>
         <java.version>25</java.version>
         <jjwt.version>0.12.6</jjwt.version>
+        <poi.version>5.5.1</poi.version>
+        <pdfbox.version>3.0.8</pdfbox.version>
+        <openpdf.version>3.0.5</openpdf.version>
     </properties>
 
     <dependencies>
@@ -93,6 +96,24 @@
             <artifactId>jjwt-jackson</artifactId>
             <version>${jjwt.version}</version>
             <scope>runtime</scope>
+        </dependency>
+
+        <!-- Proof-of-Handoff PDF export: table layout with automatic page breaks. -->
+        <dependency>
+            <groupId>com.github.librepdf</groupId>
+            <artifactId>openpdf</artifactId>
+            <version>${openpdf.version}</version>
+        </dependency>
+        <!-- Document import (HandoffCheck): deterministic .xlsx / .pdf text extraction. -->
+        <dependency>
+            <groupId>org.apache.poi</groupId>
+            <artifactId>poi-ooxml</artifactId>
+            <version>${poi.version}</version>
+        </dependency>
+        <dependency>
+            <groupId>org.apache.pdfbox</groupId>
+            <artifactId>pdfbox</artifactId>
+            <version>${pdfbox.version}</version>
         </dependency>
 
         <!-- Test -->

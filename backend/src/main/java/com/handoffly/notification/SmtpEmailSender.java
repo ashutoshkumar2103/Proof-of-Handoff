@@ -3,6 +3,7 @@ package com.handoffly.notification;
 import com.handoffly.common.config.HandOfflyProperties;
 import jakarta.mail.internet.MimeMessage;
 import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty;
+import org.springframework.core.io.ByteArrayResource;
 import org.springframework.mail.javamail.JavaMailSender;
 import org.springframework.mail.javamail.MimeMessageHelper;
 import org.springframework.stereotype.Component;
@@ -29,15 +30,20 @@ public class SmtpEmailSender implements EmailSender {
     public void send(EmailMessage message) {
         try {
             MimeMessage mime = mailSender.createMimeMessage();
-            boolean multipart = message.htmlBody() != null && !message.htmlBody().isBlank();
+            boolean html = message.htmlBody() != null && !message.htmlBody().isBlank();
+            boolean multipart = html || !message.attachments().isEmpty();
             MimeMessageHelper helper = new MimeMessageHelper(mime, multipart, StandardCharsets.UTF_8.name());
             helper.setFrom(from);
             helper.setTo(message.to());
             helper.setSubject(message.subject());
-            if (multipart) {
+            if (html) {
                 helper.setText(message.textBody(), message.htmlBody());
             } else {
                 helper.setText(message.textBody(), false);
+            }
+            for (EmailMessage.Attachment attachment : message.attachments()) {
+                helper.addAttachment(attachment.filename(),
+                        new ByteArrayResource(attachment.content()), attachment.contentType());
             }
             mailSender.send(mime);
         } catch (Exception e) {

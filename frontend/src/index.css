@@ -162,6 +162,21 @@ input:focus, select:focus, textarea:focus {
 textarea { resize: vertical; min-height: 72px; }
 .field { margin-bottom: 0.9rem; }
 .field-row { display: grid; grid-template-columns: 1fr 1fr; gap: 0.9rem; }
+/* Cards placed side by side share the row; the stacked-card top margin must not offset the second. */
+.field-row > .card { margin-top: 0; }
+/* File picker: whole area is clickable / droppable; the native input stays for keyboard + a11y. */
+.upload-zone {
+  position: relative; display: flex; flex-direction: column; align-items: center; justify-content: center;
+  gap: 0.35rem; padding: 1.6rem 1rem; margin-bottom: 0.75rem; text-align: center; cursor: pointer;
+  border: 1.5px dashed var(--border); border-radius: var(--radius-sm); color: var(--text-muted);
+  transition: border-color 0.12s, background 0.12s;
+}
+.upload-zone:hover, .upload-zone.is-over, .upload-zone:focus-within { border-color: var(--primary); background: var(--primary-soft); }
+.upload-zone.has-file { border-style: solid; border-color: var(--primary); }
+.upload-zone.is-disabled { opacity: 0.55; cursor: not-allowed; }
+.upload-zone input { position: absolute; width: 1px; height: 1px; opacity: 0; pointer-events: none; }
+.upload-zone svg { width: 28px; height: 28px; color: var(--primary); }
+.upload-zone strong { color: var(--text); word-break: break-all; }
 /* Compact date | time | purpose row on the handoff form */
 .detail-row { display: grid; grid-template-columns: 180px 150px 1fr; gap: 0.9rem; align-items: start; }
 .time-select { display: flex; align-items: center; gap: 0.3rem; }
@@ -254,6 +269,12 @@ th.sortable:hover { color: var(--text); }
 .notice-success { background: var(--success-soft); color: var(--success); }
 .notice-info { background: var(--primary-soft); color: var(--primary); }
 .notice-warning { background: var(--warning-soft); color: var(--warning); }
+/* Floating pop-up for short-lived results; stays in view however far the page is scrolled. */
+.toast-area {
+  position: fixed; top: 4rem; right: 1rem; z-index: 60; display: flex; flex-direction: column; gap: 0.5rem;
+  width: min(26rem, calc(100vw - 2rem)); pointer-events: none;
+}
+.toast { box-shadow: var(--shadow); border: 1px solid var(--border); pointer-events: auto; }
 .divider { height: 1px; background: var(--border); margin: 1rem 0; border: none; }
 .kv { display: grid; grid-template-columns: 140px 1fr; gap: 0.4rem 1rem; font-size: 0.92rem; }
 .kv dt { color: var(--text-muted); }

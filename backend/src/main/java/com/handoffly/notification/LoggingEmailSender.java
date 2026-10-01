@@ -19,15 +19,25 @@ public class LoggingEmailSender implements EmailSender {
     private static final Logger log = LoggerFactory.getLogger(LoggingEmailSender.class);
 
     @Override
+    public boolean deliversMail() {
+        return false;
+    }
+
+    @Override
     public void send(EmailMessage message) {
         log.info("""
 
                 ===== [DEV EMAIL — not actually sent] =====
                 To:      {}
                 Subject: {}
+                Attached: {}
                 ---------------------------------------------
                 {}
                 =============================================
-                """, message.to(), message.subject(), message.textBody());
+                """, message.to(), message.subject(),
+                message.attachments().isEmpty() ? "none" : message.attachments().stream()
+                        .map(a -> a.filename() + " (" + a.content().length + " bytes)")
+                        .collect(java.util.stream.Collectors.joining(", ")),
+                message.textBody());
     }
 }

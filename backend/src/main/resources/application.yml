@@ -1,6 +1,10 @@
 spring:
   application:
     name: handoffly
+  config:
+    # Optional, git-ignored local overrides (e.g. SMTP settings) for running from an IDE or Maven.
+    # Absent file = no effect. Real environment variables still win. See README "Real email delivery".
+    import: "optional:file:./.env.local[.properties],optional:file:../.env.local[.properties]"
   datasource:
     url: ${DB_URL:jdbc:mysql://localhost:3306/handoffly?useSSL=false&allowPublicKeyRetrieval=true&serverTimezone=UTC}
     username: ${DB_USERNAME:handoffly}
@@ -74,6 +78,8 @@ handoffly:
   mail:
     provider: ${MAIL_PROVIDER:logging}   # logging | smtp
     from: ${MAIL_FROM:no-reply@handoffly.local}
+    # Optional: path to your own copy of the Proof-of-Handoff email template (re-read on every send).
+    pdf-template-file: ${MAIL_PDF_TEMPLATE_FILE:}
   storage:
     type: ${STORAGE_TYPE:local}          # local (S3 impl can be added later)
     local-dir: ${STORAGE_LOCAL_DIR:./storage-data}

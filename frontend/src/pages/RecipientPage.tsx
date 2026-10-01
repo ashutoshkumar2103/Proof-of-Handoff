@@ -8,7 +8,7 @@ import { ItemsTable } from '../components/ItemsTable';
 import { ErrorNotice, Spinner, errorMessage } from '../components/ui';
 import { ThemeToggle } from '../components/ThemeToggle';
 import { useConfirm } from '../components/ConfirmDialog';
-import { CONDITION_LABELS, formatDateTime, formatBytes, qty } from '../lib/format';
+import { CONDITION_LABELS, formatDateTime, formatBytes, isFinished, qty } from '../lib/format';
 
 const API_BASE = import.meta.env.VITE_API_BASE_URL ?? '';
 
@@ -220,7 +220,8 @@ export function RecipientPage() {
           </div>
         </div>
       )}
-      {h.returnWaitRequestedAt && !h.missingConfirmedAt && (
+      {/* A pending request is only worth showing while the handoff is still open. */}
+      {!isFinished(h.status) && h.returnWaitRequestedAt && !h.missingConfirmedAt && (
         <div className="notice notice-warning mb-2">
           You requested to wait for return on {formatDateTime(h.returnWaitRequestedAt)}
           {h.returnWaitRequestedByName && <> — by <strong>{h.returnWaitRequestedByName}</strong></>}.
@@ -249,7 +250,7 @@ export function RecipientPage() {
             {Number(h.totalRemaining) > 0 && <>, <strong>{qty(h.totalRemaining)}</strong> still to return</>}.
             {' '}Returns are recorded by the sender when items come back.
           </p>
-          {totalMissing > 0 && !h.missingConfirmedAt && (
+          {!isFinished(h.status) && totalMissing > 0 && !h.missingConfirmedAt && (
             <p className="small" style={{ color: 'var(--danger)', margin: '0 0 0.5rem' }}>
               Note: {totalMissing} item(s) are reported missing (not returned) and are awaiting confirmation.
             </p>

@@ -49,11 +49,15 @@ public class HandOfflyProperties {
     public static class Mail {
         private String provider = "logging";
         private String from = "no-reply@handoffly.local";
+        /** Optional path to a custom Proof-of-Handoff email template; blank uses the built-in one. */
+        private String pdfTemplateFile = "";
 
         public String getProvider() { return provider; }
         public void setProvider(String provider) { this.provider = provider; }
         public String getFrom() { return from; }
         public void setFrom(String from) { this.from = from; }
+        public String getPdfTemplateFile() { return pdfTemplateFile; }
+        public void setPdfTemplateFile(String pdfTemplateFile) { this.pdfTemplateFile = pdfTemplateFile; }
     }
 
     public static class Storage {

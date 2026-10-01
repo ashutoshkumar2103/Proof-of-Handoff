@@ -9,6 +9,12 @@ export interface ConfirmOptions {
   danger?: boolean;
   /** When present, the dialog shows a text input (replaces window.prompt). */
   input?: { label?: string; placeholder?: string; required?: boolean; defaultValue?: string };
+  /**
+   * When present, the confirm button is replaced by one button per choice. Picking one
+   * resolves `{ confirmed: true, value: <choice value> }`; Cancel/Escape/backdrop resolve
+   * `confirmed: false`.
+   */
+  choices?: { value: string; label: string; primary?: boolean }[];
 }
 
 export interface ConfirmResult {
@@ -40,9 +46,9 @@ export function ConfirmProvider({ children }: { children: ReactNode }) {
     });
   }, []);
 
-  function settle(confirmed: boolean) {
+  function settle(confirmed: boolean, choice?: string) {
     if (!pending) return;
-    pending.resolve({ confirmed, value: value.trim() });
+    pending.resolve({ confirmed, value: choice ?? value.trim() });
     setPending(null);
   }
 
@@ -58,7 +64,7 @@ export function ConfirmProvider({ children }: { children: ReactNode }) {
           <div className="modal" role="dialog" aria-modal="true" onMouseDown={(e) => e.stopPropagation()}
                onKeyDown={(e) => {
                  if (e.key === 'Escape') settle(false);
-                 if (e.key === 'Enter' && !opts.input && !confirmDisabled) settle(true);
+                 if (e.key === 'Enter' && !opts.input && !opts.choices && !confirmDisabled) settle(true);
                }}>
             <h3 className="modal-title">{opts.title}</h3>
             {opts.message && <div className="modal-body">{opts.message}</div>}
@@ -74,11 +80,18 @@ export function ConfirmProvider({ children }: { children: ReactNode }) {
               <button type="button" className="btn btn-ghost" onClick={() => settle(false)}>
                 {opts.cancelText ?? 'Cancel'}
               </button>
-              <button type="button"
-                      className={`btn ${opts.danger ? 'btn-danger' : 'btn-primary'}`}
-                      disabled={confirmDisabled} onClick={() => settle(true)}>
-                {opts.confirmText ?? 'Confirm'}
-              </button>
+              {opts.choices
+                ? opts.choices.map((c) => (
+                    <button key={c.value} type="button" className={`btn ${c.primary ? 'btn-primary' : ''}`}
+                            onClick={() => settle(true, c.value)}>{c.label}</button>
+                  ))
+                : (
+                  <button type="button"
+                          className={`btn ${opts.danger ? 'btn-danger' : 'btn-primary'}`}
+                          disabled={confirmDisabled} onClick={() => settle(true)}>
+                    {opts.confirmText ?? 'Confirm'}
+                  </button>
+                )}
             </div>
           </div>
         </div>

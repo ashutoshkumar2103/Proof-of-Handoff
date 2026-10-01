@@ -1,119 +1,352 @@
 import { useState } from 'react';
+import { Link, useNavigate, useSearchParams } from 'react-router-dom';
 import { useMutation, useQuery } from '@tanstack/react-query';
 import { documentCheckApi, handoffApi } from '../api/endpoints';
-import type { CompareInput, CompareResult, DocFieldInput, DocLineInput, MatchStatus } from '../api/types';
-import { ErrorNotice, errorMessage } from '../components/ui';
+import type {
+  CompareInput, CompareResult, DocFieldInput, DocLineInput, ImportMatchState, MatchStatus, ReturnPrefill,
+} from '../api/types';
+import { ErrorNotice, Spinner, errorMessage } from '../components/ui';
+import { owed } from '../components/ReturnForm';
 import { qty } from '../lib/format';
 
-type Mode = 'handoff' | 'document';
-
+/**
+ * Two separate journeys share this page. `?returnFor=<handoffId>` is return-import mode for
+ * that handoff (feeds the return form); with no param it is the standalone File A vs File B check.
+ */
 export function HandoffCheckPage() {
-  const [mode, setMode] = useState<Mode>('handoff');
-  const [refLabel, setRefLabel] = useState('Reference (e.g. Quotation)');
-  const [refLines, setRefLines] = useState<DocLineInput[]>([{ name: '', quantity: '' }]);
-  const [refFields, setRefFields] = useState<DocFieldInput[]>([]);
-  const [handoffId, setHandoffId] = useState<number | ''>('');
-  const [tgtLabel, setTgtLabel] = useState('Document B');
-  const [tgtLines, setTgtLines] = useState<DocLineInput[]>([{ name: '', quantity: '' }]);
-  const [tgtFields, setTgtFields] = useState<DocFieldInput[]>([]);
+  const [params] = useSearchParams();
+  const returnFor = Number(params.get('returnFor'));
+  return returnFor > 0 ? <ReturnImport handoffId={returnFor} /> : <FileCompare />;
+}
+
+interface ImportRow { name: string; qty: string; itemId: number | ''; match: ImportMatchState }
+const round3 = (n: number) => Math.round(n * 1000) / 1000;
+
+/**
+ * Return-import mode: upload a file, match its lines to THIS handoff's items, let the user
+ * correct matches/quantities, then go back to the same return form with Return qty prefilled.
+ * Nothing is recorded here — the existing return form and API do that.
+ */
+function ReturnImport({ handoffId }: { handoffId: number }) {
+  const navigate = useNavigate();
+  const handoff = useQuery({ queryKey: ['handoff', handoffId], queryFn: () => handoffApi.get(handoffId) });
+  const [rows, setRows] = useState<ImportRow[] | null>(null);
+  const [fileName, setFileName] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
 
-  const handoffs = useQuery({ queryKey: ['handoffs', 'for-check'], queryFn: () => handoffApi.list({ size: 100 }) });
+  const extract = useMutation({
+    mutationFn: (file: File) => documentCheckApi.returnImport(handoffId, file),
+    onSuccess: (res) => {
+      setError(null);
+      setFileName(res.fileName ?? null);
+      setRows(res.rows.map((r) => ({
+        name: r.importedName, qty: String(r.importedQuantity), itemId: r.itemId ?? '', match: r.match,
+      })));
+    },
+    onError: (e) => { setError(errorMessage(e)); setRows(null); },
+  });
+
+  if (handoff.isLoading) return <Spinner />;
+  if (handoff.isError) return <ErrorNotice error={handoff.error} />;
+  const h = handoff.data!;
+  const back = `/handoffs/${handoffId}`;
+  const canReturn = h.availableActions.includes('RECORD_RETURN');
+  const patch = (i: number, p: Partial<ImportRow>) =>
+    setRows((rs) => rs && rs.map((r, idx) => (idx === i ? { ...r, ...p } : r)));
+
+  // Quantity per handoff item (a repeated item in the file adds up) vs what is still owed.
+  const totals = new Map<number, number>();
+  (rows ?? []).forEach((r) => {
+    if (r.itemId !== '' && Number(r.qty) > 0) totals.set(r.itemId, round3((totals.get(r.itemId) ?? 0) + Number(r.qty)));
+  });
+  const itemOwed = (id: number) => owed(h.items.find((i) => i.id === id)!);
+  const state = (r: ImportRow): 'ignored' | 'invalid' | 'exceeds' | 'ok' => {
+    if (r.itemId === '') return 'ignored';
+    if (!(Number(r.qty) >= 0) || r.qty.trim() === '') return 'invalid';
+    return (totals.get(r.itemId) ?? 0) > itemOwed(r.itemId) ? 'exceeds' : 'ok';
+  };
+  const states = (rows ?? []).map(state);
+  const blocked = states.includes('invalid') || states.includes('exceeds');
+  const usable = totals.size > 0;
+  const notInFile = h.items.filter((i) => owed(i) > 0 && !totals.has(i.id));
+
+  function carryToReturnForm() {
+    const returnPrefill: ReturnPrefill = {};
+    totals.forEach((q, id) => { returnPrefill[id] = String(q); });
+    navigate(back, { state: { returnPrefill } });
+  }
+
+  return (
+    <div className="stack">
+      <div>
+        <Link to={back} className="small muted">← Back to {h.publicCode}</Link>
+        <h1 style={{ marginTop: 4 }}>Import returned quantities</h1>
+        <p className="muted">
+          {h.publicCode} · {h.title}. Upload a CSV, Excel (.xlsx) or text PDF listing what came back. Quantities are
+          matched to this handoff's items and prefilled into the return form — nothing is recorded until you submit it.
+        </p>
+      </div>
+
+      {!canReturn && <div className="notice notice-error">Returns can't be recorded on this handoff right now.</div>}
+      {error && <div className="notice notice-error">{error}</div>}
+
+      <div className="card">
+        <UploadZone label="Returned items file" fileName={fileName}
+                    disabled={!canReturn || extract.isPending} onFile={(file) => extract.mutate(file)} />
+        <p className="muted small" style={{ margin: 0 }}>
+          {extract.isPending ? 'Reading file…' : 'Supported: Excel (.xlsx), CSV, text-based PDF.'}
+        </p>
+      </div>
+
+      {rows && (
+        <div className="card">
+          <div className="card-header">
+            <h2>Review imported quantities</h2>
+            {fileName && <span className="muted small">{fileName}</span>}
+          </div>
+          <div className="table-wrap">
+            <table>
+              <thead>
+                <tr><th>In file</th><th className="num">Imported qty</th><th>Handoff item</th><th className="num">Remaining</th><th>Result</th></tr>
+              </thead>
+              <tbody>
+                {rows.map((r, i) => {
+                  const s = states[i];
+                  const item = r.itemId === '' ? undefined : h.items.find((x) => x.id === r.itemId);
+                  return (
+                    <tr key={i}>
+                      <td>{r.name}</td>
+                      <td className="num">
+                        <input type="number" min="0" step="0.001" value={r.qty} style={{ width: 88 }}
+                               onChange={(e) => patch(i, { qty: e.target.value })} />
+                      </td>
+                      <td>
+                        <select value={r.itemId}
+                                onChange={(e) => patch(i, { itemId: e.target.value ? Number(e.target.value) : '' })}>
+                          <option value="">— Not in this handoff (ignore) —</option>
+                          {h.items.map((x) => <option key={x.id} value={x.id}>{x.name}</option>)}
+                        </select>
+                      </td>
+                      <td className="num">{item ? qty(String(owed(item))) : '—'}</td>
+                      <td>
+                        {s === 'ok' && <span className="badge badge-success">Will prefill</span>}
+                        {s === 'exceeds' && <span className="badge badge-danger">Imported quantity exceeds remaining quantity.</span>}
+                        {s === 'invalid' && <span className="badge badge-danger">Enter a valid quantity.</span>}
+                        {s === 'ignored' && (
+                          <span className="badge badge-warning">
+                            {r.match === 'AMBIGUOUS' ? 'Ambiguous — choose the item' : 'Not in this handoff — ignored'}
+                          </span>
+                        )}
+                      </td>
+                    </tr>
+                  );
+                })}
+              </tbody>
+            </table>
+          </div>
+          {states.includes('ignored') && (
+            <p className="muted small mt-2">
+              Rows not matched to an item are ignored — no new handoff item is ever created.
+            </p>
+          )}
+          {notInFile.length > 0 && (
+            <p className="muted small">
+              Not in the file (Return qty won't be prefilled): {notInFile.map((i) => i.name).join(', ')}.
+            </p>
+          )}
+          <div className="row mt-2">
+            <button className="btn btn-primary" disabled={blocked || !usable} onClick={carryToReturnForm}>
+              Continue to return form
+            </button>
+            <Link className="btn btn-ghost" to={back}>Cancel</Link>
+          </div>
+          {blocked && <p className="small mt-2" style={{ color: 'var(--danger)' }}>Fix the highlighted rows to continue.</p>}
+          {!blocked && !usable && <p className="muted small mt-2">Match at least one row with a quantity above 0 to continue.</p>}
+        </div>
+      )}
+    </div>
+  );
+}
+
+/** One side of the standalone comparison. `lines` is null until extraction succeeds (or manual entry is chosen). */
+interface Side { file: File | null; lines: DocLineInput[] | null; fields: DocFieldInput[]; error: string | null }
+const emptySide: Side = { file: null, lines: null, fields: [], error: null };
+const blankLine = (): DocLineInput => ({ name: '', quantity: '' });
+const SIDE_LABELS = ['File A', 'File B'] as const;
+type Step = 'upload' | 'review' | 'result';
+
+/**
+ * Standalone HandoffCheck: File A vs File B. Upload both, review/correct what was read,
+ * compare. Not connected to any handoff or return, and nothing is stored.
+ */
+function FileCompare() {
+  const [step, setStep] = useState<Step>('upload');
+  const [sides, setSides] = useState<[Side, Side]>([emptySide, emptySide]);
+  const [error, setError] = useState<string | null>(null);
+
+  const patchSide = (i: 0 | 1, p: Partial<Side>) =>
+    setSides((s) => (i === 0 ? [{ ...s[0], ...p }, s[1]] : [s[0], { ...s[1], ...p }]));
+
+  // Each file is read independently so one unreadable file still lets the other be reviewed.
+  const extract = useMutation({
+    mutationFn: () => Promise.all(sides.map(async (s): Promise<Partial<Side>> => {
+      try {
+        const lines = await documentCheckApi.extract(s.file!);
+        return { lines: lines.map((l) => ({ name: l.name, quantity: String(l.quantity ?? '') })), fields: [], error: null };
+      } catch (e) {
+        return { lines: null, fields: [], error: errorMessage(e) };
+      }
+    })),
+    onSuccess: ([a, b]) => {
+      setSides((s) => [{ ...s[0], ...a }, { ...s[1], ...b }]);
+      setError(null);
+      setStep('review');
+    },
+  });
 
   const compare = useMutation({
     mutationFn: (body: CompareInput) => documentCheckApi.compare(body),
+    onSuccess: () => { setError(null); setStep('result'); },
     onError: (e) => setError(errorMessage(e)),
-    onSuccess: () => setError(null),
   });
 
-  function run(e: React.FormEvent) {
-    e.preventDefault();
+  function runCompare() {
+    const rows = (s: Side) => (s.lines ?? []).filter((l) => l.name.trim() !== '');
+    const fields = (s: Side) => s.fields.filter((f) => f.label.trim() !== '');
+    const [a, b] = sides;
+    if (rows(a).length === 0) { setError('File A needs at least one item row.'); return; }
+    if (rows(b).length === 0) { setError('File B needs at least one item row.'); return; }
+    compare.mutate({
+      referenceLabel: SIDE_LABELS[0], referenceLines: rows(a), referenceFields: fields(a),
+      targetLabel: SIDE_LABELS[1], targetLines: rows(b), targetFields: fields(b),
+    });
+  }
+
+  function reset() {
+    setSides([emptySide, emptySide]);
     setError(null);
-    const referenceLines = refLines.filter((l) => l.name.trim() !== '');
-    if (referenceLines.length === 0) { setError('Add at least one reference line.'); return; }
-    const body: CompareInput = {
-      referenceLabel: refLabel || undefined,
-      referenceLines,
-      referenceFields: refFields.filter((f) => f.label.trim() !== ''),
-    };
-    if (mode === 'handoff') {
-      if (handoffId === '') { setError('Select a handoff to compare against.'); return; }
-      body.handoffId = handoffId;
-    } else {
-      body.targetLabel = tgtLabel || undefined;
-      body.targetLines = tgtLines.filter((l) => l.name.trim() !== '');
-      body.targetFields = tgtFields.filter((f) => f.label.trim() !== '');
-    }
-    compare.mutate(body);
+    compare.reset();
+    extract.reset();
+    setStep('upload');
   }
 
   return (
     <div className="stack">
       <div>
         <h1>HandoffCheck</h1>
-        <p className="muted">Compare a reference document (quotation, PO, estimate, agreement) against a handoff or another document.</p>
+        <p className="muted">Compare two files and find differences.</p>
       </div>
 
-      <form onSubmit={run} className="stack">
-        <div className="card">
-          <h2>Compare against</h2>
-          <div className="row">
-            <label className="row small" style={{ fontWeight: 600 }}>
-              <input type="radio" style={{ width: 'auto' }} checked={mode === 'handoff'} onChange={() => setMode('handoff')} /> An existing handoff
-            </label>
-            <label className="row small" style={{ fontWeight: 600 }}>
-              <input type="radio" style={{ width: 'auto' }} checked={mode === 'document'} onChange={() => setMode('document')} /> Another document
-            </label>
-          </div>
-          {mode === 'handoff' && (
-            <div className="field mt-2">
-              <label>Handoff</label>
-              <select value={handoffId} onChange={(e) => setHandoffId(e.target.value ? Number(e.target.value) : '')}>
-                <option value="">Select a handoff…</option>
-                {(handoffs.data?.content ?? []).map((h) => (
-                  <option key={h.id} value={h.id}>{h.publicCode} — {h.title}</option>
-                ))}
-              </select>
-            </div>
-          )}
-        </div>
+      {error && <div className="notice notice-error">{error}</div>}
 
-        <div className="field-row" style={{ alignItems: 'start' }}>
-          <div className="card">
-            <div className="field">
-              <label>Reference label</label>
-              <input value={refLabel} onChange={(e) => setRefLabel(e.target.value)} />
-            </div>
-            <LinesEditor title="Reference lines" lines={refLines} onChange={setRefLines} />
-            <FieldsEditor title="Reference fields" fields={refFields} onChange={setRefFields} />
-          </div>
-
-          {mode === 'document' ? (
-            <div className="card">
-              <div className="field">
-                <label>Target label</label>
-                <input value={tgtLabel} onChange={(e) => setTgtLabel(e.target.value)} />
+      {step === 'upload' && (
+        <>
+          <div className="field-row" style={{ alignItems: 'start' }}>
+            {sides.map((_, i) => (
+              <div className="card" key={i}>
+                <h2>{SIDE_LABELS[i]}</h2>
+                <UploadZone label={`${SIDE_LABELS[i]} document`} fileName={sides[i].file?.name}
+                            onFile={(file) => patchSide(i as 0 | 1, { file })} />
+                <p className="muted small" style={{ margin: 0 }}>
+                  Supported: Excel (.xlsx), CSV, text-based PDF. Scanned or image-only PDFs can't be read.
+                </p>
               </div>
-              <LinesEditor title="Target lines" lines={tgtLines} onChange={setTgtLines} />
-              <FieldsEditor title="Target fields" fields={tgtFields} onChange={setTgtFields} />
-            </div>
-          ) : (
-            <div className="card">
-              <h3>Target</h3>
-              <p className="muted small">The selected handoff's items are read live — no data is duplicated.
-                A delivery-date field is derived from the handoff's due date if set.</p>
-            </div>
-          )}
-        </div>
+            ))}
+          </div>
+          <div className="row">
+            <button className="btn btn-primary" disabled={!sides[0].file || !sides[1].file || extract.isPending}
+                    onClick={() => extract.mutate()}>
+              {extract.isPending ? 'Reading files…' : 'Compare Files'}
+            </button>
+          </div>
+        </>
+      )}
 
-        {error && <div className="notice notice-error">{error}</div>}
-        <div className="row">
-          <button className="btn btn-primary" disabled={compare.isPending}>{compare.isPending ? 'Comparing…' : 'Compare'}</button>
-        </div>
-      </form>
+      {step === 'review' && (
+        <>
+          <p className="muted" style={{ margin: 0 }}>
+            Check what was read from each file. Fix any item or quantity, add or remove rows, then compare.
+          </p>
+          <div className="field-row" style={{ alignItems: 'start' }}>
+            {sides.map((s, i) => (
+              <ReviewSide key={i} title={`Review ${SIDE_LABELS[i]}`} side={s}
+                          onChange={(p) => patchSide(i as 0 | 1, p)} />
+            ))}
+          </div>
+          <div className="row">
+            <button className="btn btn-primary" onClick={runCompare}
+                    disabled={compare.isPending || sides.some((s) => s.lines === null)}>
+              {compare.isPending ? 'Comparing…' : 'Compare'}
+            </button>
+            <button className="btn btn-ghost" onClick={reset}>Choose different files</button>
+          </div>
+        </>
+      )}
 
-      {compare.isError && <ErrorNotice error={compare.error} />}
-      {compare.data && <ResultView result={compare.data} />}
+      {step === 'result' && compare.data && (
+        <>
+          <ResultView result={compare.data} fileNames={[sides[0].file?.name, sides[1].file?.name]} />
+          <div className="row">
+            <button className="btn" onClick={() => setStep('review')}>Edit data</button>
+            <button className="btn btn-ghost" onClick={reset}>Compare other files</button>
+          </div>
+        </>
+      )}
+    </div>
+  );
+}
+
+/** Click-or-drop file picker for the formats the backend can read. */
+function UploadZone({ label, fileName, disabled, onFile }: {
+  label: string; fileName?: string | null; disabled?: boolean; onFile: (file: File) => void;
+}) {
+  const [over, setOver] = useState(false);
+  return (
+    <label className={`upload-zone${fileName ? ' has-file' : ''}${over ? ' is-over' : ''}${disabled ? ' is-disabled' : ''}`}
+           onDragOver={(e) => { e.preventDefault(); if (!disabled) setOver(true); }}
+           onDragLeave={() => setOver(false)}
+           onDrop={(e) => {
+             e.preventDefault();
+             setOver(false);
+             const file = e.dataTransfer.files?.[0];
+             if (file && !disabled) onFile(file);
+           }}>
+      <input type="file" accept=".csv,.xlsx,.pdf" aria-label={label} disabled={disabled}
+             onChange={(e) => {
+               const file = e.target.files?.[0];
+               if (file) onFile(file);
+               e.target.value = '';
+             }} />
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.7" strokeLinecap="round"
+           strokeLinejoin="round" aria-hidden="true">
+        <path d="M12 16V4m0 0L7.5 8.5M12 4l4.5 4.5" /><path d="M4 16v3a1 1 0 0 0 1 1h14a1 1 0 0 0 1-1v-3" />
+      </svg>
+      <strong>{fileName ?? 'Upload document'}</strong>
+      <span className="small">{fileName ? 'Click or drop to replace' : 'Click to choose a file, or drop it here'}</span>
+    </label>
+  );
+}
+
+/** Editable view of what was read from one file; manual entry is offered only when reading failed. */
+function ReviewSide({ title, side, onChange }: { title: string; side: Side; onChange: (p: Partial<Side>) => void }) {
+  return (
+    <div className="card">
+      <h2>{title}</h2>
+      <p className="muted small">{side.file?.name}</p>
+      {side.lines === null ? (
+        <>
+          <div className="notice notice-error">Couldn't read this file: {side.error}</div>
+          <p className="muted small mt-2">Choose a different file, or enter the data manually.</p>
+          <button type="button" className="btn" onClick={() => onChange({ lines: [blankLine()] })}>
+            Enter data manually
+          </button>
+        </>
+      ) : (
+        <>
+          <LinesEditor title="Items" lines={side.lines} onChange={(lines) => onChange({ lines })} />
+          <FieldsEditor title="Fields" fields={side.fields} onChange={(fields) => onChange({ fields })} />
+        </>
+      )}
     </div>
   );
 }
@@ -123,7 +356,7 @@ function LinesEditor({ title, lines, onChange }: { title: string; lines: DocLine
   return (
     <div className="mt-2">
       <div className="card-header"><h3>{title}</h3>
-        <button type="button" className="btn btn-sm" onClick={() => onChange([...lines, { name: '', quantity: '' }])}>+ Line</button></div>
+        <button type="button" className="btn btn-sm" onClick={() => onChange([...lines, blankLine()])}>+ Row</button></div>
       {lines.map((l, i) => (
         <div key={i} className="row" style={{ marginBottom: 6 }}>
           <input placeholder="Item name" value={l.name} onChange={(e) => set(i, { name: e.target.value })} className="grow" />
@@ -157,37 +390,52 @@ function StatusChip({ status }: { status: MatchStatus }) {
   const map: Record<MatchStatus, { c: string; t: string }> = {
     MATCH: { c: 'badge-success', t: 'Match' },
     MISMATCH: { c: 'badge-danger', t: 'Mismatch' },
-    MISSING_IN_TARGET: { c: 'badge-warning', t: 'Missing in target' },
-    EXTRA_IN_TARGET: { c: 'badge-warning', t: 'Extra in target' },
+    MISSING_IN_TARGET: { c: 'badge-warning', t: 'Missing' },
+    EXTRA_IN_TARGET: { c: 'badge-warning', t: 'Extra' },
   };
   return <span className={`badge ${map[status].c}`}>{map[status].t}</span>;
 }
 
-function ResultView({ result }: { result: CompareResult }) {
+/** Target minus reference, signed, so a shortfall reads as -5. */
+const signed = (d?: string | null) => (d == null ? '—' : Number(d) > 0 ? `+${qty(String(d))}` : qty(String(d)));
+
+function ResultView({ result, fileNames }: { result: CompareResult; fileNames?: (string | undefined)[] }) {
+  const s = result.summary;
+  const named = (label: string, i: number) => (fileNames?.[i] ? `${label} (${fileNames[i]})` : label);
   return (
     <div className="card">
       <div className="card-header">
-        <h2>Result</h2>
-        {result.summary.allMatch
+        <h2>Comparison result</h2>
+        {s.allMatch
           ? <span className="badge badge-success">All match</span>
-          : <span className="badge badge-danger">{result.summary.mismatched + result.summary.missingInTarget + result.summary.extraInTarget} difference(s)</span>}
+          : <span className="badge badge-danger">{s.mismatched + s.missingInTarget + s.extraInTarget} difference(s)</span>}
       </div>
-      <p className="muted small">{result.referenceLabel} vs {result.targetLabel} · {result.summary.matched}/{result.summary.totalLines} lines match</p>
+      <p className="muted small" style={{ marginBottom: 6 }}>{named(result.referenceLabel, 0)} vs {named(result.targetLabel, 1)}</p>
+      <div className="row small" style={{ marginBottom: 8 }}>
+        <span className="badge badge-success">Matches {s.matched}</span>
+        <span className="badge badge-danger">Mismatches {s.mismatched}</span>
+        <span className="badge badge-warning">Missing {s.missingInTarget}</span>
+        <span className="badge badge-warning">Extra {s.extraInTarget}</span>
+      </div>
       <div className="table-wrap">
         <table>
-          <thead><tr><th>Item</th><th className="num">{result.referenceLabel}</th><th className="num">{result.targetLabel}</th><th>Result</th></tr></thead>
+          <thead><tr><th>Item</th><th className="num">{result.referenceLabel}</th><th className="num">{result.targetLabel}</th><th className="num">Difference</th><th>Status</th></tr></thead>
           <tbody>
             {result.lines.map((l, i) => (
               <tr key={i}>
                 <td>{l.name}</td>
                 <td className="num">{l.referenceQuantity != null ? qty(l.referenceQuantity) : '—'}</td>
                 <td className="num">{l.targetQuantity != null ? qty(l.targetQuantity) : '—'}</td>
+                <td className="num">{signed(l.difference)}</td>
                 <td><StatusChip status={l.status} /></td>
               </tr>
             ))}
           </tbody>
         </table>
       </div>
+      <p className="muted small mt-2">
+        Missing = in {result.referenceLabel} but not in {result.targetLabel}. Extra = in {result.targetLabel} but not in {result.referenceLabel}.
+      </p>
       {result.fields.length > 0 && (
         <div className="table-wrap mt-2">
           <table>

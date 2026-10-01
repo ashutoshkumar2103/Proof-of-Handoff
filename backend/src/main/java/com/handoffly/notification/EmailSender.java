@@ -7,4 +7,9 @@ package com.handoffly.notification;
  */
 public interface EmailSender {
     void send(EmailMessage message);
+
+    /** False for development transports that only log the message, so callers never claim delivery. */
+    default boolean deliversMail() {
+        return true;
+    }
 }

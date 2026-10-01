@@ -25,7 +25,7 @@ const FEATURES = [
   { icon: '🤝', title: 'Proof of Handoff', text: 'Record what was handed over, who received it, when, plus their typed acknowledgement and evidence.' },
   { icon: '↩️', title: 'Return Tracking', text: 'Partial and multiple returns on the same record. Remaining is computed automatically — never by hand.' },
   { icon: '🔎', title: 'Missing-item confirmation', text: 'Items reported missing must be confirmed by the recipient before a handoff can be closed.' },
-  { icon: '📄', title: 'HandoffCheck', text: 'Compare a handoff against a quotation, PO or estimate and highlight every mismatch.' },
+  { icon: '📄', title: 'HandoffCheck', text: 'Upload two files — a quotation, PO or return sheet — and highlight every difference.' },
   { icon: '🧾', title: 'Full audit trail', text: 'Every event — created, sent, opened, accepted, returned, closed — is recorded and preserved.' },
   { icon: '🌍', title: 'Any domain', text: 'Rentals, events, construction tools, IT assets, documents, keys — one generic handoff engine.' },
 ];

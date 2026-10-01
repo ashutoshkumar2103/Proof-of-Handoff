@@ -1,8 +1,8 @@
-import { api, upload } from './client';
+import { api, downloadFile, upload } from './client';
 import type {
-  AuthResponse, CompareInput, CompareResult, CreateHandoffInput, CreateReturnInput,
+  AuthResponse, CompareInput, CompareResult, CreateHandoffInput, CreateReturnInput, DocLineInput,
   DashboardResponse, HandoffDetail, HandoffStatus, HandoffSummary, Page, RecipientView,
-  ReturnEvent, User, Attachment, AttachmentKind,
+  ReturnEvent, ReturnImportResult, User, Attachment, AttachmentKind,
 } from './types';
 
 // --- Auth ---
@@ -43,6 +43,14 @@ export const handoffApi = {
     api<HandoffDetail>(`/handoffs/${id}/close`, { method: 'POST', body: { reason } }),
   requestMissingConfirmation: (id: number) =>
     api<HandoffDetail>(`/handoffs/${id}/request-missing-confirmation`, { method: 'POST' }),
+  /** The Proof-of-Handoff PDF, generated on demand by the backend. */
+  downloadPdf: async (id: number) => {
+    const { blob, filename } = await downloadFile(`/handoffs/${id}/pdf`);
+    return { blob, filename: filename ?? 'Proof-of-Handoff.pdf' };
+  },
+  /** Emails the PDF; an empty `to` means the handoff's own recipient. */
+  emailPdf: (id: number, to?: string) =>
+    api<{ sentTo: string; delivered: boolean }>(`/handoffs/${id}/email-pdf`, { method: 'POST', body: { to } }),
 };
 
 // --- Returns (owner) ---
@@ -84,4 +92,16 @@ export const recipientApi = {
 // --- HandoffCheck ---
 export const documentCheckApi = {
   compare: (body: CompareInput) => api<CompareResult>('/handoff-check', { method: 'POST', body }),
+  /** Standalone mode: read one file into editable item/quantity lines (nothing is stored). */
+  extract: (file: File) => {
+    const form = new FormData();
+    form.append('file', file);
+    return upload<DocLineInput[]>('/handoff-check/extract', form);
+  },
+  returnImport: (handoffId: number, file: File) => {
+    const form = new FormData();
+    form.append('handoffId', String(handoffId));
+    form.append('file', file);
+    return upload<ReturnImportResult>('/handoff-check/return-import', form);
+  },
 };

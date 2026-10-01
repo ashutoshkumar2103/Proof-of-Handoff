@@ -8,13 +8,17 @@ import org.springframework.boot.webmvc.test.autoconfigure.AutoConfigureMockMvc;
 import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.context.annotation.Import;
 import org.springframework.http.MediaType;
+import org.springframework.mock.web.MockMultipartFile;
 import org.springframework.test.context.ActiveProfiles;
 import org.springframework.test.web.servlet.MockMvc;
 import org.springframework.test.web.servlet.MvcResult;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
+import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.multipart;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
+import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.content;
+import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.header;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
@@ -554,7 +558,227 @@ class HandoffLifecycleIntegrationTest {
                 .andExpect(status().isForbidden());
     }
 
+    @Test
+    void returnImportPrefillsButTheExistingReturnApiRecordsAndValidates() throws Exception {
+        String token = registerAndLogin("importer@example.com");
+        String body = """
+                {"title":"Party kit","senderName":"Rentals","recipientName":"Client","recipientEmail":"c@example.com",
+                 "items":[{"name":"Table","quantity":1},{"name":"Curtain","quantity":3},
+                          {"name":"Joker Dress","quantity":2},{"name":"Balloon Filler","quantity":1}]}
+                """;
+        MvcResult created = mvc.perform(post("/api/v1/handoffs").header("Authorization", "Bearer " + token)
+                        .contentType(MediaType.APPLICATION_JSON).content(body))
+                .andExpect(status().isCreated()).andReturn();
+        String createdJson = created.getResponse().getContentAsString();
+        int handoffId = JsonPath.read(createdJson, "$.id");
+        int curtainId = JsonPath.read(createdJson, "$.items[1].id");
+
+        // A draft can't take returns, so importing for it is refused.
+        mvc.perform(multipart("/api/v1/handoff-check/return-import")
+                        .file(csv("Item,Qty\nTable,1\n")).param("handoffId", String.valueOf(handoffId))
+                        .header("Authorization", "Bearer " + token))
+                .andExpect(status().isConflict());
+
+        mvc.perform(post("/api/v1/handoffs/" + handoffId + "/submit")
+                .header("Authorization", "Bearer " + token)).andExpect(status().isOk());
+        mvc.perform(post("/api/v1/r/" + emailSender.extractLastToken() + "/accept")
+                .contentType(MediaType.APPLICATION_JSON)
+                .content("{\"acknowledgementName\":\"Client\"}")).andExpect(status().isOk());
+
+        // Names differ in case/spacing/punctuation; one file item doesn't exist in the handoff;
+        // Curtain is over-quantity (5 > 3 remaining).
+        String file = "Item,Qty\nTABLE,1\ncurtain ,5\nJoker-Dress,2\nBalloon  Filler,1\nGhost Item,4\n";
+        mvc.perform(multipart("/api/v1/handoff-check/return-import")
+                        .file(csv(file)).param("handoffId", String.valueOf(handoffId))
+                        .header("Authorization", "Bearer " + token))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.rows.length()").value(5))
+                .andExpect(jsonPath("$.rows[0].match").value("MATCHED"))
+                .andExpect(jsonPath("$.rows[1].match").value("MATCHED"))
+                .andExpect(jsonPath("$.rows[1].itemId").value(curtainId))
+                .andExpect(jsonPath("$.rows[1].importedQuantity").value(5))
+                .andExpect(jsonPath("$.rows[1].owedQuantity").value(3))
+                .andExpect(jsonPath("$.rows[4].match").value("UNMATCHED"))
+                .andExpect(jsonPath("$.rows[4].itemId").doesNotExist());
+
+        // Importing creates nothing: no returns yet, and no new handoff items.
+        mvc.perform(get("/api/v1/handoffs/" + handoffId).header("Authorization", "Bearer " + token))
+                .andExpect(jsonPath("$.returns.length()").value(0))
+                .andExpect(jsonPath("$.items.length()").value(4));
+
+        // The existing return API stays authoritative: the over-quantity is still rejected...
+        mvc.perform(post("/api/v1/handoffs/" + handoffId + "/returns")
+                        .header("Authorization", "Bearer " + token).contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"lines\":[{\"itemId\":" + curtainId + ",\"quantity\":5}]}"))
+                .andExpect(status().isConflict());
+        // ...and the corrected (prefilled) quantity records exactly one return event.
+        mvc.perform(post("/api/v1/handoffs/" + handoffId + "/returns")
+                        .header("Authorization", "Bearer " + token).contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"lines\":[{\"itemId\":" + curtainId + ",\"quantity\":2}]}"))
+                .andExpect(status().isCreated());
+        mvc.perform(get("/api/v1/handoffs/" + handoffId).header("Authorization", "Bearer " + token))
+                .andExpect(jsonPath("$.returns.length()").value(1))
+                .andExpect(jsonPath("$.items[1].remaining").value(1));
+
+        // Another owner can't import against this handoff.
+        String other = registerAndLogin("importer2@example.com");
+        mvc.perform(multipart("/api/v1/handoff-check/return-import")
+                        .file(csv(file)).param("handoffId", String.valueOf(handoffId))
+                        .header("Authorization", "Bearer " + other))
+                .andExpect(status().isForbidden());
+        // Unsupported file types are rejected.
+        mvc.perform(multipart("/api/v1/handoff-check/return-import")
+                        .file(new MockMultipartFile("file", "x.txt", "text/plain", "Table,1".getBytes()))
+                        .param("handoffId", String.valueOf(handoffId))
+                        .header("Authorization", "Bearer " + token))
+                .andExpect(status().isBadRequest());
+    }
+
+    @Test
+    void standaloneHandoffCheckComparesTwoUploadedFilesWithoutAnyHandoff() throws Exception {
+        String token = registerAndLogin("checker@example.com");
+        MockMultipartFile fileA = new MockMultipartFile("fileA", "a.csv", "text/csv",
+                "Item,Qty\nTable,100\nLight,10".getBytes());
+        MockMultipartFile fileB = new MockMultipartFile("fileB", "b.csv", "text/csv",
+                "Item,Qty\nTable,95\nGenerator,2".getBytes());
+
+        mvc.perform(multipart("/api/v1/handoff-check/compare-files").file(fileA).file(fileB)
+                        .header("Authorization", "Bearer " + token))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.referenceLabel").value("File A"))
+                .andExpect(jsonPath("$.targetLabel").value("File B"))
+                .andExpect(jsonPath("$.lines[0].status").value("MISMATCH"))
+                .andExpect(jsonPath("$.lines[0].difference").value(-5))
+                .andExpect(jsonPath("$.lines[1].status").value("MISSING_IN_TARGET"))
+                .andExpect(jsonPath("$.lines[2].status").value("EXTRA_IN_TARGET"));
+
+        // Review step: extract one file into editable lines...
+        mvc.perform(multipart("/api/v1/handoff-check/extract").file(csv("Item,Qty\nTable,100\nLight,10"))
+                        .header("Authorization", "Bearer " + token))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.length()").value(2))
+                .andExpect(jsonPath("$[0].name").value("Table"))
+                .andExpect(jsonPath("$[0].quantity").value(100));
+        // ...then the corrected data is compared through the existing structured endpoint.
+        mvc.perform(post("/api/v1/handoff-check").header("Authorization", "Bearer " + token)
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"referenceLabel\":\"File A\",\"referenceLines\":[{\"name\":\"Table\",\"quantity\":100}],"
+                                + "\"targetLabel\":\"File B\",\"targetLines\":[{\"name\":\"Table\",\"quantity\":100}]}"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.summary.allMatch").value(true));
+
+        // A bad file is a clear 400 that names the file; anonymous callers are refused.
+        mvc.perform(multipart("/api/v1/handoff-check/compare-files").file(fileA)
+                        .file(new MockMultipartFile("fileB", "notes.txt", "text/plain", "Table,1".getBytes()))
+                        .header("Authorization", "Bearer " + token))
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.detail").value(org.hamcrest.Matchers.containsString("File B")));
+        mvc.perform(multipart("/api/v1/handoff-check/compare-files").file(fileA).file(fileB))
+                .andExpect(status().isUnauthorized());
+
+        // Stateless: no handoff exists afterwards.
+        mvc.perform(get("/api/v1/handoffs").header("Authorization", "Bearer " + token))
+                .andExpect(jsonPath("$.totalElements").value(0));
+    }
+
+    @Test
+    void proofOfHandoffPdfCanBeDownloadedAndEmailedByItsOwnerOnly() throws Exception {
+        String token = registerAndLogin("pdfowner@example.com");
+        int handoffId = createSimpleHandoff(token);
+        String pdfUrl = "/api/v1/handoffs/" + handoffId + "/pdf";
+        String emailUrl = "/api/v1/handoffs/" + handoffId + "/email-pdf";
+
+        // A draft can be exported but is plainly marked as not final.
+        assertThat(pdfText(downloadPdf(pdfUrl, token))).contains("Interim copy", "Draft");
+
+        // Run the real lifecycle: submit → accept → full return → close.
+        mvc.perform(post("/api/v1/handoffs/" + handoffId + "/submit").header("Authorization", "Bearer " + token))
+                .andExpect(status().isOk());
+        String reviewToken = emailSender.extractLastToken();
+        mvc.perform(post("/api/v1/r/" + reviewToken + "/accept").contentType(MediaType.APPLICATION_JSON)
+                .content("{\"acknowledgementName\":\"New Hire\"}")).andExpect(status().isOk());
+        String detail = mvc.perform(get("/api/v1/handoffs/" + handoffId).header("Authorization", "Bearer " + token))
+                .andReturn().getResponse().getContentAsString();
+        int itemId = JsonPath.read(detail, "$.items[0].id");
+        String code = JsonPath.read(detail, "$.publicCode");
+        mvc.perform(post("/api/v1/handoffs/" + handoffId + "/returns").header("Authorization", "Bearer " + token)
+                .contentType(MediaType.APPLICATION_JSON)
+                .content("{\"note\":\"All back\",\"lines\":[{\"itemId\":" + itemId + ",\"quantity\":1}]}"))
+                .andExpect(status().isCreated());
+        mvc.perform(post("/api/v1/handoffs/" + handoffId + "/close").header("Authorization", "Bearer " + token))
+                .andExpect(status().isOk());
+
+        // Download: content type, safe deterministic filename, never cached, real PDF content.
+        MvcResult res = mvc.perform(get(pdfUrl).header("Authorization", "Bearer " + token))
+                .andExpect(status().isOk())
+                .andExpect(content().contentType(MediaType.APPLICATION_PDF))
+                .andExpect(header().string("Content-Disposition",
+                        org.hamcrest.Matchers.containsString("HandOffly-" + code + "-Proof-of-Handoff.pdf")))
+                .andExpect(header().string("Cache-Control", org.hamcrest.Matchers.containsString("no-store")))
+                .andReturn();
+        byte[] pdf = res.getResponse().getContentAsByteArray();
+        String text = pdfText(pdf);
+        assertThat(new String(pdf, 0, 5)).isEqualTo("%PDF-");
+        assertThat(text).contains("Reference: " + code, "ACKNOWLEDGED BY New Hire", "Laptop", "Serial SN-1",
+                "TOTAL GIVEN 1 TOTAL RETURNED 1 TOTAL MISSING 0", "RETURN SUMMARY", "1 item returned.", "Note: All back");
+        // A concise customer document: no audit trail, status banner or remaining column.
+        assertThat(text).doesNotContain("pdfowner@example.com", "Handoff closed", "Review link", "Interim copy",
+                "FINAL RECORD", "REMAINING", "Important events");
+
+        // Only the owner may export or email it.
+        String other = registerAndLogin("pdfother@example.com");
+        mvc.perform(get(pdfUrl)).andExpect(status().isUnauthorized());
+        mvc.perform(get(pdfUrl).header("Authorization", "Bearer " + other)).andExpect(status().isForbidden());
+        mvc.perform(post(emailUrl)).andExpect(status().isUnauthorized());
+        mvc.perform(post(emailUrl).header("Authorization", "Bearer " + other)).andExpect(status().isForbidden());
+
+        // Email defaults to the handoff's recipient and carries the PDF as an attachment.
+        mvc.perform(post(emailUrl).header("Authorization", "Bearer " + token))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.sentTo").value("hire@example.com"))
+                .andExpect(jsonPath("$.delivered").value(true));   // the capturing test sender stands in for a real one
+        var mail = emailSender.getLastMessage();
+        assertThat(mail.to()).isEqualTo("hire@example.com");
+        assertThat(mail.subject()).isEqualTo("Proof of Handoff — " + code);
+        assertThat(mail.textBody()).contains("Hello New Hire,", "Attached is the Proof-of-Handoff record for " + code + ".",
+                "Handoff: IT laptop handout", "Attachment: HandOffly-" + code + "-Proof-of-Handoff.pdf", "Thank You,", "IT Dept");
+        assertThat(mail.attachments()).hasSize(1);
+        var attachment = mail.attachments().getFirst();
+        assertThat(attachment.filename()).isEqualTo("HandOffly-" + code + "-Proof-of-Handoff.pdf");
+        assertThat(attachment.contentType()).isEqualTo("application/pdf");
+        assertThat(attachment.content().length).isGreaterThan(1000);
+        assertThat(pdfText(attachment.content())).contains("TOTAL GIVEN 1", "Laptop").doesNotContain("Interim copy");
+
+        // The sender can choose another address; an invalid one is rejected and nothing is sent.
+        mvc.perform(post(emailUrl).header("Authorization", "Bearer " + token)
+                        .contentType(MediaType.APPLICATION_JSON).content("{\"to\":\"accounts@example.com\"}"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.sentTo").value("accounts@example.com"));
+        assertThat(emailSender.getLastMessage().to()).isEqualTo("accounts@example.com");
+        mvc.perform(post(emailUrl).header("Authorization", "Bearer " + token)
+                        .contentType(MediaType.APPLICATION_JSON).content("{\"to\":\"not-an-email\"}"))
+                .andExpect(status().isBadRequest());
+        assertThat(emailSender.getLastMessage().to()).isEqualTo("accounts@example.com");
+    }
+
     // ------------------------------------------------------------- helpers
+
+    private byte[] downloadPdf(String url, String token) throws Exception {
+        return mvc.perform(get(url).header("Authorization", "Bearer " + token))
+                .andExpect(status().isOk())
+                .andExpect(content().contentType(MediaType.APPLICATION_PDF))
+                .andReturn().getResponse().getContentAsByteArray();
+    }
+
+    private static String pdfText(byte[] pdf) throws Exception {
+        try (var doc = org.apache.pdfbox.Loader.loadPDF(pdf)) {
+            return new org.apache.pdfbox.text.PDFTextStripper().getText(doc).replaceAll("\\s+", " ");
+        }
+    }
+
+    private static MockMultipartFile csv(String content) {
+        return new MockMultipartFile("file", "returns.csv", "text/csv", content.getBytes());
+    }
 
     private String registerAndLogin(String email) throws Exception {
         String body = "{\"email\":\"" + email + "\",\"password\":\"password123\","

@@ -270,9 +270,29 @@ export interface CompareResult {
     totalLines: number; matched: number; mismatched: number;
     missingInTarget: number; extraInTarget: number; allMatch: boolean;
   };
-  lines: { name: string; referenceQuantity?: string | null; targetQuantity?: string | null; status: MatchStatus }[];
+  lines: {
+    name: string; referenceQuantity?: string | null; targetQuantity?: string | null;
+    difference?: string | null; status: MatchStatus;
+  }[];
   fields: { label: string; referenceValue?: string | null; targetValue?: string | null; status: MatchStatus }[];
 }
+
+// Return-import mode: file lines matched to one handoff's items (nothing is persisted).
+export type ImportMatchState = 'MATCHED' | 'AMBIGUOUS' | 'UNMATCHED';
+export interface ReturnImportRow {
+  importedName: string;
+  importedQuantity: string;
+  match: ImportMatchState;
+  itemId?: number | null;
+  itemName?: string | null;
+  owedQuantity?: string | null;
+}
+export interface ReturnImportResult {
+  fileName?: string | null;
+  rows: ReturnImportRow[];
+}
+/** Return quantities (by handoff item id) carried from HandoffCheck to the return form. */
+export type ReturnPrefill = Record<number, string>;
 
 export interface ApiError {
   status: number;

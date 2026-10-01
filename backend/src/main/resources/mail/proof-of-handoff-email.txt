@@ -1,0 +1,10 @@
+Subject: Proof of Handoff — {handoffCode}
+
+Hello {recipientName},
+
+Attached is the Proof-of-Handoff record for {handoffCode}.
+Handoff: {handoffTitle}
+Attachment: {attachmentName}
+
+Thank You,
+{senderName}

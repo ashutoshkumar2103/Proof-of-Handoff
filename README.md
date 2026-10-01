@@ -77,6 +77,90 @@ same Flyway migrations). This is a **separate store** from MySQL — data does n
 Then start the frontend as above. Because dev email uses the **logging** sender, the
 recipient review link is printed in the backend console instead of being emailed.
 
+### Real email delivery (SMTP)
+
+By default nothing is emailed: the **logging** sender prints each message (including the
+name and size of any PDF attachment) in the backend console, marked
+`[DEV EMAIL — not actually sent]`, and the app tells you nothing was sent. To send real
+email — the recipient review link and **Email PDF** — give the backend SMTP settings.
+
+**Easiest (VS Code, Maven, any local run):** create a file named **`.env.local`** in the repo
+root — it is git-ignored and the backend reads it on startup — then restart the backend. Example
+for Gmail with an [app password](https://myaccount.google.com/apppasswords) (2-step
+verification required; paste the password exactly as shown, spaces included, no quotes):
+
+```properties
+MAIL_PROVIDER=smtp
+SMTP_HOST=smtp.gmail.com
+SMTP_PORT=587
+SMTP_AUTH=true
+SMTP_STARTTLS=true
+SMTP_USERNAME=you@gmail.com
+SMTP_PASSWORD=your app password here
+MAIL_FROM=you@gmail.com
+```
+
+**Or** set the same names as environment variables before starting the backend (these win over
+`.env.local`). Never commit credentials.
+
+```powershell
+$env:MAIL_PROVIDER  = "smtp"
+$env:SMTP_HOST      = "smtp.gmail.com"
+$env:SMTP_PORT      = "587"
+$env:SMTP_AUTH      = "true"
+$env:SMTP_STARTTLS  = "true"
+$env:SMTP_USERNAME  = "you@gmail.com"
+$env:SMTP_PASSWORD  = "<your app password>"
+$env:MAIL_FROM      = "you@gmail.com"
+.\run-backend.ps1
+```
+
+If sending fails, **Email PDF** reports "The email could not be sent" and the cause is in
+the backend log.
+
+### Email wording (template)
+
+The text of the **Email PDF** message comes from a reusable template:
+`backend/src/main/resources/mail/proof-of-handoff-email.txt`. Edit it and restart the backend.
+An optional first line `Subject: …` sets the subject; everything after it is the body.
+
+```text
+Subject: Proof of Handoff — {handoffCode}
+
+Hello {recipientName},
+
+Attached is the Proof-of-Handoff record for {handoffCode}.
+Handoff: {handoffTitle}
+Attachment: {attachmentName}
+
+Thank You,
+{senderName}
+```
+
+| Placeholder | Filled with |
+|---|---|
+| `{recipientName}` | the recipient's name ("there" if blank) |
+| `{senderName}` | the sender (the party who gave the items) |
+| `{handoffCode}` (or `{quotationCode}`) | the handoff reference, e.g. `HO-3` |
+| `{handoffTitle}` (or `{quotationTitle}`) | the handoff title |
+| `{attachmentName}` | the PDF's filename, e.g. `HandOffly-HO-3-Proof-of-Handoff.pdf` |
+
+An unknown placeholder is left as typed, so a typo is visible in the email. To keep your own copy
+outside the project and change it **without restarting** (it is re-read on every send), set
+`MAIL_PDF_TEMPLATE_FILE` — for example in `.env.local`, using forward slashes:
+`MAIL_PDF_TEMPLATE_FILE=C:/Users/you/handoffly-email.txt`. If that file can't be read, the built-in
+template is used and a warning is logged.
+
+## Proof-of-Handoff PDF
+
+On a handoff's detail page (any status except draft) **Download PDF**, **Share** and
+**Email PDF** produce the record on demand from live server data (nothing is stored). It
+lists the handoff, parties, acknowledgement, items, full return history, final summary,
+lifecycle events and attachments (names only). A closed handoff is labelled **FINAL RECORD**;
+any other status is labelled **INTERIM RECORD — NOT FINAL** with its current status. All times
+in the PDF are UTC. **Share** uses the device's native share sheet where the browser supports
+sharing files, and otherwise downloads the PDF.
+
 ## Testing
 
 ```bash
@@ -99,6 +183,7 @@ invalid links, and document comparison — all on H2, no external services requi
 | Returns | `POST /handoffs/{id}/returns`, `POST /handoffs/{id}/returns/{rid}/confirm` |
 | Attachments | `GET/POST /handoffs/{id}/attachments`, `GET .../{aid}/content`, `DELETE` |
 | Events | `GET /handoffs/{id}/events` |
+| PDF | `GET /handoffs/{id}/pdf` (`application/pdf`), `POST /handoffs/{id}/email-pdf` (`{ "to"? }`) |
 | Recipient (public) | `GET /api/v1/r/{token}`, `POST /r/{token}/accept` · `/reject` · `/returns` |
 | HandoffCheck | `POST /api/v1/handoff-check` |
 

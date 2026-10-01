@@ -5,6 +5,8 @@ import com.handoffly.auth.UserPrincipal;
 import com.handoffly.common.web.PageResponse;
 import com.handoffly.handoff.dto.CreateHandoffRequest;
 import com.handoffly.handoff.dto.DashboardResponse;
+import com.handoffly.handoff.dto.EmailPdfRequest;
+import com.handoffly.handoff.dto.EmailPdfResponse;
 import com.handoffly.handoff.dto.HandoffDetailResponse;
 import com.handoffly.handoff.dto.HandoffSummaryResponse;
 import com.handoffly.handoff.dto.ReasonRequest;
@@ -13,7 +15,12 @@ import com.handoffly.handoff.dto.UpdateHandoffRequest;
 import jakarta.validation.Valid;
 import org.springframework.data.domain.Pageable;
 import org.springframework.data.web.PageableDefault;
+import org.springframework.http.CacheControl;
+import org.springframework.http.ContentDisposition;
+import org.springframework.http.HttpHeaders;
 import org.springframework.http.HttpStatus;
+import org.springframework.http.MediaType;
+import org.springframework.http.ResponseEntity;
 import org.springframework.security.core.annotation.AuthenticationPrincipal;
 import org.springframework.web.bind.annotation.DeleteMapping;
 import org.springframework.web.bind.annotation.GetMapping;
@@ -34,9 +41,11 @@ import java.util.List;
 public class HandoffController {
 
     private final HandoffService handoffService;
+    private final HandoffPdfService pdfService;
 
-    public HandoffController(HandoffService handoffService) {
+    public HandoffController(HandoffService handoffService, HandoffPdfService pdfService) {
         this.handoffService = handoffService;
+        this.pdfService = pdfService;
     }
 
     @PostMapping
@@ -70,6 +79,28 @@ public class HandoffController {
     public List<AuditEventResponse> events(@AuthenticationPrincipal UserPrincipal principal,
                                            @PathVariable Long id) {
         return handoffService.getEvents(principal.id(), id);
+    }
+
+    /** The Proof-of-Handoff record as a PDF, generated on demand (never stored). */
+    @GetMapping("/{id}/pdf")
+    public ResponseEntity<byte[]> pdf(@AuthenticationPrincipal UserPrincipal principal,
+                                      @PathVariable Long id) {
+        HandoffPdfService.PdfFile file = pdfService.generate(principal.id(), id);
+        return ResponseEntity.ok()
+                .header(HttpHeaders.CONTENT_DISPOSITION,
+                        ContentDisposition.attachment().filename(file.filename()).build().toString())
+                .cacheControl(CacheControl.noStore())
+                .contentType(MediaType.APPLICATION_PDF)
+                .contentLength(file.content().length)
+                .body(file.content());
+    }
+
+    /** Emails the PDF as an attachment. Explicit action only; defaults to the handoff's recipient. */
+    @PostMapping("/{id}/email-pdf")
+    public EmailPdfResponse emailPdf(@AuthenticationPrincipal UserPrincipal principal,
+                                     @PathVariable Long id,
+                                     @Valid @RequestBody(required = false) EmailPdfRequest request) {
+        return pdfService.emailPdf(principal.id(), id, request == null ? null : request.to());
     }
 
     @PatchMapping("/{id}")

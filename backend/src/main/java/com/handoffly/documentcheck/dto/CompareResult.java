@@ -18,10 +18,12 @@ public record CompareResult(
         EXTRA_IN_TARGET
     }
 
+    /** {@code difference} is target minus reference; null when the line is on one side only. */
     public record LineComparison(
             String name,
             BigDecimal referenceQuantity,
             BigDecimal targetQuantity,
+            BigDecimal difference,
             MatchStatus status
     ) {}
 

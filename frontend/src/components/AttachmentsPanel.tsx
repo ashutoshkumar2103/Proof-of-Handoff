@@ -1,5 +1,5 @@
 import { useRef, useState } from 'react';
-import { downloadBlob } from '../api/client';
+import { downloadBlob, saveBlob } from '../api/client';
 import { attachmentApi } from '../api/endpoints';
 import type { Attachment, AttachmentKind } from '../api/types';
 import { errorMessage } from './ui';
@@ -36,13 +36,7 @@ export function AttachmentsPanel({ handoffId, attachments, canModify, onChanged 
 
   async function onDownload(a: Attachment) {
     try {
-      const blob = await downloadBlob(`/handoffs/${handoffId}/attachments/${a.id}/content`);
-      const url = URL.createObjectURL(blob);
-      const link = document.createElement('a');
-      link.href = url;
-      link.download = a.originalFilename;
-      link.click();
-      URL.revokeObjectURL(url);
+      saveBlob(await downloadBlob(`/handoffs/${handoffId}/attachments/${a.id}/content`), a.originalFilename);
     } catch (err) {
       setError(errorMessage(err));
     }

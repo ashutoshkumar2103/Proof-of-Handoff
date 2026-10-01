@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from 'react';
-import type { CreateReturnInput, HandoffItem, ItemCondition, ReturnLineInput } from '../api/types';
+import type { CreateReturnInput, HandoffItem, ItemCondition, ReturnLineInput, ReturnPrefill } from '../api/types';
 import { qty } from '../lib/format';
 
 /** Condition of the units coming back now. */
@@ -17,7 +17,7 @@ const LABEL: Record<ReturnedCondition, string> = { GOOD: 'Good', DAMAGED: 'Damag
 
 const rem = (i: HandoffItem) => Number(i.remaining) || 0;   // still outstanding
 const miss = (i: HandoffItem) => Number(i.missing) || 0;    // currently missing
-const owed = (i: HandoffItem) => rem(i) + miss(i);          // everything not yet returned
+export const owed = (i: HandoffItem) => rem(i) + miss(i);   // everything not yet returned
 
 /**
  * Records a return with just two quantities per item:
@@ -26,9 +26,12 @@ const owed = (i: HandoffItem) => rem(i) + miss(i);          // everything not ye
  *    missing item leaves the rest missing.
  *  • Missing — mark still-outstanding units as lost.
  * A master checkbox toggles all rows.
+ * `prefill` (quantities imported from a file via HandoffCheck) sets only Return qty and ticks
+ * those rows; Condition, Missing and notes stay with the user, who can change anything.
  */
-export function ReturnForm({ items, onSubmit, onCancel, busy, error }: {
+export function ReturnForm({ items, prefill, onSubmit, onCancel, busy, error }: {
   items: HandoffItem[];
+  prefill?: ReturnPrefill | null;
   onSubmit: (input: CreateReturnInput) => void;
   onCancel?: () => void;
   busy?: boolean;
@@ -36,13 +39,16 @@ export function ReturnForm({ items, onSubmit, onCancel, busy, error }: {
 }) {
   const returnable = items.filter((i) => owed(i) > 0);
   const [rows, setRows] = useState<Record<number, RowState>>(() =>
-    Object.fromEntries(returnable.map((i) => [i.id, {
-      include: false,
-      returnQty: rem(i) > 0 ? i.remaining : '0',
-      condition: 'GOOD' as ReturnedCondition,
-      missingQty: '0',
-      note: '',
-    }])));
+    Object.fromEntries(returnable.map((i) => {
+      const imported = Number(prefill?.[i.id]) > 0 ? prefill![i.id] : null;
+      return [i.id, {
+        include: imported !== null,
+        returnQty: imported ?? (rem(i) > 0 ? i.remaining : '0'),
+        condition: 'GOOD' as ReturnedCondition,
+        missingQty: '0',
+        note: '',
+      }];
+    })));
   const [note, setNote] = useState('');
   const [localError, setLocalError] = useState<string | null>(null);
   const masterRef = useRef<HTMLInputElement>(null);
@@ -100,6 +106,11 @@ export function ReturnForm({ items, onSubmit, onCancel, busy, error }: {
   return (
     <form onSubmit={submit} className="stack">
       {(error || localError) && <div className="notice notice-error">{error || localError}</div>}
+      {prefill && (
+        <div className="notice notice-info">
+          Return qty was prefilled from your imported file. Review it, then set Condition, Missing and notes as needed.
+        </div>
+      )}
       <p className="muted small" style={{ margin: 0 }}>
         <strong>Return qty</strong> records units coming back now (returning a missing item brings it back —
         any you don't record stays missing). <strong>Missing</strong> marks still-outstanding units as lost.

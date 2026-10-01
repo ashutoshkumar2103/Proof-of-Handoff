@@ -76,6 +76,13 @@ export const STATUS_TONE: Record<HandoffStatus, BadgeTone> = {
   OVERDUE: 'danger',
 };
 
+/**
+ * Statuses with nothing left to do: the handoff is read-only and its story lives in the event history.
+ * Presentation only — mirrors the backend's terminal states; the backend stays the authority.
+ */
+const FINISHED_STATUSES: HandoffStatus[] = ['CLOSED', 'REJECTED', 'CANCELLED'];
+export const isFinished = (status: HandoffStatus) => FINISHED_STATUSES.includes(status);
+
 export const CONDITION_LABELS: Record<string, string> = {
   GOOD: 'Good', DAMAGED: 'Damaged', MISSING: 'Missing', OTHER: 'Other', RECOVERED: 'Received (found)',
 };
