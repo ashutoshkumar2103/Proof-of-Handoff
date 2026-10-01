@@ -1,0 +1,51 @@
+services:
+  mysql:
+    image: mysql:8.4
+    environment:
+      MYSQL_DATABASE: ${MYSQL_DATABASE:-handoffly}
+      MYSQL_USER: ${MYSQL_USER:-handoffly}
+      MYSQL_PASSWORD: ${MYSQL_PASSWORD:-handoffly}
+      MYSQL_ROOT_PASSWORD: ${MYSQL_ROOT_PASSWORD:-root}
+    ports:
+      - "3306:3306"
+    volumes:
+      - mysql-data:/var/lib/mysql
+    healthcheck:
+      test: ["CMD", "mysqladmin", "ping", "-h", "localhost", "-p${MYSQL_ROOT_PASSWORD:-root}"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+
+  backend:
+    build: ./backend
+    depends_on:
+      mysql:
+        condition: service_healthy
+    environment:
+      DB_URL: jdbc:mysql://mysql:3306/${MYSQL_DATABASE:-handoffly}?useSSL=false&allowPublicKeyRetrieval=true&serverTimezone=UTC
+      DB_USERNAME: ${MYSQL_USER:-handoffly}
+      DB_PASSWORD: ${MYSQL_PASSWORD:-handoffly}
+      JWT_SECRET: ${JWT_SECRET:-change-me-to-a-long-random-secret-at-least-32-bytes}
+      MAIL_PROVIDER: ${MAIL_PROVIDER:-logging}
+      MAIL_FROM: ${MAIL_FROM:-no-reply@handoffly.local}
+      RECIPIENT_LINK_BASE_URL: ${RECIPIENT_LINK_BASE_URL:-http://localhost:5173/r}
+      CORS_ALLOWED_ORIGINS: ${CORS_ALLOWED_ORIGINS:-http://localhost:5173}
+      STORAGE_LOCAL_DIR: /app/storage-data
+    ports:
+      - "8080:8080"
+    volumes:
+      - storage-data:/app/storage-data
+
+  frontend:
+    build: ./frontend
+    depends_on:
+      - backend
+    environment:
+      # Baked at build time; see frontend/Dockerfile.
+      VITE_API_BASE_URL: ${VITE_API_BASE_URL:-http://localhost:8080}
+    ports:
+      - "5173:80"
+
+volumes:
+  mysql-data:
+  storage-data:
