@@ -1,5 +1,5 @@
 import { HttpError } from '../api/client';
-import type { SubscriptionPlan, SupportPriority, TicketStatus } from '../api/types';
+import type { SubscriptionPlan, SubscriptionStatus, SupportPriority, TicketStatus } from '../api/types';
 import { PLAN_LABELS, PRIORITY_LABELS, STATUS_LABELS, STATUS_TONE } from '../lib/format';
 
 export function Spinner() {
@@ -24,8 +24,16 @@ export function StatusBadge({ status }: { status: TicketStatus }) {
   return <span className={`badge badge-dot ${tone === 'neutral' ? '' : `badge-${tone}`}`}>{STATUS_LABELS[status]}</span>;
 }
 
-export function PlanBadge({ plan }: { plan: SubscriptionPlan }) {
-  return <span className="badge">{PLAN_LABELS[plan]}</span>;
+/** The plan, or that there is none yet (an account that signed up without paying). */
+export function PlanBadge({ plan }: { plan: SubscriptionPlan | null }) {
+  return <span className="badge">{plan ? PLAN_LABELS[plan] : 'No plan'}</span>;
+}
+
+/** Whether the subscription is paid up. A lapsed one (INACTIVE) is called Expired, and stands out. */
+export function SubscriptionStatusBadge({ status }: { status: SubscriptionStatus }) {
+  return <span className={`badge badge-dot ${status === 'ACTIVE' ? 'badge-success' : 'badge-danger'}`}>
+    {status === 'ACTIVE' ? 'Active' : 'Expired'}
+  </span>;
 }
 
 /** The support priority the backend derived from the customer's plan. */

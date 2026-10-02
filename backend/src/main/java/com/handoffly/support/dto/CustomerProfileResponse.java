@@ -1,5 +1,6 @@
 package com.handoffly.support.dto;
 
+import com.handoffly.user.SubscriptionSummary;
 import com.handoffly.user.SupportEntitlements;
 
 import java.util.List;
@@ -11,9 +12,11 @@ import java.util.List;
  */
 public record CustomerProfileResponse(
         CustomerSummaryResponse customer,
+        SubscriptionSummary subscription,
         SupportEntitlements entitlements,
         String nextHandoffReference,
         long openTickets,
         List<TicketSummaryResponse> recentTickets,
-        List<SupportAuditEventResponse> recentChanges
+        List<SupportAuditEventResponse> recentChanges,
+        List<SubscriptionHistoryResponse> subscriptionHistory
 ) {}

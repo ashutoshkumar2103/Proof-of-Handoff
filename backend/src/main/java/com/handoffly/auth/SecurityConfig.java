@@ -46,7 +46,8 @@ public class SecurityConfig {
                 .csrf(csrf -> csrf.disable())
                 .sessionManagement(sm -> sm.sessionCreationPolicy(SessionCreationPolicy.STATELESS))
                 .authorizeHttpRequests(auth -> auth
-                        .requestMatchers("/api/v1/auth/register", "/api/v1/auth/login").permitAll()
+                        .requestMatchers("/api/v1/auth/register", "/api/v1/auth/login",
+                                "/api/v1/auth/forgot-password", "/api/v1/auth/reset-password").permitAll()
                         // Recipient flow is public but scoped by an unguessable token.
                         .requestMatchers("/api/v1/r/**").permitAll()
                         // General contact address and plan prices for the public site (the support API itself is not public).
@@ -60,6 +61,7 @@ public class SecurityConfig {
                         .authenticationEntryPoint(securityErrorResponder)
                         .accessDeniedHandler(securityErrorResponder))
                 .addFilterBefore(jwtAuthenticationFilter, UsernamePasswordAuthenticationFilter.class);
+        SecurityHeaders.apply(http);
 
         return http.build();
     }

@@ -233,4 +233,18 @@ class SupportCustomersTest extends ApiTestBase {
         }
         assertThat(users.findById(customer.id()).orElseThrow().getSubscriptionPlan()).isEqualTo(SubscriptionPlan.MONTHLY);
     }
+
+    @Test
+    void aCompleteAccountIdFindsExactlyThatCustomerWhileAPartialOneStillSearches() throws Exception {
+        StaffAccount staff = registerStaff(SupportRole.MANAGER);
+        Account target = register();
+        for (int i = 0; i < 12; i++) {
+            register();   // enough other accounts that a short ID is a prefix of other IDs somewhere in the suite
+        }
+        search(staff, target.accountCode()).andExpect(jsonPath("$.totalElements").value(1))
+                .andExpect(jsonPath("$.content[0].accountCode").value(target.accountCode()));
+        search(staff, target.accountCode().toLowerCase()).andExpect(jsonPath("$.totalElements").value(1));
+        search(staff, "CUS-999999").andExpect(jsonPath("$.totalElements").value(0));   // a complete ID that does not exist
+        search(staff, "CUS-").andExpect(jsonPath("$.totalElements", greaterThan(10)));   // a partial one is "contains"
+    }
 }

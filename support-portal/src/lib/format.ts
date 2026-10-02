@@ -9,6 +9,16 @@ export function formatDateTime(iso?: string | null): string {
   });
 }
 
+/** The last day a plan is paid for: the backend stores the instant it runs out, which is the start of the next day. */
+export function lastDay(validUntil: string): string {
+  return formatDate(new Date(new Date(validUntil).getTime() - 1000).toISOString());
+}
+
+/** "Until 31 Dec 2026", or that there is no end date. */
+export function describeValidity(validUntil?: string | null): string {
+  return validUntil ? `Until ${lastDay(validUntil)}` : 'No end date';
+}
+
 export function formatDate(iso?: string | null): string {
   if (!iso) return '—';
   return new Date(iso).toLocaleDateString(undefined, { year: 'numeric', month: 'short', day: 'numeric' });
@@ -60,7 +70,8 @@ const roleName = (role: string) => ROLE_LABELS[role as StaffRole] ?? role;
 /** A recorded change in words. */
 export function describeChange(c: AuditEvent): string {
   switch (c.type) {
-    case 'PLAN_CHANGED': return `Plan ${planName(c.previousValue ?? '')} → ${planName(c.newValue)}`;
+    case 'PLAN_CHANGED': return `Plan ${c.previousValue ? planName(c.previousValue) : 'none'} → ${planName(c.newValue)}`;
+    case 'SUBSCRIPTION_PERIOD_CHANGED': return `Plan paid until ${c.previousValue ?? 'none'} → ${c.newValue}`;
     case 'HANDOFF_PREFIX_CHANGED': return `Handoff prefix ${c.previousValue} → ${c.newValue}`;
     case 'STAFF_CREATED': return `Staff created as ${roleName(c.newValue)}`;
     case 'STAFF_DEACTIVATED': return 'Staff deactivated';

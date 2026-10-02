@@ -4,8 +4,10 @@ import jakarta.servlet.http.HttpServletRequest;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.dao.OptimisticLockingFailureException;
+import org.springframework.http.HttpHeaders;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ProblemDetail;
+import org.springframework.http.ResponseEntity;
 import org.springframework.http.converter.HttpMessageNotReadableException;
 import org.springframework.security.access.AccessDeniedException;
 import org.springframework.security.core.AuthenticationException;
@@ -38,6 +40,14 @@ public class GlobalExceptionHandler {
     @ExceptionHandler(ApiException.class)
     public ProblemDetail handleApi(ApiException ex, HttpServletRequest req) {
         return problem(ex.getStatus(), ex.getCode(), ex.getMessage(), req, null);
+    }
+
+    /** Too many requests: the normal error shape, plus how long to wait (RFC 9110 Retry-After). */
+    @ExceptionHandler(RateLimitedException.class)
+    public ResponseEntity<ProblemDetail> handleRateLimited(RateLimitedException ex, HttpServletRequest req) {
+        return ResponseEntity.status(ex.getStatus())
+                .header(HttpHeaders.RETRY_AFTER, String.valueOf(ex.getRetryAfterSeconds()))
+                .body(problem(ex.getStatus(), ex.getCode(), ex.getMessage(), req, null));
     }
 
     @ExceptionHandler(MethodArgumentNotValidException.class)

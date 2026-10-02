@@ -31,7 +31,10 @@ public class Payment extends BaseEntity {
     @Column(nullable = false, updatable = false, length = 20)
     private SubscriptionPlan plan;
 
-    /** What was paid, in whole currency units, as the plan's price was when it was paid. */
+    /**
+     * What was paid, in whole currency units: the plan's list price as it was when it was paid, or — for an upgrade from a
+     * plan the customer was already on — the difference between the two list prices.
+     */
     @Column(nullable = false, updatable = false)
     private int amount;
 
@@ -62,10 +65,11 @@ public class Payment extends BaseEntity {
         // JPA
     }
 
-    public Payment(PaymentProvider provider, SubscriptionPlan plan, String tokenHash, Instant paidAt, Instant expiresAt) {
+    public Payment(PaymentProvider provider, SubscriptionPlan plan, int amount, String tokenHash, Instant paidAt,
+                   Instant expiresAt) {
         this.provider = provider;
         this.plan = plan;
-        this.amount = plan.amount();
+        this.amount = amount;
         this.currency = SubscriptionPlan.CURRENCY;
         this.tokenHash = tokenHash;
         this.paidAt = paidAt;

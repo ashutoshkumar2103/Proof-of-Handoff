@@ -3,6 +3,7 @@ package com.handoffly.support;
 import com.handoffly.user.SubscriptionPlan;
 import org.springframework.data.jpa.domain.Specification;
 
+import java.time.Instant;
 import java.util.Collection;
 
 /** Composable filters for listing tickets; a null argument means "no restriction". */
@@ -28,10 +29,14 @@ public final class TicketSpecifications {
         return (root, query, cb) -> root.get("status").in(statuses);
     }
 
-    public static Specification<SupportTicket> onPlanIn(Collection<SubscriptionPlan> plans) {
+    /** Tickets of customers on one of these plans whose subscription is active at {@code now} (null plans: any). */
+    public static Specification<SupportTicket> onActivePlanIn(Collection<SubscriptionPlan> plans, Instant now) {
         if (plans == null) {
             return (root, query, cb) -> null;
         }
-        return (root, query, cb) -> root.get("account").get("subscriptionPlan").in(plans);
+        return (root, query, cb) -> cb.and(
+                root.get("account").get("subscriptionPlan").in(plans),
+                cb.or(cb.isNull(root.get("account").get("planValidUntil")),
+                        cb.greaterThan(root.<Instant>get("account").get("planValidUntil"), now)));
     }
 }

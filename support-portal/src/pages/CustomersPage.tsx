@@ -2,7 +2,7 @@ import { useState } from 'react';
 import { useNavigate, useSearchParams } from 'react-router-dom';
 import { useQuery } from '@tanstack/react-query';
 import { supportApi } from '../api/endpoints';
-import { ErrorNotice, Pager, PlanBadge, Spinner } from '../components/ui';
+import { ErrorNotice, Pager, PlanBadge, Spinner, SubscriptionStatusBadge } from '../components/ui';
 import { formatDate } from '../lib/format';
 
 /** Find a customer by Account ID, name or email. */
@@ -53,7 +53,10 @@ export function CustomersPage() {
                         <td><strong>{c.name}</strong></td>
                         <td>{c.email}</td>
                         <td className="small">{c.phone ?? '—'}</td>
-                        <td><PlanBadge plan={c.plan} /></td>
+                        <td>
+                          <PlanBadge plan={c.plan} />
+                          {c.plan && c.subscriptionStatus === 'INACTIVE' && <> <SubscriptionStatusBadge status="INACTIVE" /></>}
+                        </td>
                         <td className="small">{c.handoffPrefix}</td>
                         <td className="small muted">{formatDate(c.createdAt)}</td>
                       </tr>

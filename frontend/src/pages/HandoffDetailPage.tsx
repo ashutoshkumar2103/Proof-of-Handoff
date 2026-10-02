@@ -1,14 +1,14 @@
 import { useEffect, useRef, useState } from 'react';
 import { Link, useLocation, useNavigate, useParams } from 'react-router-dom';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
-import { saveBlob } from '../api/client';
+import { isSubscriptionEnded, saveBlob } from '../api/client';
 import { handoffApi, returnApi } from '../api/endpoints';
 import type { CreateReturnInput, HandoffAction, HandoffDetail, ReturnPrefill } from '../api/types';
 import { StatusBadge } from '../components/StatusBadge';
 import { ItemsTable } from '../components/ItemsTable';
 import { ReturnForm } from '../components/ReturnForm';
 import { AttachmentsPanel } from '../components/AttachmentsPanel';
-import { ErrorNotice, Spinner, errorMessage, useTransient } from '../components/ui';
+import { ErrorNotice, Spinner, errorMessage, useSubscriptionEndedModal, useTransient } from '../components/ui';
 import { useConfirm } from '../components/ConfirmDialog';
 import { CONDITION_LABELS, formatDateTime, isFinished, qty } from '../lib/format';
 
@@ -28,6 +28,7 @@ export function HandoffDetailPage() {
   // A PDF already fetched for sharing, so a retry can share instantly while the user gesture is fresh.
   const sharePdf = useRef<{ version: string; file: File } | null>(null);
   const confirm = useConfirm();
+  const showSubscriptionEnded = useSubscriptionEndedModal();
 
   useEffect(() => {
     if (prefill) navigate(location.pathname, { replace: true, state: null });
@@ -53,7 +54,11 @@ export function HandoffDetailPage() {
   const action = useMutation({
     mutationFn: (fn: () => Promise<HandoffDetail>) => fn(),
     onSuccess: () => { setActionError(null); refresh(); },
-    onError: (err) => setActionError(errorMessage(err)),
+    // Sending a draft needs an active subscription: that refusal is the subscription dialog, not a technical error.
+    onError: (err) => {
+      if (isSubscriptionEnded(err)) void showSubscriptionEnded();
+      else setActionError(errorMessage(err));
+    },
   });
 
   const recordReturn = useMutation({
@@ -256,6 +261,9 @@ export function HandoffDetailPage() {
           {has('CANCEL') && <button className="btn btn-danger" disabled={action.isPending}
             onClick={onCancel}>Cancel</button>}
           {has('DELETE') && <button className="btn btn-danger" onClick={onDelete}>Delete draft</button>}
+          {/* Any handoff can be the starting point of a new one; it opens the ordinary New handoff form, prefilled. */}
+          <Link className="btn" to={`/handoffs/new?from=${handoffId}`}
+                title="Start a new draft from this handoff's items and details">Duplicate</Link>
         </div>
         {h.availableActions.length === 0 && <p className="muted small" style={{ margin: 0 }}>This handoff is closed and read-only.</p>}
         {h.status !== 'DRAFT' && (

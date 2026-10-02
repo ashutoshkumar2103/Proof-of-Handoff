@@ -26,6 +26,32 @@ export interface SupportEntitlements {
   priority: SupportPriority;
 }
 
+/** Whether a customer's subscription is currently paid up; it follows from the plan's last day. */
+export type SubscriptionStatus = 'ACTIVE' | 'INACTIVE';
+
+export interface SubscriptionSummary {
+  /** Null for an account nothing has been activated on yet (it signed up without paying). */
+  plan: SubscriptionPlan | null;
+  status: SubscriptionStatus;
+  /** Null for accounts whose start was never recorded. */
+  startedAt?: string | null;
+  /** Null: no end date. */
+  validUntil?: string | null;
+}
+
+/** One plan a customer was moved to (read-only history, newest first). */
+export interface SubscriptionHistoryEntry {
+  previousPlan?: SubscriptionPlan | null;
+  newPlan: SubscriptionPlan;
+  startsAt?: string | null;
+  validUntil?: string | null;
+  changedAt: string;
+  source: 'STAFF' | 'PAYMENT';
+  staffCode?: string | null;
+  staffName?: string | null;
+  reason?: string | null;
+}
+
 export type TicketStatus = 'OPEN' | 'IN_PROGRESS' | 'WAITING_FOR_CUSTOMER' | 'RESOLVED' | 'CLOSED';
 export type TicketCategory = 'GENERAL' | 'HANDOFF' | 'ACCOUNT' | 'BILLING' | 'TECHNICAL';
 
@@ -77,7 +103,10 @@ export interface CustomerSummary {
   name: string;
   email: string;
   phone?: string | null;
-  plan: SubscriptionPlan;
+  /** Null: no plan has been paid for or activated yet. */
+  plan: SubscriptionPlan | null;
+  subscriptionStatus: SubscriptionStatus;
+  planValidUntil?: string | null;
   handoffPrefix: string;
   createdAt: string;
 }
@@ -88,7 +117,7 @@ export interface TicketSummary {
   customerName: string;
   customerEmail: string;
   customerPhone?: string | null;
-  plan: SubscriptionPlan;
+  plan: SubscriptionPlan | null;
   priority: SupportPriority;
   contactMethod: 'TICKET' | 'MESSAGE';
   category: TicketCategory;
@@ -101,7 +130,7 @@ export interface TicketSummary {
 }
 
 export type AuditType =
-  | 'PLAN_CHANGED' | 'HANDOFF_PREFIX_CHANGED'
+  | 'PLAN_CHANGED' | 'SUBSCRIPTION_PERIOD_CHANGED' | 'HANDOFF_PREFIX_CHANGED'
   | 'STAFF_CREATED' | 'STAFF_DEACTIVATED' | 'STAFF_REACTIVATED' | 'STAFF_ROLE_CHANGED';
 
 /** One recorded change (read-only history): to a customer (Account ID) or to a staff member (Staff ID). */
@@ -119,6 +148,8 @@ export interface AuditEvent {
 
 export interface CustomerProfile {
   customer: CustomerSummary;
+  subscription: SubscriptionSummary;
+  subscriptionHistory: SubscriptionHistoryEntry[];
   entitlements: SupportEntitlements;
   nextHandoffReference: string;
   openTickets: number;
@@ -154,4 +185,31 @@ export interface ApiError {
   code?: string;
   detail?: string;
   errors?: { field: string; message: string }[];
+}
+
+export type JobStatus = 'SENT' | 'NOTHING_TO_REPORT' | 'FAILED';
+
+/** The subscription-expiry reminder job: its setup, next runs and latest result. */
+export interface ExpiryJob {
+  enabled: boolean;
+  /** Six fields: second, minute, hour, day of month, month, day of week. */
+  cronExpression: string;
+  timezone: string;
+  /** How many days before a subscription ends its customer is reminded. */
+  windowDays: number;
+  nextRunAt?: string | null;
+  upcomingRuns: string[];
+  lastRunAt?: string | null;
+  lastStatus?: JobStatus | null;
+  lastCount?: number | null;
+  lastDetail?: string | null;
+}
+
+export interface ExpiryJobRun {
+  status: JobStatus;
+  reminded: number;
+  accountCodes: string[];
+  failed: number;
+  runAt: string;
+  message?: string | null;
 }

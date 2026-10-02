@@ -27,11 +27,18 @@ public class NotificationService {
     private static final String PDF_CONTENT_TYPE = "application/pdf";
     private static final String BUILT_IN_PDF_TEMPLATE = "mail/proof-of-handoff-email.txt";
     private static final String DEFAULT_PDF_SUBJECT = "Proof of Handoff — {handoffCode}";
+    private static final String BUILT_IN_PASSWORD_RESET_TEMPLATE = "mail/password-reset-email.txt";
+    private static final String DEFAULT_PASSWORD_RESET_SUBJECT = "Reset your HandOffly password";
+    private static final String BUILT_IN_JOB_TEMPLATE = "mail/customer-job-email.txt";
+    private static final String DEFAULT_JOB_SUBJECT = "{heading}";
 
     private final EmailSender emailSender;
     private final String linkBaseUrl;
     private final String pdfTemplateFile;
-    private final EmailTemplate builtInPdfTemplate = loadBuiltInPdfTemplate();
+    private final EmailTemplate builtInPdfTemplate = loadBuiltIn(BUILT_IN_PDF_TEMPLATE, DEFAULT_PDF_SUBJECT);
+    private final EmailTemplate passwordResetTemplate =
+            loadBuiltIn(BUILT_IN_PASSWORD_RESET_TEMPLATE, DEFAULT_PASSWORD_RESET_SUBJECT);
+    private final EmailTemplate customerJobTemplate = loadBuiltIn(BUILT_IN_JOB_TEMPLATE, DEFAULT_JOB_SUBJECT);
 
     public NotificationService(EmailSender emailSender, HandOfflyProperties properties) {
         this.emailSender = emailSender;
@@ -91,6 +98,59 @@ public class NotificationService {
         emailSender.send(new EmailMessage(toEmail, mail.subject(), mail.body(), null,
                 List.of(new EmailMessage.Attachment(filename, PDF_CONTENT_TYPE, pdf))));
         return emailSender.deliversMail();
+    }
+
+    /**
+     * Emails a customer the one-time link for choosing a new password, worded by the reusable email template
+     * (see {@code mail/password-reset-email.txt}). The raw token only ever leaves the system inside this link.
+     */
+    public void sendPasswordReset(String toEmail, String recipientName, String accountCode, String resetUrl,
+                                  int expiresInMinutes) {
+        EmailTemplate.Rendered mail = passwordResetTemplate.render(Map.of(
+                "recipientName", safe(recipientName),
+                "accountCode", orEmpty(accountCode),
+                "resetUrl", resetUrl,
+                "expiresInMinutes", String.valueOf(expiresInMinutes)));
+        emailSender.send(new EmailMessage(toEmail, mail.subject(), mail.body(), null));
+    }
+
+    /**
+     * Sends a customer ONE email for one run of one job — a reminder or the weekly summary — worded by the reusable
+     * template (see {@code mail/customer-job-email.txt}). The heading is bold in the HTML version and capitalised in
+     * the plain one, so the purpose is clear at a glance. It only carries what the customer's own handoffs say.
+     */
+    public void sendCustomerJob(String toEmail, String recipientName, String accountCode, CustomerJobEmail email) {
+        String details = email.lines().stream().map(l -> "• " + l).collect(java.util.stream.Collectors.joining("\n"));
+        EmailTemplate.Rendered mail = customerJobTemplate.render(Map.of(
+                "heading", email.heading(),
+                "headingUpper", email.heading().toUpperCase(java.util.Locale.ROOT),
+                "headingRule", "=".repeat(Math.min(60, email.heading().length())),
+                "recipientName", safe(recipientName),
+                "accountCode", orEmpty(accountCode),
+                "intro", email.intro(),
+                "lines", details,
+                "footnote", orEmpty(email.footnote())));
+        emailSender.send(new EmailMessage(toEmail, mail.subject(), mail.body(), jobHtml(email, safe(recipientName))));
+    }
+
+    /** The same content as HTML, with the heading in bold. Everything that came from data is escaped. */
+    private static String jobHtml(CustomerJobEmail email, String recipientName) {
+        StringBuilder html = new StringBuilder("<div style=\"font-family:Arial,Helvetica,sans-serif;color:#1a2027;font-size:14px\">");
+        html.append("<h1 style=\"font-size:22px;font-weight:bold;margin:0 0 16px\">").append(escape(email.heading())).append("</h1>");
+        html.append("<p>Hello ").append(escape(recipientName)).append(",</p>");
+        html.append("<p>").append(escape(email.intro())).append("</p><ul>");
+        for (String line : email.lines()) {
+            html.append("<li style=\"margin:4px 0\">").append(escape(line)).append("</li>");
+        }
+        html.append("</ul>");
+        if (email.footnote() != null && !email.footnote().isBlank()) {
+            html.append("<p style=\"color:#6b7280\">").append(escape(email.footnote())).append("</p>");
+        }
+        return html.append("<p>Thank You,<br>HandOffly</p></div>").toString();
+    }
+
+    private static String escape(String text) {
+        return org.springframework.web.util.HtmlUtils.htmlEscape(text == null ? "" : text);
     }
 
     /** Tells the support mailbox that a customer opened a ticket or sent a support message. */
@@ -165,11 +225,12 @@ public class NotificationService {
         return builtInPdfTemplate;
     }
 
-    private static EmailTemplate loadBuiltInPdfTemplate() {
-        try (InputStream in = new ClassPathResource(BUILT_IN_PDF_TEMPLATE).getInputStream()) {
-            return EmailTemplate.parse(new String(in.readAllBytes(), StandardCharsets.UTF_8), DEFAULT_PDF_SUBJECT);
+    /** A template shipped inside the application (under {@code mail/}). */
+    private static EmailTemplate loadBuiltIn(String resource, String defaultSubject) {
+        try (InputStream in = new ClassPathResource(resource).getInputStream()) {
+            return EmailTemplate.parse(new String(in.readAllBytes(), StandardCharsets.UTF_8), defaultSubject);
         } catch (IOException e) {
-            throw new IllegalStateException("Built-in email template " + BUILT_IN_PDF_TEMPLATE + " is missing.", e);
+            throw new IllegalStateException("Built-in email template " + resource + " is missing.", e);
         }
     }
 

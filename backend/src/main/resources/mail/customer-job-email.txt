@@ -1,0 +1,15 @@
+Subject: {heading} — {accountCode}
+
+{headingUpper}
+{headingRule}
+
+Hello {recipientName},
+
+{intro}
+
+{lines}
+
+{footnote}
+
+Thank You,
+HandOffly

@@ -179,4 +179,156 @@ project brief. Each can be revisited.
     in `DemoCard` — one always approved, one always declined (402) — and refuses any other number without echoing or keeping it,
     so no real card data is ever handled): a real provider will confirm payments its own
     way and then feed the same token and redeem step. Support staff can still change plans by hand (decision 17).
-    Known gap: plans have no end date, so nothing lapses when a billing period ends.
+    Plans now have an optional end date (decision 26), but still nothing changes a plan when it ends.
+
+## Account security, subscriptions, jobs and file tools
+
+24. **Password reset and "sign out everywhere" without server-side session storage.**
+    A reset link carries a high-entropy one-time token; only its SHA-256 hash is stored (like recipient links),
+    it expires (`PASSWORD_RESET_TTL_MINUTES`), works once, and a newer request makes older links useless. The
+    request endpoint answers the same `204` for a known and an unknown email, so it cannot be used to find out who has
+    an account; the email is sent asynchronously so response time does not give it away either. JWTs stay stateless
+    but carry the account's `token_version` (`tv`); the customer filter now reads the account on every request (it
+    must exist, be enabled, and match the version) and a password change or reset bumps the version, ending every
+    older session while the session that made the change gets a fresh token. Staff sessions are a separate chain and
+    are unaffected. Passwords follow one policy (`PasswordPolicy`) for register, change and reset.
+
+25. **Abuse limits are in-memory sliding windows, applied where the abuse happens.**
+    `RateLimiter` (a plain sliding-window counter) is used by an MVC interceptor for public endpoints (login,
+    register, forgot/reset password, recipient links, payments, staff login) and directly by `AuthService` for
+    failure-based limits (failed sign-ins per account and address, failed password changes) and by the job service
+    for manual job runs. A limited call is `429` with `Retry-After` through the one error envelope. Deliberate
+    limits: the counters live in one instance's memory (a restart clears them and several instances each count their
+    own — acceptable for a first line of defence, and a shared store can replace the class without touching callers),
+    and addresses are only trustworthy behind a proxy once `FORWARD_HEADERS_STRATEGY=native` is set. Uploads are
+    checked by their content (`ContentSniffer` compares magic bytes with the declared type) on top of type and size,
+    and every response carries the security headers (CSP `default-src 'none'`, no-referrer, nosniff, frame deny, HSTS
+    over HTTPS).
+
+26. **A subscription has a start, an optional end and a status that is derived, not stored; its history is append-only.**
+    `app_user.plan_started_at` / `plan_valid_until` (V17) are NULL for every existing customer on purpose: the real dates
+    were never recorded and are not invented, and NULL means "no end date", exactly how existing plans behaved, so
+    nobody's access changes. `ACTIVE`/`INACTIVE` follows from `plan_valid_until`, so it cannot go stale. When a plan has
+    lapsed the customer keeps their plan on record (a renewal picks it up again) but the support extras fall back to the
+    `MONTHLY` entitlements. A lapsed subscription also stops the customer STARTING a new handoff, SENDING a draft and using
+    HANDOFFCHECK (the product's core gate, not a support extra). The one rule is `UserService.requireActiveSubscription`, using
+    the same `User.subscriptionStatus`. `HandoffService` asks it at the top of `create` — the one place any handoff is persisted,
+    so New handoff, Duplicate (its copy is saved through `create`) and import-assisted drafts all share it — at the top of
+    `submit` (the only route that turns a draft into an outgoing handoff), and when a duplicate's template is requested, so the
+    customer hears it before filling in a form. HandoffCheck asks it once for the whole feature: a `@ModelAttribute` method on
+    `DocumentCheckController` runs before every endpoint in that controller (compare, read a file, export, import items, compare
+    files, import a returns file) and before any request body or file is read, so an endpoint added there later is covered
+    without anyone remembering. That includes the *Import from File* route of recording a return, which is a HandoffCheck
+    feature; recording a return by hand is not HandoffCheck and stays open. Each check asks the clock afresh, inside the request
+    and before anything is saved, sent or read, and nothing the client sends or remembers is consulted: that is the race
+    protection (a plan can run out a second after a page last checked). It answers `403` with code `subscription_expired`
+    through the ordinary error envelope. Nothing that already exists is gated (viewing handoffs and drafts, manual returns,
+    closing, resending a link, recipient links, PDFs). The New handoff and HandoffCheck pages share one hook,
+    `useSubscriptionGate`, which polls the account (`/auth/me`, no new endpoint) on open, every 30 seconds while visible and on
+    tab-visible/window-focus — for responsiveness only, never for security — and shows the one shared dialog (a single OK, then
+    the Dashboard). Every plan change — by staff or by a payment — appends
+    a `subscription_history` row (the entity is `@Immutable`, the repository cannot update or delete); the migration
+    backfilled it only from real audit and payment rows. Staff change plans and end dates through the same audited,
+    confirmed endpoint as before (`MANAGE_CUSTOMERS`: administrators and managers; ticket agents cannot). The plans stay
+    exactly `MONTHLY`, `QUARTERLY`, `HALF_YEARLY`, `YEARLY`. Staff ids in history are plain ids so the user module does not
+    depend on the support module.
+
+27. **Duplicate a handoff = a template the backend builds, and nothing is created until the customer saves.**
+    `GET /handoffs/{id}/template` returns the reusable parts (title, parties, items, notes) and none of the lifecycle
+    (no status, reference, dates, acknowledgement, returns, attachments or links). The create page is prefilled with it and
+    saving goes through the ordinary create endpoint, so the copy is always a fresh draft with its own reference, the
+    validation is the existing validation, and the owner check is the existing owner check.
+
+28. **Item import and comparison export reuse HandoffCheck; neither stores or creates anything.**
+    Importing items reads a CSV or Excel file with the existing `DocumentLineExtractor` (header detection, number
+    parsing) and returns rows for the customer to review inside the New Handoff table; duplicates are flagged rather
+    than merged, skipped rows are counted, and nothing is submitted. Exporting a comparison (PDF or CSV) re-runs the
+    same `compare` from the same request, so the file is exactly what was shown, with CSV formula-injection protection;
+    nothing is stored and the standalone HandoffCheck mode stays independent of handoffs.
+
+29. **Customer jobs: four per customer, off by default, one email per run, scoped by construction.**
+    Return Reminder (due tomorrow or the day after — not today, not overdue), Overdue Reminder, Missing Item Reminder
+    (open handoffs only, so a force-closed handoff is never reminded about) and Weekly Summary. Each customer has one row
+    per job (`customer_job`, unique `(user_id, job_type)`), created the first time they open it and switched off, with its
+    own cron expression, timezone, next and last run; only the latest result is kept. Every service method takes the
+    customer's id and finds jobs and handoffs only by it, and no URL carries a job or handoff id that could name
+    someone else's. `JobSchedule` is the only place a cron expression is interpreted: Spring's six-field `CronExpression`,
+    restricted characters, a real timezone, a schedule that actually runs, and a minimum gap (default 60 minutes) so
+    nobody can ask for a job that fires every few seconds. A run builds ONE email from the reusable template (heading in
+    bold in the HTML part), or none if there is nothing to say. Run Now never changes the schedule or whether the job is
+    on; Run All Now runs the four jobs of the current customer only. One ticker (`JobScheduling`) runs whatever is due; a
+    due job is claimed by moving its next run on with a compare-and-set update, so two passes or two instances cannot
+    both run it, and a job missed while the application was down runs once.
+
+30. **The support expiry reminder is a separate, platform-wide job that can only send email.**
+    Administrators and managers (the existing `MANAGE_CUSTOMERS` permission) can see, schedule, pause, resume and run it from
+    the portal's Jobs page. It emails customers whose subscription ends within a configurable window (default 7 days,
+    1–90), once per end date: `subscription_expiry_reminder` has a unique `(user_id, valid_until)` and a reminder is
+    reserved before it is sent, so even overlapping runs cannot double-send, and a failed email releases its reservation so
+    the next run retries. Renewing moves the end date, so the next period is reminded about again. It never touches a plan
+    or an end date, is switched off until staff turn it on, and shares the schedule validation, the claim mechanism and the
+    email template with the customer jobs.
+
+31. **HandoffCheck (the comparison tool) is a plan feature; the file imports are not.**
+    `SubscriptionPlan.includesHandoffCheck()` is true for `HALF_YEARLY` and `YEARLY` and false for `MONTHLY` and `QUARTERLY`. It
+    sits in the same enum as the support columns (that enum is where "what a plan includes" lives) but as its own flag,
+    deliberately apart from `SupportEntitlements`: the two concepts share the plan as their source and nothing else. Nothing is
+    stored per customer, so a plan change by support changes it at once, and — like every plan-dependent feature — it asks
+    `User.entitledPlan()`, so a lapsed subscription is treated as the fallback plan. The account response carries it as
+    `handoffCheck` (the backend decides; the app never encodes which plans). The one backend rule is
+    `UserService.requireHandoffCheckPlan`, refusing with `403` and the code `plan_required` (distinct from
+    `subscription_expired`, so a client can tell "not in your plan" from "ended"); `DocumentCheckController`'s single
+    `@ModelAttribute` runs it after the active-subscription check, before any body or file is read, for every endpoint
+    **except** two named ones: `import-items` (New handoff's item import) and `return-import` (Returns' *Import from File*).
+    Those two reuse HandoffCheck's file reader but belong to New handoff and Returns, which work on every plan, so they stay
+    open; every other endpoint, including any added later, is the tool and is locked by default. An ended subscription is
+    answered as ended first, for all six endpoints, exactly as before. In the app the menu entry stays visible but dimmed with a
+    lock, and the page says "HandoffCheck is available on Half-Yearly and Yearly plans." with the existing link to the plans;
+    return-import mode of the page is never locked. The menu and the page lock only when the account says `handoffCheck` is
+    `false` — never because it said nothing — so a backend that is older than the app cannot make them disagree. The page
+    learns of a plan change the way it learns of an ended
+    subscription (decision 26): its own check of the account on open, every 30 seconds and on focus, and a `plan_required`
+    refusal from the backend makes it look again at once. No migration, no new table.
+
+32. **A new account has no plan; a plan's duration is worked out in exactly one place.**
+    Registration used to leave an account `MONTHLY` and active: the entity defaulted its plan to `MONTHLY`, its constructor stamped
+    a start, and an absent end date means "no end date" (decision 26), which is `ACTIVE` — so an unpaid sign-up looked like a paying
+    customer, and the column itself (`NOT NULL DEFAULT 'MONTHLY'`) made "no plan" impossible to store. Now `app_user.subscription_plan`
+    may be empty (V20) and a new account has no plan, no start and no end; registration still can never set one (decision 23). That
+    is a state in its own right, `User.hasPlan()`, not a flavour of "ended": the status stays binary — `INACTIVE` — so every screen that
+    already treats `INACTIVE` as "not usable" stays fail-safe, and `hasPlan()` (`plan: null` in the API) is the one extra fact that picks
+    the message. `UserService.requireActiveSubscription`, the single rule behind every paid action (decision 26), refuses with code
+    `no_active_subscription` and "No active plan is associated with this account…" for an account that never had a plan, and with the
+    existing `subscription_expired` for one whose plan ran out; callers are unchanged. The code is lower-case snake like the others.
+    Support gets one stated exception rather than a plan: `SupportEntitlements.of(User, phone)` gives an account with no plan the
+    "activation help" — Contact Support and tickets at normal priority, no message form, no phone — from the same projection that
+    produces every plan's entitlements, so the customer app, the portal and the ticket checks agree; it stops existing the moment
+    a plan does. Nothing that is not a no-plan account changes: an expired plan keeps its message and its (lapsed) entitlements.
+    **Duration.** `SubscriptionPlan.validUntil(start)` is the only place an end is calculated — `MONTHLY` 30 days, `QUARTERLY` 90, `HALF_YEARLY`
+    6 calendar months, `YEARLY` 365, in UTC like every other date — used by a payment, a renewal and a support change.
+    `months()` stays only as the billing cycle the pricing pages divide the price by. A payment or an activation without a typed date
+    gets that end; renewing a plan still active carries on from its current end; a support member can still name a last day
+    (overriding it), and naming the plan the customer already has still needs one (that action only changes validity). Because
+    "empty" now means "the plan's own duration", a plan can no longer be given *no* end date from the portal; accounts that predate
+    end dates keep theirs (none). A staff request names what the customer has now (`fromPlan`), and none means "no plan": the stale-view
+    check applies unchanged, so omitting it can never change a customer who has a plan. The first plan an account ever gets is recorded
+    in `subscription_history` with no previous plan (that column was already nullable) and as `plan_before = NULL` on the payment,
+    whose check constraint V20 relaxes for exactly that. No existing row is rewritten.
+
+33. **Moving up a plan costs the difference of list prices, worked out by the backend and paid in one step.**
+    A customer on an active plan that lacks HandoffCheck is shown, on the HandoffCheck page itself, the plans above theirs that include
+    it, priced as what is left to pay. The rule is one line in the enum that owns the prices — `SubscriptionPlan.upgradeAmountFrom`
+    (new list price minus the current plan's, which counts in full as already paid) — so Quarterly 549 → Half-yearly 999 is 450.
+    The user chose that over pro-rating by unused time: it is simple and explainable, at the price that the used part of the old
+    plan is credited too. `PaymentService.upgradeOptions` lists every dearer plan (the response says which include HandoffCheck, so the
+    screen filters by a flag, never by plan name, as in decision 31); `payUpgradeDemo` locks the customer's row, recomputes the
+    amount from the plan they are on at that moment, checks it against the amount they were shown (`expectedAmount`: a guard, never
+    a price — a mismatch is a `409` that charges nothing), takes the demo card through the same checks as any demo payment, records the
+    payment for the difference and applies it through `redeem`, so there is still exactly one place that applies a paid plan. It is
+    deliberately one step with no token: a token bought at a customer's discount could be redeemed on another account, and nothing
+    else needs one because the customer is already signed in. The row lock also makes a double click safe — the second request finds the
+    customer already on that plan and is refused. The new plan starts now and lasts its own duration (decision 32); the old plan is
+    replaced, not extended. Only an *active* plan is upgraded: no plan or an ended plan is bought outright at the list price, as before.
+    Entry point only the HandoffCheck page for now; the Account page and the pricing page are unchanged and still charge the list price.
+    The card form moved out of the checkout page into one shared component (`DemoCardFields`, with its helpers in `lib/checkout`)
+    rather than being copied. No migration: `payment.amount` already holds what was charged and `plan_before` what it replaced.

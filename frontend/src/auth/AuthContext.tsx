@@ -1,8 +1,8 @@
 import { createContext, useCallback, useContext, useEffect, useMemo, useState } from 'react';
 import type { ReactNode } from 'react';
-import { getToken, HttpError, setToken } from '../api/client';
+import { getToken, HttpError, onSessionEnded, setToken } from '../api/client';
 import { authApi, paymentApi } from '../api/endpoints';
-import type { RegisterInput, User } from '../api/types';
+import type { AuthResponse, RegisterInput, User } from '../api/types';
 import { clearPendingPayment, getPendingPayment } from '../lib/checkout';
 import { PLAN_LABELS } from '../lib/format';
 
@@ -12,6 +12,10 @@ interface AuthState {
   /** Both resolve to a message about a plan that was paid for before signing in (undefined when there was none). */
   login: (email: string, password: string) => Promise<string | undefined>;
   register: (input: RegisterInput) => Promise<string | undefined>;
+  /** Shows an edited account straight away (the server's answer after a profile change). */
+  updateUser: (user: User) => void;
+  /** Takes over a fresh session (e.g. after a password change, which ends every other session). */
+  startSession: (session: AuthResponse) => void;
   /** Applies a payment made before signing in, to the signed-in account. Resolves to a message for the customer. */
   applyPendingPayment: () => Promise<string | undefined>;
   logout: () => void;
@@ -22,6 +26,10 @@ const AuthContext = createContext<AuthState | undefined>(undefined);
 export function AuthProvider({ children }: { children: ReactNode }) {
   const [user, setUser] = useState<User | null>(null);
   const [loading, setLoading] = useState(true);
+
+  useEffect(() => {
+    onSessionEnded(() => setUser(null));
+  }, []);
 
   useEffect(() => {
     let active = true;
@@ -66,14 +74,19 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     return applyPendingPayment();
   }, [applyPendingPayment]);
 
+  const startSession = useCallback((session: AuthResponse) => {
+    setToken(session.token);
+    setUser(session.user);
+  }, []);
+
   const logout = useCallback(() => {
     setToken(null);
     setUser(null);
   }, []);
 
   const value = useMemo<AuthState>(
-    () => ({ user, loading, login, register, applyPendingPayment, logout }),
-    [user, loading, login, register, applyPendingPayment, logout]);
+    () => ({ user, loading, login, register, applyPendingPayment, updateUser: setUser, startSession, logout }),
+    [user, loading, login, register, applyPendingPayment, startSession, logout]);
   return <AuthContext.Provider value={value}>{children}</AuthContext.Provider>;
 }
 

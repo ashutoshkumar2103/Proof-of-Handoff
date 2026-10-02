@@ -182,3 +182,11 @@ tr.clickable:hover td { background: var(--surface-2); }
   .kv { grid-template-columns: 1fr; gap: 0.1rem 0; }
   .kv dd { margin-bottom: 0.5rem; }
 }
+
+/* Jobs */
+.job-facts { display: grid; grid-template-columns: max-content 1fr; gap: 0.35rem 1rem; margin: 0 0 0.9rem; font-size: 0.92rem; }
+.job-facts dt { color: var(--text-muted); }
+.job-facts dd { margin: 0; font-weight: 400; }
+.job-editor { margin-top: 1rem; padding-top: 1rem; border-top: 1px solid var(--border); }
+.field-row { display: grid; grid-template-columns: repeat(auto-fit, minmax(190px, 1fr)); gap: 0 1rem; }
+@media (max-width: 560px) { .job-facts { grid-template-columns: 1fr; gap: 0; } .job-facts dd { margin-bottom: 0.5rem; } }

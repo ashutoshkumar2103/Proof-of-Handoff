@@ -21,6 +21,7 @@ import com.handoffly.support.dto.TicketSummaryResponse;
 import com.handoffly.support.staff.SupportStaff;
 import com.handoffly.support.staff.SupportStaffService;
 import com.handoffly.user.SubscriptionPlan;
+import com.handoffly.user.SupportEntitlements;
 import com.handoffly.user.User;
 import com.handoffly.user.UserService;
 import org.slf4j.Logger;
@@ -37,6 +38,7 @@ import org.springframework.transaction.support.TransactionSynchronization;
 import org.springframework.transaction.support.TransactionSynchronizationManager;
 import org.springframework.web.multipart.MultipartFile;
 
+import java.time.Instant;
 import java.util.Collection;
 import java.util.List;
 import java.util.Locale;
@@ -45,7 +47,8 @@ import java.util.function.Function;
 /**
  * Support tickets for both sides of the desk. The customer methods take the signed-in customer's id
  * and only ever reach that customer's own tickets, and only while the plan includes tickets (a plain
- * support message needs only a plan with Contact Support — the plan decides, see {@link SubscriptionPlan}). The
+ * support message needs only a plan with Contact Support — the plan decides, see {@link SubscriptionPlan}); an
+ * account that has no plan yet may open tickets to ask for its activation. The
  * support methods work on any ticket and are reachable only through the staff-only support API.
  * Notification emails go out after the change is committed and never undo it if they fail.
  */
@@ -172,7 +175,8 @@ public class SupportTicketService {
                 tickets.countByStatus(TicketStatus.IN_PROGRESS),
                 tickets.countByStatus(TicketStatus.WAITING_FOR_CUSTOMER),
                 includeCustomerMetrics
-                        ? tickets.countCustomersWithTickets(TicketStatus.active(), SubscriptionPlan.withElevatedPriority())
+                        ? tickets.countCustomersWithTickets(TicketStatus.active(), SubscriptionPlan.withElevatedPriority(),
+                                Instant.now())
                         : null);
     }
 
@@ -182,7 +186,7 @@ public class SupportTicketService {
                                                       String accountCode, Pageable pageable) {
         return page(Specification.allOf(
                 TicketSpecifications.withStatusIn(statuses),
-                TicketSpecifications.onPlanIn(priorityOnly ? SubscriptionPlan.withElevatedPriority() : null),
+                TicketSpecifications.onActivePlanIn(priorityOnly ? SubscriptionPlan.withElevatedPriority() : null, Instant.now()),
                 TicketSpecifications.ofAccountCode(accountCode)), pageable);
     }
 
@@ -234,10 +238,13 @@ public class SupportTicketService {
 
     // ------------------------------------------------------------ Shared
 
-    /** Plans without tickets get no ticket access at all, whatever the client shows. */
+    /**
+     * Plans without tickets get no ticket access at all, whatever the client shows. An account with no plan can ask
+     * support to activate it (see {@link SupportEntitlements#of(User, String)}), and only that.
+     */
     private User requireTicketAccess(Long userId) {
         User user = userService.getById(userId);
-        if (!user.getSubscriptionPlan().includesTickets()) {
+        if (!SupportEntitlements.of(user, null).ticket()) {
             throw new ForbiddenException("Your plan does not include support tickets.");
         }
         return user;
@@ -246,7 +253,7 @@ public class SupportTicketService {
     /** Plans without Contact Support cannot message support from the app, whatever the client shows. */
     private User requireMessageAccess(Long userId) {
         User user = userService.getById(userId);
-        if (!user.getSubscriptionPlan().includesMessages()) {
+        if (!SupportEntitlements.of(user, null).message()) {
             throw new ForbiddenException("Your plan does not include contacting support from the app.");
         }
         return user;
@@ -323,9 +330,9 @@ public class SupportTicketService {
         return new TicketNotice(
                 ticket.getTicketCode(), ticket.getSubject(), ticket.getCategory().name(),
                 account.getAccountCode(), account.getDisplayName(), account.getEmail(),
-                ticket.getContactPhone(), account.getSubscriptionPlan().name(),
-                account.getSubscriptionPlan().supportPriority().name(), ticket.getContactMethod().name(),
-                ticket.getHandoffReference(), account.getSubscriptionPlan().includesTickets());
+                ticket.getContactPhone(), account.hasPlan() ? account.getSubscriptionPlan().name() : "NONE",
+                account.entitledPlan().supportPriority().name(), ticket.getContactMethod().name(),
+                ticket.getHandoffReference(), SupportEntitlements.of(account, null).ticket());
     }
 
     /**

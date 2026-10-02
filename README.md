@@ -30,7 +30,7 @@ for the plan, and [`docs/DECISIONS.md`](docs/DECISIONS.md) for design decisions.
 
 ## Modules
 
-`auth · user · handoff · returns · recipient · attachment · audit · notification · documentcheck · support`
+`auth · user · handoff · returns · recipient · attachment · audit · notification · documentcheck · support · payment · job`
 
 ## Repository layout
 
@@ -129,6 +129,17 @@ $env:MAIL_FROM      = "you@gmail.com"
 If sending fails, **Email PDF** reports "The email could not be sent" and the cause is in
 the backend log.
 
+**SMTP credentials are backend-only.** `.env.local` is read by the Spring Boot backend alone (through
+`spring.config.import` in `application.yml`, relative to where the backend starts — the repo root or `backend/`). The
+React/Vite apps never read it: Vite loads `.env*` files only from `frontend/` and `support-portal/`, and exposes only names
+starting with `VITE_` (the sole one in use is `VITE_API_BASE_URL`, an address, not a secret). Never put SMTP, staff or any
+other secret in a `VITE_`-prefixed variable or in a file under `frontend/` or `support-portal/`, and no API endpoint returns
+mail settings. Everything in `.env.local` (SMTP, `SUPPORT_STAFF_*`, `SUPPORT_PHONE`, `PAYMENT_DEMO_ENABLED`) is backend
+configuration. Docker Compose does **not** read `.env.local`; it reads `.env` (copied from `.env.example`). The backend
+tests always use their own capturing sender, so running them never sends real email, whatever `.env.local` says.
+`MAIL_PROVIDER=logging` writes each email (including reset and review links) to the backend log and sends nothing;
+`MAIL_PROVIDER=smtp` sends through the configured server.
+
 ### Email wording (template)
 
 The text of the **Email PDF** message comes from a reusable template:
@@ -184,18 +195,26 @@ the API addresses a handoff by. Numbers never restart: changing a prefix only af
 carries on from the customer's current number, and numbers are issued under a row lock so concurrent
 creation can never repeat one. A prefix is 2–5 capital letters.
 
-**Plans.** Every customer is on a plan; new accounts start on `MONTHLY`. A plan is chosen by
-paying for it (below) or set by support staff. What a plan includes is derived from the plan alone — nobody edits
+**Plans.** A new account has **no plan** until one is paid for (below) or support staff activate it; it is never
+silently put on `MONTHLY`. What a plan includes is derived from the plan alone — nobody edits
 entitlements separately, so changing the plan changes them automatically:
 
 | Plan | Contact Support in the app | Send a message | Support tickets (create, view, reply) | Phone support | Support priority |
 |---|---|---|---|---|---|
-| `MONTHLY` (default) | – | – | – | – | Normal |
+| `MONTHLY` | – | – | – | – | Normal |
 | `QUARTERLY` | ✓ | ✓ | – | – | Normal |
 | `HALF_YEARLY` | ✓ | ✓ | ✓ | – | Priority |
 | `YEARLY` | ✓ | ✓ | ✓ | ✓ | Highest |
 
-The core product — handoffs, returns, HandoffCheck, PDFs — is identical on every plan; plans differ only in support.
+The core product — handoffs, returns, PDFs — is identical on every plan; plans differ in support, and in **HandoffCheck**
+(comparing two files, with its PDF/CSV export), which is included on `HALF_YEARLY` and `YEARLY` only. It is a product feature
+read from the plan alone — nothing is stored per customer — and is separate from the support entitlements above. On `MONTHLY`
+and `QUARTERLY` the menu still shows **HandoffCheck 🔒**, dimmed; opening it says "HandoffCheck is available on Half-Yearly and
+Yearly plans." with **See the plans**, which opens the upgrade options right there (below) rather than the public pricing page, and
+the API refuses its endpoints (compare, read a file, export, compare two files) with `403` and code `plan_required`. When support changes a plan, access follows at once, with no sign-in again: the menu
+updates on the next check of the account, and the HandoffCheck page checks it when it opens and every 30 seconds after.
+Importing items into a new handoff and importing a returns file also read files with HandoffCheck's reader, but they belong to
+*New handoff* and *Returns* and work on every plan.
 A `QUARTERLY` customer's **Contact Support** page is a simple message form (subject, message, optional handoff
 reference and attachment): support receives it as a ticket and replies by email, but the customer has no ticket list
 and cannot reply in the app (the backend refuses the ticket endpoints for them). Priority is a ranking for the support
@@ -221,8 +240,107 @@ default** and enabled with `PAYMENT_DEMO_ENABLED=true` (development only — wit
 The backend decides everything: paying records a payment and returns a one-time token (only its hash is stored, it
 expires after `PAYMENT_REDEEM_TTL_HOURS`, default 24); the signed-in customer presents the token to
 `POST /api/v1/payments/redeem`, which applies the plan the payment bought, once — registering or updating a profile
-never sets a plan. A real provider replaces the demo card form; everything after payment stays the same. Plans have no
-end date yet, so a payment does not expire a plan later.
+never sets a plan. A real provider replaces the demo card form; everything after payment stays the same.
+
+**Upgrading by paying the difference.** A customer on an *active* plan can move up to a dearer one by paying only what is left:
+the new plan's list price minus the list price of the plan they are on, which counts in full as already paid (Quarterly ₹549 →
+Half-yearly ₹999 costs **₹450**; Monthly ₹199 → Yearly ₹1,999 costs ₹1,800). The HandoffCheck page offers it: *See the plans*
+opens, without leaving the page, the plans that cost more than theirs **and include HandoffCheck** (so Half-yearly and Yearly, from
+Monthly or Quarterly), each with the amount to pay and the demo card form; paying switches the plan at once and unlocks the tool.
+The new plan starts today and runs its own duration; the old plan is replaced, not added to, and the unused part of it is not
+refunded or carried over. The backend alone works the amount out (`SubscriptionPlan.upgradeAmountFrom`), under a lock on the
+customer's row — the client only says which plan and what it was shown, and a different price is refused with `409` and charges
+nothing, as is a plan that is not dearer, a plan that has ended, an account with no plan, or a second click. It is one step with no
+token (`GET /api/v1/payments/upgrades`, `POST /api/v1/payments/upgrade`), applied through the same code as any paid plan, so the
+payment records the difference actually charged and the plan it replaced and the subscription history gets a payment row.
+Plans bought outright (the pricing page, an account with no plan or an ended plan) are still charged the full list price.
+
+**An account with no plan.** Creating an account from the Login page buys nothing, so that account has **no plan, no start and no end
+date** and no active subscription. The customer can sign in and see their Dashboard and account, and is told "No active plan is
+associated with this account. Please contact our support team to activate your account." — a dialog with **Contact Support** and
+**Create Ticket** on the Dashboard and wherever a paid action is tried. It cannot start a handoff or draft, duplicate, import into a
+new handoff, send a draft or use HandoffCheck: the API refuses all of them with `403` and code `no_active_subscription` (a plan
+that *ran out* is still `subscription_expired` with its own message). Only in this state are Contact Support and tickets available, to
+ask for the activation (no message form, no phone number, normal priority); they end the moment a plan exists, when that plan's
+ordinary rules apply (`MONTHLY` none, `QUARTERLY` message only, and so on). A plan arrives by paying for it from the pricing page —
+that order is unchanged — or when support activates it in the portal (*Activate plan*).
+
+**How long a plan lasts.** A plan put on an account by a payment or by support starts when it is put there and ends by itself:
+`MONTHLY` **30 days**, `QUARTERLY` **90 days**, `HALF_YEARLY` **6 calendar months**, `YEARLY` **365 days** (UTC).
+`SubscriptionPlan.validUntil` is the one place that is worked out; nobody types an end date for a normal activation, and renewing a
+plan that is still active carries on from where it runs out. Support can still name a last day instead (the portal's optional *Last
+day of the plan*). Accounts that existed before have no end date and are unchanged.
+
+**Subscription start, end and status.** A plan can have a start date and a last paid day. The customer's **Account →
+Subscription** shows the plan, *Active* or *Expired*, and the dates; the status is worked out from the end date, never
+stored. Accounts that existed before this feature have **no end date** (the real dates were never recorded and are not
+invented), so they stay active exactly as before. **An active subscription is required to start a new handoff, to send a draft
+and to use HandoffCheck.** When a plan has ended the customer cannot create a handoff or draft (*New handoff*, *Duplicate*,
+import into a new handoff), cannot turn an existing draft into an outgoing handoff (*Submit & send link*), and cannot use
+HandoffCheck at all — comparing files, exporting a comparison, and the *Import from File* options for items and returns,
+whatever the plan (an ended subscription is answered as ended, before the plan is considered). Each
+of those shows "Your subscription has ended. Please subscribe to any of our plans to continue without any interruption." with
+a single **OK** that returns to the Dashboard, and the API refuses with `403` and code `subscription_expired` before anything
+is saved, sent or read. The plan's support extras pause too. Nothing else is locked: handoffs and drafts they already have stay
+viewable, and returns (recorded by hand), closing, recipient links, PDFs and attachments all keep working; the plan stays on
+record. Renewing (by support or by payment) brings it all back with no manual step, no sign-out and no refresh. The **New
+handoff** and **HandoffCheck** pages keep themselves honest while they are open: each asks the account for its current
+subscription when it opens, every 30 seconds while the tab is visible, and again at once when the tab becomes visible or the
+window regains focus; if the subscription has ended the page is disabled (what was typed or uploaded is kept) and the dialog
+appears, and if it has been renewed the dialog goes away and the page is usable again. That is only so the screen reacts
+promptly — the backend independently judges every create, every send and every HandoffCheck request from the clock at that
+moment, so a stale or altered page cannot get one through. Every plan
+change, by staff or by payment, is appended to a read-only history that support staff see on the customer's profile.
+Administrators and managers change plans and end dates (an explicit, confirmed, audited action); ticket agents cannot.
+Nothing changes a plan automatically when it ends.
+
+### Account, password and sign-in
+
+**Account** (top bar) shows the Account ID and handoff prefix (read-only), lets the customer edit their name, organization
+and phone (not the email, which is how they sign in), shows the subscription, and has **Change password** (needs the
+current password) and **Jobs** (below). Changing or resetting a password signs the account out everywhere else; the device
+that changed it carries on. **Forgot password?** on the sign-in page emails a one-time link that expires
+(`PASSWORD_RESET_TTL_MINUTES`, default 30) and works once; the page answers the same way whether or not the email has an
+account. With `MAIL_PROVIDER=logging` the link is written to the backend log instead of being sent.
+
+### Reusing handoffs and files
+
+- **Duplicate** (a handoff's detail page) opens *New handoff* prefilled with that handoff's title, parties, items and
+  notes — never its status, reference, dates, acknowledgement, returns, attachments or links. Nothing exists until the
+  customer saves, and the copy is always a new draft.
+- **Import items** (New handoff) reads a CSV or Excel file into the item table for review: columns are recognised by their
+  headers (Item / Item Description / Name / Product / Particulars… and Qty / Quantity / Count / Nos…, ignoring case,
+  punctuation and a unit in brackets such as "Quantity (pcs)", in any column order), duplicates are flagged, skipped rows
+  (no usable item, or a quantity that is not a number above zero) are counted, and nothing is submitted. There is no manual
+  column-mapping step: a file whose headers are not recognised falls back to "first text cell is the item, the first number
+  after it is the quantity", so a headerless file with the quantity before the item, or with another number column between
+  them, needs its header row fixed (the review table shows exactly what was read). Maximum rows and size follow the
+  HandoffCheck limits.
+- **Export** (HandoffCheck) downloads a finished comparison as **PDF** or **CSV**. The export re-runs the same comparison, so
+  the file matches what was shown; nothing is stored, and standalone comparisons stay independent of handoffs.
+
+### Jobs
+
+**Customer jobs** (Account → Jobs). Four automatic emails about the customer's own handoffs; each customer has their own
+schedule (a six-field cron expression — second minute hour day-of-month month day-of-week — and a timezone) and they all start
+**switched off**:
+
+| Job | Emails about |
+|---|---|
+| Return Reminder | handoffs due back tomorrow or the day after (not today, not overdue) |
+| Overdue Reminder | open handoffs past their return date and not fully returned |
+| Missing Item Reminder | open handoffs with items still marked missing (never one that was force-closed) |
+| Weekly Summary | what happened over the last 7 days |
+
+A run sends **one** email (or none if there is nothing to say), with the job's name as a bold heading. **Run now** runs one job
+without touching its schedule or whether it is on; **RUN ALL NOW** runs the customer's four jobs once. A table shows how each
+job's latest run went. A schedule is validated when saved: it must be a real cron expression in a real timezone, must run,
+and may not run more often than once an hour (`JOBS_MIN_INTERVAL_MINUTES`). The background ticker is switched off with
+`JOBS_SCHEDULER_ENABLED=false`.
+
+**Subscription-expiry reminder** (support portal → Jobs; administrators and managers only). Emails each customer whose
+subscription ends within a window (default 7 days, 1–90), once per end date; renewing starts a new period. It can be run now,
+paused, resumed and scheduled, starts switched off, and only sends email — it never changes a plan.
 
 ### Customers and support staff are separate identities
 
@@ -351,6 +469,15 @@ so IDs stay unique and still point at the same account, ticket or staff member. 
 `V15` only adds the `payment` table (nothing existing is touched). The demo payment page stays off until you set
 `PAYMENT_DEMO_ENABLED=true`.
 
+`V16`–`V20` are additive too. `V16` adds the password-reset table and a per-account token version (so a password change can end
+older sessions); `V17` adds `plan_started_at` / `plan_valid_until` (NULL for everyone existing — no end date, nothing changes) and
+the `subscription_history` table, filled only from plan changes and payments that really happened; `V18` adds `customer_job`
+(nobody has a job until they open Account → Jobs, and jobs start off); `V19` adds `support_job` and
+`subscription_expiry_reminder`; `V20` only relaxes two constraints — an account may have no plan, and a payment may record that it replaced
+none — and rewrites nothing, so every existing account keeps its plan and dates. No customer, handoff, return, attachment or audit row is changed or removed. These were applied
+to a real MySQL 8.0 database loaded with legacy-shaped data (V15 schema) and checked afterwards. **Restart the backend to apply
+them**; everyone signs in again once, because customer tokens now carry the account's token version.
+
 Two things to expect on the first start of this version: **everyone signs in again once** (tokens are
 now bound to customers or staff, so sessions from before the upgrade stop working), and **a support
 admin must exist** — bootstrap one as described above if none does. As with any schema change, take a backup first:
@@ -370,8 +497,9 @@ Covers the state machine, the full HTTP lifecycle (create → submit → accept 
 partial returns → full return → close), authorization, over-return guards, expired/
 invalid links, and document comparison — plus account IDs, per-customer numbering
 (including concurrent creation), plan entitlements, the staff-only support API, the ticket
-system, customer isolation, and an upgrade of a legacy-shaped database — all on H2, no
-external services required.
+system, customer isolation, and an upgrade of a legacy-shaped database; and the account/password flows, abuse limits,
+upload checks, subscription lifecycle, duplicate, item import, comparison export, the customer jobs and the support expiry
+job — all on H2, no external services required.
 
 ```bash
 cd frontend && npm run build          # customer app: type-check + build
@@ -382,19 +510,22 @@ cd support-portal && npm run build    # support portal: type-check + build
 
 | Area | Endpoint |
 |------|----------|
-| Auth | `POST /api/v1/auth/register`, `/login`, `GET /auth/me` |
+| Auth | `POST /api/v1/auth/register`, `/login`, `/change-password`, `/forgot-password`, `/reset-password`, `GET/PUT /auth/me` |
+| Customer jobs | `GET /api/v1/account/jobs`, `PUT /account/jobs/{type}/schedule` · `/enabled`, `POST /account/jobs/{type}/run` · `/account/jobs/run-all` |
 | Handoffs | `GET/POST /api/v1/handoffs`, `GET/PATCH/DELETE /handoffs/{id}`, `GET /handoffs/dashboard` |
 | Lifecycle | `POST /handoffs/{id}/submit` · `/resend-link` · `/cancel` · `/dispute` · `/close` |
-| Items | `PUT /handoffs/{id}/items` |
+| Items | `PUT /handoffs/{id}/items`, `GET /handoffs/{id}/template` (what *Duplicate* prefills) |
 | Returns | `POST /handoffs/{id}/returns`, `POST /handoffs/{id}/returns/{rid}/confirm` |
 | Attachments | `GET/POST /handoffs/{id}/attachments`, `GET .../{aid}/content`, `DELETE` |
 | Events | `GET /handoffs/{id}/events` |
 | PDF | `GET /handoffs/{id}/pdf` (`application/pdf`), `POST /handoffs/{id}/email-pdf` (`{ "to"? }`) |
 | Recipient (public) | `GET /api/v1/r/{token}`, `POST /r/{token}/accept` · `/reject` · `/returns` |
-| HandoffCheck | `POST /api/v1/handoff-check` |
+| HandoffCheck (Half-Yearly and Yearly) | `POST /api/v1/handoff-check`, `POST /handoff-check/extract` · `/compare-files` · `/export?format=PDF\|CSV` |
+| File imports (every plan) | `POST /api/v1/handoff-check/import-items` (CSV/XLSX → rows to review, for New handoff), `POST /handoff-check/return-import` (a returns file, for Returns) |
 | Tickets (customer; plans with tickets only) | `GET/POST /api/v1/tickets`, `GET /tickets/{ticketId}`, `POST /tickets/{ticketId}/messages` · `/attachments`, `GET .../attachments/{aid}/content` |
 | Support sign-in | `POST /api/v1/support/auth/login` (staff only — not the customer login), `GET /support/auth/me` |
 | Support (staff token only) | `GET /api/v1/support/dashboard` · `/customers` · `/customers/{accountId}` · `/tickets` · `/tickets/{ticketId}`, `PUT /customers/{accountId}/plan` · `/prefix`, `PUT /tickets/{ticketId}/status`, `POST /tickets/{ticketId}/messages`, `GET /tickets/{ticketId}/attachments/{aid}/content` |
+| Support jobs (administrators and managers) | `GET /api/v1/support/jobs/subscription-expiry`, `PUT .../schedule` · `.../enabled`, `POST .../run` |
 | Public | `GET /api/v1/public/contact` (the general contact address), `GET /api/v1/public/plans` (plans and their list prices) |
 
 ## Security notes
@@ -408,8 +539,16 @@ cd support-portal && npm run build    # support portal: type-check + build
 - Staff passwords are BCrypt hashes (12+ characters at provisioning); staff accounts are created only by
   controlled provisioning, never by registration; plan and prefix changes are audited, append-only.
 - Recipient links are opaque 256-bit tokens, **stored hashed**, expiring, and scoped to
-  a single handoff.
-- Uploads are type- and size-validated; blobs live in file/object storage, never in the DB.
+  a single handoff. Password-reset links are the same kind of token: hashed, one-time, expiring.
+- Customer sessions are checked against the account on every request, and a password change or reset ends all older
+  sessions.
+- Public and sensitive endpoints (sign-in, register, forgot/reset password, recipient links, payments) and manual job runs are
+  rate limited (`429` with `Retry-After`). The limiter is **in memory, per backend instance**: a restart clears it and several
+  instances each keep their own counts; behind a reverse proxy set `FORWARD_HEADERS_STRATEGY=native` so real client addresses
+  are counted. Failed sign-ins are limited per account and address, so one caller cannot lock another out.
+- Responses carry security headers (CSP, no-referrer, nosniff, frame deny, HSTS over HTTPS).
+- Uploads are type-, size- and content-validated (the file's first bytes must match its declared type); blobs live in
+  file/object storage, never in the DB.
 - No secrets in source — all configuration is environment-driven.
 - A typed name is a **"typed acknowledgement"**, never described as a legally binding
   e-signature.

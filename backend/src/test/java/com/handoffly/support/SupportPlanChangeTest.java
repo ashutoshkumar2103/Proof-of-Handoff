@@ -163,7 +163,7 @@ class SupportPlanChangeTest extends ApiTestBase {
         Account customer = register();
 
         changePlanRaw(staff, customer, "{}").andExpect(status().isBadRequest());
-        changePlanRaw(staff, customer, "{\"toPlan\":\"YEARLY\"}").andExpect(status().isBadRequest());   // must name what it is now
+        changePlanRaw(staff, customer, "{\"toPlan\":\"YEARLY\"}").andExpect(status().isConflict());   // naming no plan says it has none, which is not so
         changePlanRaw(staff, customer, "{\"fromPlan\":\"MONTHLY\"}").andExpect(status().isBadRequest());
         changePlanRaw(staff, customer, "{\"fromPlan\":\"MONTHLY\",\"toPlan\":\"WEEKLY\"}").andExpect(status().isBadRequest());
         changePlanRaw(staff, customer, "{\"fromPlan\":\"MONTHLY\",\"toPlan\":\"YEARLY\",\"reason\":\"" + "r".repeat(501) + "\"}")

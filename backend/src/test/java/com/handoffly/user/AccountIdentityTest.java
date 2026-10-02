@@ -49,7 +49,7 @@ class AccountIdentityTest extends ApiTestBase {
     }
 
     @Test
-    void registrationOnlyEverCreatesACustomerOnTheMonthlyPlanWhateverTheRequestSays() throws Exception {
+    void registrationOnlyEverCreatesACustomerWithNoPlanWhateverTheRequestSays() throws Exception {
         long staffBefore = jdbc.queryForObject("SELECT COUNT(*) FROM support_staff", Long.class);
         String email = "sneaky-" + System.nanoTime() + "@example.test";
         MvcResult res = mvc.perform(post("/api/v1/auth/register").contentType(MediaType.APPLICATION_JSON)
@@ -58,13 +58,16 @@ class AccountIdentityTest extends ApiTestBase {
                                 + "\"accountCode\":\"CUS-999999\",\"enabled\":true,\"handoffPrefix\":\"ZZ\"}"))
                 .andExpect(status().isCreated())
                 .andExpect(jsonPath("$.user.role").doesNotExist())   // a customer has no role at all
-                .andExpect(jsonPath("$.user.plan").value("MONTHLY"))
+                .andExpect(jsonPath("$.user.plan").isEmpty())   // registering activates nothing, however the request asks
+                .andExpect(jsonPath("$.user.subscription.status").value("INACTIVE"))
                 .andReturn();
 
         String accountCode = JsonPath.read(res.getResponse().getContentAsString(), "$.user.accountCode");
         assertThat(accountCode).isNotEqualTo("CUS-999999");
         User saved = users.findByEmailIgnoreCase(email).orElseThrow();
-        assertThat(saved.getSubscriptionPlan()).isEqualTo(SubscriptionPlan.MONTHLY);
+        assertThat(saved.getSubscriptionPlan()).isNull();
+        assertThat(saved.getPlanStartedAt()).isNull();
+        assertThat(saved.getPlanValidUntil()).isNull();
         assertThat(saved.getHandoffPrefix()).isEqualTo("HO");
 
         // No staff identity came out of it, and these credentials are not accepted by the support login.

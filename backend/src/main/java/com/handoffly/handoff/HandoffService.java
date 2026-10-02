@@ -17,6 +17,7 @@ import com.handoffly.handoff.dto.HandoffDetailResponse;
 import com.handoffly.handoff.dto.HandoffItemRequest;
 import com.handoffly.handoff.dto.HandoffItemResponse;
 import com.handoffly.handoff.dto.HandoffSummaryResponse;
+import com.handoffly.handoff.dto.HandoffTemplateResponse;
 import com.handoffly.handoff.dto.ReplaceItemsRequest;
 import com.handoffly.handoff.dto.UpdateHandoffRequest;
 import com.handoffly.notification.NotificationService;
@@ -90,6 +91,7 @@ public class HandoffService {
         // The owner row stays locked until this transaction ends, so concurrent creations by the
         // same customer take the next number one at a time: AV-1, AV-2, AV-3 … with no duplicates.
         User owner = userService.getByIdForUpdate(userId);
+        userService.requireActiveSubscription(owner);   // the one gate on starting any new handoff: nothing below has run yet
         Handoff handoff = new Handoff(owner.nextHandoffReference(), owner, request.title().trim());
         applyHeader(handoff, request.purpose(), request.category(), request.senderName(),
                 request.senderOrganization(), request.recipientName(), request.recipientEmail(),
@@ -103,6 +105,18 @@ public class HandoffService {
         auditService.record(handoff.getId(), AuditEventType.HANDOFF_CREATED, ActorType.USER,
                 owner.getEmail(), "Handoff created as draft.");
         return toDetail(handoff);
+    }
+
+    /**
+     * The reusable description of one of the customer's own handoffs, for starting a new draft from it. Read-only:
+     * it creates nothing — the draft is made later, through the ordinary {@link #create}, when the customer saves.
+     * Starting a copy needs an active subscription just like starting a new handoff, so it is refused up front rather
+     * than after the customer has filled the form in; looking at the original handoff itself is not affected.
+     */
+    @Transactional(readOnly = true)
+    public HandoffTemplateResponse templateOf(Long userId, Long handoffId) {
+        userService.requireActiveSubscription(userId);
+        return HandoffTemplateResponse.from(getOwnedHandoff(handoffId, userId));
     }
 
     @Transactional
@@ -144,6 +158,7 @@ public class HandoffService {
     public HandoffDetailResponse submit(Long userId, Long handoffId) {
         Handoff handoff = getOwnedHandoff(handoffId, userId);
         requireDraft(handoff);
+        userService.requireActiveSubscription(userId);   // sending a draft is starting a handoff: asked before anything changes
         if (handoff.getItems().isEmpty()) {
             throw new ConflictException("Add at least one item before submitting the handoff.");
         }

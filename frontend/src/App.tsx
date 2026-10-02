@@ -12,7 +12,10 @@ import { EditHandoffPage } from './pages/EditHandoffPage';
 import { HandoffDetailPage } from './pages/HandoffDetailPage';
 import { RecipientPage } from './pages/RecipientPage';
 import { HandoffCheckPage } from './pages/HandoffCheckPage';
+import { AccountPage } from './pages/AccountPage';
 import { CheckoutPage } from './pages/CheckoutPage';
+import { ForgotPasswordPage } from './pages/ForgotPasswordPage';
+import { ResetPasswordPage } from './pages/ResetPasswordPage';
 import { SupportPage } from './pages/SupportPage';
 import { NewTicketPage } from './pages/NewTicketPage';
 import { TicketDetailPage } from './pages/TicketDetailPage';
@@ -45,6 +48,9 @@ export function App() {
       <Route path="/" element={<LandingPage />} />
       <Route path="/login" element={<PublicOnly><LoginPage /></PublicOnly>} />
       <Route path="/register" element={<PublicOnly><RegisterPage /></PublicOnly>} />
+      {/* Not PublicOnly: a reset link must work whether or not someone is signed in in this browser. */}
+      <Route path="/forgot-password" element={<ForgotPasswordPage />} />
+      <Route path="/reset-password/:token" element={<ResetPasswordPage />} />
       {/* Paying for a plan comes first; signed-in customers can use it too (it applies to their account). */}
       <Route path="/checkout" element={<CheckoutPage />} />
       {/* Public recipient review — no account required */}
@@ -56,6 +62,7 @@ export function App() {
         <Route path="/handoffs/:id" element={<HandoffDetailPage />} />
         <Route path="/handoffs/:id/edit" element={<EditHandoffPage />} />
         <Route path="/handoff-check" element={<HandoffCheckPage />} />
+        <Route path="/account" element={<AccountPage />} />
         <Route path="/support" element={<RequireSupport need="contactSupport"><SupportPage /></RequireSupport>} />
         <Route path="/support/new" element={<RequireSupport need="ticket"><NewTicketPage /></RequireSupport>} />
         <Route path="/support/message" element={<RequireSupport need="message"><NewTicketPage mode="message" /></RequireSupport>} />

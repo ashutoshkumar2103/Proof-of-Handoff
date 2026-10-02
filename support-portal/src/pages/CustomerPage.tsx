@@ -4,8 +4,10 @@ import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { supportApi } from '../api/endpoints';
 import type { SubscriptionPlan } from '../api/types';
 import { useAuth } from '../auth/AuthContext';
-import { errorMessage, ErrorNotice, PlanBadge, PriorityBadge, Spinner, StatusBadge } from '../components/ui';
-import { describeChange, describePrice, formatDate, formatDateTime, PLAN_LABELS, PLANS, shortPrice } from '../lib/format';
+import { errorMessage, ErrorNotice, PlanBadge, PriorityBadge, Spinner, StatusBadge, SubscriptionStatusBadge } from '../components/ui';
+import {
+  describeChange, describePrice, describeValidity, formatDate, formatDateTime, lastDay, PLAN_LABELS, PLANS, shortPrice,
+} from '../lib/format';
 
 /** Letters only, upper case, 2-5 long — the same rule the backend enforces (and decides). */
 const PREFIX_PATTERN = /^[A-Z]{2,5}$/;
@@ -35,13 +37,16 @@ export function CustomerPage() {
   const [planStep, setPlanStep] = useState<PlanStep>('closed');
   const [newPlan, setNewPlan] = useState<SubscriptionPlan | ''>('');
   const [reason, setReason] = useState('');
+  const [validUntil, setValidUntil] = useState('');   // yyyy-mm-dd, empty = the plan's own duration from today
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [saved, setSaved] = useState<string | null>(null);
 
   if (profile.isLoading) return <Spinner />;
   if (profile.isError) return <ErrorNotice error={profile.error} />;
-  const { customer, entitlements, nextHandoffReference, openTickets, recentTickets, recentChanges } = profile.data!;
+  const { customer, subscription, entitlements, nextHandoffReference, openTickets, recentTickets, recentChanges,
+    subscriptionHistory } = profile.data!;
+  const sameAsCurrent = newPlan === customer.plan;   // keeping the plan and changing only how long it is paid for
   const prefix = draft ?? customer.handoffPrefix;
   const prefixChanged = prefix !== customer.handoffPrefix;
 
@@ -66,6 +71,7 @@ export function CustomerPage() {
     setPlanStep('closed');
     setNewPlan('');
     setReason('');
+    setValidUntil('');
   }
 
   async function confirmPlanChange() {
@@ -74,9 +80,13 @@ export function CustomerPage() {
     setSaved(null);
     setBusy(true);
     try {
-      const updated = await supportApi.changePlan(accountId, customer.plan, newPlan, reason);
+      const updated = await supportApi.changePlan(accountId, customer.plan, newPlan, reason, validUntil);
       queryClient.setQueryData(queryKey, updated);
-      setSaved(`Plan changed from ${planName(customer.plan)} to ${planName(newPlan)}. What the customer can use has changed with it.`);
+      // The backend works out the end when none was typed, so say what it came to.
+      const paidUntil = updated.subscription.validUntil ? `, paid until ${lastDay(updated.subscription.validUntil)}` : '';
+      setSaved(newPlan === customer.plan
+        ? `The ${planName(newPlan)} plan is now paid until ${validUntil}. What the customer can use has changed with it.`
+        : `Plan changed from ${customer.plan ? planName(customer.plan) : 'no plan'} to ${planName(newPlan)}${paidUntil}. What the customer can use has changed with it.`);
       closePlanFlow();
     } catch (err) {
       setError(errorMessage(err));
@@ -91,7 +101,10 @@ export function CustomerPage() {
         <Link to="/customers" className="small">← Customers</Link>
         <div className="spread">
           <h1>{customer.name}</h1>
-          <PlanBadge plan={customer.plan} />
+          <div className="row">
+            <PlanBadge plan={customer.plan} />
+            {subscription.plan && <SubscriptionStatusBadge status={subscription.status} />}
+          </div>
         </div>
         <p className="muted">{customer.accountCode}</p>
       </div>
@@ -112,13 +125,40 @@ export function CustomerPage() {
             <dd>
               <div className="row">
                 <PlanBadge plan={customer.plan} />
-                {priceOf(customer.plan) && <span className="small muted">{describePrice(priceOf(customer.plan)!)}</span>}
+                {customer.plan && priceOf(customer.plan) && <span className="small muted">{describePrice(priceOf(customer.plan)!)}</span>}
                 {manage && planStep === 'closed' && (
                   <button type="button" className="btn btn-sm" onClick={() => { setError(null); setSaved(null); setPlanStep('choose'); }}>
-                    Change plan
+                    {customer.plan ? 'Change plan' : 'Activate plan'}
                   </button>
                 )}
               </div>
+            </dd>
+            <dt>Subscription</dt>
+            <dd>
+              {subscription.plan ? (
+                <>
+                  <div className="row">
+                    <SubscriptionStatusBadge status={subscription.status} />
+                    <span className="small">{describeValidity(subscription.validUntil)}</span>
+                  </div>
+                  <div className="small muted">
+                    {subscription.startedAt ? `Since ${formatDate(subscription.startedAt)}` : 'Start date not recorded'}
+                  </div>
+                  {subscription.status === 'INACTIVE' && (
+                    <div className="small remaining-open">
+                      Expired: the {planName(subscription.plan)} plan's support features are paused until it is renewed.
+                    </div>
+                  )}
+                </>
+              ) : (
+                <>
+                  <div className="small">No active plan</div>
+                  <div className="small remaining-open">
+                    Nothing has been activated on this account yet. The customer can sign in and open a ticket to ask for it;
+                    giving the account a plan switches everything on.
+                  </div>
+                </>
+              )}
             </dd>
             <dt>Includes</dt>
             <dd>
@@ -140,15 +180,29 @@ export function CustomerPage() {
                 <label htmlFor="newPlan">New plan</label>
                 <select id="newPlan" value={newPlan} onChange={(e) => setNewPlan(e.target.value as SubscriptionPlan)}>
                   <option value="" disabled>Choose a plan…</option>
-                  {PLANS.filter((p) => p !== customer.plan).map((p) => (
-                    <option key={p} value={p}>{PLAN_LABELS[p]}{priceOf(p) ? ` — ${shortPrice(priceOf(p)!)}` : ''}</option>
+                  {PLANS.map((p) => (
+                    <option key={p} value={p}>
+                      {PLAN_LABELS[p]}{p === customer.plan ? ' (current — change how long it is paid for)'
+                        : priceOf(p) ? ` — ${shortPrice(priceOf(p)!)}` : ''}
+                    </option>
                   ))}
                 </select>
-                {newPlan && priceOf(newPlan) && (
+                {newPlan && !sameAsCurrent && priceOf(newPlan) && (
                   <p className="small mt-1">
                     Charge for <strong>{PLAN_LABELS[newPlan]}</strong>: <strong>{describePrice(priceOf(newPlan)!)}</strong>
                   </p>
                 )}
+              </div>
+              <div className="field">
+                <label htmlFor="validUntil">
+                  Last day of the plan {sameAsCurrent ? '' : <span className="muted">(optional — empty: the plan's own duration, counted from today)</span>}
+                </label>
+                <input id="validUntil" type="date" value={validUntil} min={new Date().toISOString().slice(0, 10)}
+                       onChange={(e) => setValidUntil(e.target.value)} />
+                <p className="small muted mt-1">
+                  After this day the plan counts as expired and its support features pause until it is renewed. The
+                  core product is unaffected.
+                </p>
               </div>
               <div className="field">
                 <label htmlFor="reason">Reason <span className="muted">(optional, kept in the history)</span></label>
@@ -156,7 +210,8 @@ export function CustomerPage() {
                           placeholder="e.g. Customer upgraded after payment" />
               </div>
               <div className="row">
-                <button type="button" className="btn btn-primary" disabled={!newPlan} onClick={() => setPlanStep('confirm')}>
+                <button type="button" className="btn btn-primary" disabled={!newPlan || (sameAsCurrent && !validUntil)}
+                        onClick={() => setPlanStep('confirm')}>
                   Review change
                 </button>
                 <button type="button" className="btn btn-ghost" onClick={closePlanFlow}>Cancel</button>
@@ -168,10 +223,16 @@ export function CustomerPage() {
             <div className="panel panel-warning mt-2" role="alertdialog" aria-label="Confirm plan change">
               <h3>Confirm plan change</h3>
               <p>
-                Change <strong>{customer.name}</strong> ({customer.accountCode}) from{' '}
-                <strong>{planName(customer.plan)}</strong> to <strong>{planName(newPlan)}</strong>?
+                {sameAsCurrent ? (
+                  <>Keep <strong>{customer.name}</strong> ({customer.accountCode}) on the <strong>{planName(newPlan)}</strong> plan
+                    {' '}but paid until <strong>{validUntil}</strong>?</>
+                ) : (
+                  <>{customer.plan ? 'Change' : 'Activate'} <strong>{customer.name}</strong> ({customer.accountCode}) from{' '}
+                    {customer.plan ? <strong>{planName(customer.plan)}</strong> : 'no plan'} to <strong>{planName(newPlan)}</strong>
+                    {validUntil ? <>, paid until <strong>{validUntil}</strong></> : ", for the plan's own duration starting today"}?</>
+                )}
               </p>
-              {priceOf(newPlan) && (
+              {!sameAsCurrent && priceOf(newPlan) && (
                 <p>
                   Amount to charge for the new plan: <strong>{describePrice(priceOf(newPlan)!)}</strong>. HandOffly does
                   not take payment — collect it separately.
@@ -207,6 +268,37 @@ export function CustomerPage() {
             {busy ? 'Saving…' : 'Change prefix'}
           </button>
         </form>}
+      </div>
+
+      <div className="card">
+        <h2>Subscription history</h2>
+        {subscriptionHistory.length === 0 ? (
+          <p className="muted">No plan changes are on record for this customer.</p>
+        ) : (
+          <div className="table-wrap">
+            <table>
+              <thead><tr><th>Changed</th><th>Plan</th><th>Paid</th><th>By</th><th>Reason</th></tr></thead>
+              <tbody>
+                {subscriptionHistory.map((h, i) => (
+                  <tr key={i}>
+                    <td className="small muted">{formatDateTime(h.changedAt)}</td>
+                    <td>
+                      <strong>{h.previousPlan ? `${planName(h.previousPlan)} → ` : ''}{planName(h.newPlan)}</strong>
+                    </td>
+                    <td className="small">
+                      {h.startsAt ? `From ${formatDate(h.startsAt)}` : ''}
+                      <div className="muted">{describeValidity(h.validUntil)}</div>
+                    </td>
+                    <td className="small">
+                      {h.source === 'PAYMENT' ? 'Payment' : <>{h.staffCode}<div className="muted">{h.staffName}</div></>}
+                    </td>
+                    <td className="small">{h.reason ?? '—'}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        )}
       </div>
 
       <div className="card">

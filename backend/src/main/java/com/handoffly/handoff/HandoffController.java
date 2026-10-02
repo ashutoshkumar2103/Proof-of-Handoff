@@ -9,6 +9,7 @@ import com.handoffly.handoff.dto.EmailPdfRequest;
 import com.handoffly.handoff.dto.EmailPdfResponse;
 import com.handoffly.handoff.dto.HandoffDetailResponse;
 import com.handoffly.handoff.dto.HandoffSummaryResponse;
+import com.handoffly.handoff.dto.HandoffTemplateResponse;
 import com.handoffly.handoff.dto.ReasonRequest;
 import com.handoffly.handoff.dto.ReplaceItemsRequest;
 import com.handoffly.handoff.dto.UpdateHandoffRequest;
@@ -73,6 +74,13 @@ public class HandoffController {
     public HandoffDetailResponse get(@AuthenticationPrincipal UserPrincipal principal,
                                      @PathVariable Long id) {
         return handoffService.getDetail(principal.id(), id);
+    }
+
+    /** The reusable part of this handoff, to prefill a NEW draft with (nothing is created by asking). */
+    @GetMapping("/{id}/template")
+    public HandoffTemplateResponse template(@AuthenticationPrincipal UserPrincipal principal,
+                                            @PathVariable Long id) {
+        return handoffService.templateOf(principal.id(), id);
     }
 
     @GetMapping("/{id}/events")

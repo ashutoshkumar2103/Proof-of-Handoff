@@ -332,4 +332,17 @@ class StaffManagementTest extends ApiTestBase {
         mvc.perform(as(newbie, get(STAFF))).andExpect(status().isForbidden());
         mvc.perform(as(newbie, get("/api/v1/support/customers"))).andExpect(status().isForbidden());
     }
+
+    @Test
+    void aCompleteStaffIdFindsExactlyThatPersonWhileAPartialOneStillSearches() throws Exception {
+        StaffAccount admin = registerStaff(SupportRole.ADMIN);
+        for (int i = 0; i < 12; i++) {
+            registerStaff(SupportRole.TICKET_AGENT);
+        }
+        mvc.perform(as(admin, get(STAFF).param("q", admin.staffCode()))).andExpect(jsonPath("$.totalElements").value(1))
+                .andExpect(jsonPath("$.content[0].staffCode").value(admin.staffCode()));
+        mvc.perform(as(admin, get(STAFF).param("q", admin.staffCode().toLowerCase()))).andExpect(jsonPath("$.totalElements").value(1));
+        mvc.perform(as(admin, get(STAFF).param("q", "STAFF-999999"))).andExpect(jsonPath("$.totalElements").value(0));
+        mvc.perform(as(admin, get(STAFF).param("q", "STAFF-"))).andExpect(jsonPath("$.totalElements", org.hamcrest.Matchers.greaterThan(10)));
+    }
 }

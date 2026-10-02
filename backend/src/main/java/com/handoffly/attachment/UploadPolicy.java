@@ -10,8 +10,8 @@ import java.io.UncheckedIOException;
 import java.util.Set;
 
 /**
- * The one set of rules for accepting an uploaded file — allowed types, maximum size, safe display
- * filename — shared by handoff attachments and support-ticket attachments.
+ * The one set of rules for accepting an uploaded file — allowed types, maximum size, content that matches
+ * its declared type, safe display filename — shared by handoff attachments and support-ticket attachments.
  */
 @Component
 public class UploadPolicy {
@@ -42,11 +42,17 @@ public class UploadPolicy {
         if (!allowedContentTypes.isEmpty() && !allowedContentTypes.contains(contentType)) {
             throw new BadRequestException("File type '" + contentType + "' is not allowed.");
         }
+        byte[] data;
         try {
-            return new CheckedUpload(file.getBytes(), contentType, sanitizeFilename(file.getOriginalFilename()), file.getSize());
+            data = file.getBytes();
         } catch (IOException e) {
             throw new UncheckedIOException("Failed to read uploaded file", e);
         }
+        // The declared type is only a claim by the client: the first bytes must agree with it.
+        if (!ContentSniffer.matches(contentType, data)) {
+            throw new BadRequestException("The file's content does not match its type ('" + contentType + "').");
+        }
+        return new CheckedUpload(data, contentType, sanitizeFilename(file.getOriginalFilename()), file.getSize());
     }
 
     private static String normalize(String contentType) {

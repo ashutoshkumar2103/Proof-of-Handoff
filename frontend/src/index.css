@@ -110,6 +110,9 @@ h3 { font-size: 1.05rem; }
   border-radius: var(--radius-sm); transition: background 0.12s, color 0.12s;
 }
 .topbar nav a:hover { text-decoration: none; background: var(--surface-2); color: var(--text); }
+/* A feature the plan does not include: still in the menu, dimmed, and marked with a lock (see Layout). */
+.topbar nav a.nav-locked { opacity: 0.6; }
+.topbar nav a.nav-locked:hover { opacity: 0.85; }
 .topbar nav a.active { color: var(--primary); background: var(--primary-soft); font-weight: 600; }
 .container { width: 100%; max-width: 1280px; margin: 0 auto; padding: 1.5rem 1.5rem 4rem; }
 .container-narrow { max-width: 560px; }
@@ -457,3 +460,10 @@ th.sortable:hover { color: var(--text); }
 .modal-title { margin: 0 0 0.5rem; font-size: 1.15rem; }
 .modal-body { color: var(--text-muted); font-size: 0.92rem; }
 .modal-actions { display: flex; justify-content: flex-end; gap: 0.6rem; margin-top: 1.25rem; }
+
+/* Customer jobs */
+.job-facts { display: grid; grid-template-columns: max-content 1fr; gap: 0.35rem 1rem; margin: 0 0 0.9rem; font-size: 0.92rem; }
+.job-facts dt { color: var(--text-muted); }
+.job-facts dd { margin: 0; }
+.job-editor { margin-top: 1rem; padding-top: 1rem; border-top: 1px solid var(--border); }
+@media (max-width: 560px) { .job-facts { grid-template-columns: 1fr; gap: 0; } .job-facts dd { margin-bottom: 0.5rem; } }

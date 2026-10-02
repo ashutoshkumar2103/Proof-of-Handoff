@@ -1,6 +1,8 @@
 import { useState } from 'react';
 import type { CreateHandoffInput, ItemCondition, ItemInput } from '../api/types';
 import { localPartsToIso } from '../lib/format';
+import { ItemImportPanel } from './ItemImportPanel';
+import type { ImportedItem } from './ItemImportPanel';
 import { TimeSelect } from './TimeSelect';
 
 const CONDITIONS: ItemCondition[] = ['GOOD', 'DAMAGED', 'MISSING', 'OTHER'];
@@ -49,6 +51,8 @@ export function HandoffForm({ initial, submitLabel, onSubmit, busy, error }: {
   error?: string | null;
 }) {
   const [v, setV] = useState<HandoffFormValue>(initial);
+  const [importOpen, setImportOpen] = useState(false);
+  const [importNotice, setImportNotice] = useState<string | null>(null);
   // Which item rows have the optional "serial / ID" field revealed.
   const [showIdFor, setShowIdFor] = useState<Set<number>>(
     () => new Set(initial.items.map((it, i) => (it.serialNumber ? i : -1)).filter((i) => i >= 0)));
@@ -59,6 +63,17 @@ export function HandoffForm({ initial, submitLabel, onSubmit, busy, error }: {
     setV({ ...v, items: v.items.map((it, idx) => (idx === i ? { ...it, ...patch } : it)) });
   const addItem = () => setV({ ...v, items: [...v.items, { ...EMPTY_ITEM }] });
   const removeItem = (i: number) => setV({ ...v, items: v.items.filter((_, idx) => idx !== i) });
+  // Items read from a file go into the same table, as if typed: a table with only blank rows is filled, otherwise appended.
+  const addImported = (imported: ImportedItem[], fileName: string) => {
+    const typed = v.items.filter((it) => it.name.trim() !== '');
+    setV({
+      ...v,
+      items: [...typed, ...imported.map((i): ItemInput =>
+        ({ name: i.name, quantity: i.quantity, unit: '', condition: 'GOOD', serialNumber: '', notes: '' }))],
+    });
+    setImportOpen(false);
+    setImportNotice(`Added ${imported.length} item${imported.length === 1 ? '' : 's'} from ${fileName}. Check them below, then create the draft.`);
+  };
   const toggleId = (i: number) => setShowIdFor((s) => {
     const next = new Set(s);
     if (next.has(i)) next.delete(i); else next.add(i);
@@ -212,7 +227,14 @@ export function HandoffForm({ initial, submitLabel, onSubmit, busy, error }: {
             </div>
           ))}
         </div>
-        <button type="button" className="btn btn-block mt-2" onClick={addItem}>+ Add another item</button>
+        <div className="row mt-2">
+          <button type="button" className="btn" style={{ flex: 1 }} onClick={addItem}>+ Add item manually</button>
+          <button type="button" className="btn" style={{ flex: 1 }} onClick={() => { setImportOpen(true); setImportNotice(null); }}>
+            Import items from file
+          </button>
+        </div>
+        {importNotice && <div className="notice notice-success mt-2" role="status">{importNotice}</div>}
+        {importOpen && <ItemImportPanel onAdd={addImported} onClose={() => setImportOpen(false)} />}
       </div>
 
       <div className="row">

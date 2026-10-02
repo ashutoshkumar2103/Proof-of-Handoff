@@ -20,6 +20,20 @@ export interface PaymentReceipt {
   expiresAt: string;
 }
 
+/**
+ * A plan the signed-in customer can move up to from their active plan, priced as what is left to pay: `credit` (what the plan
+ * they are on counts as already paid) comes off the plan's price, and `handoffCheck` says whether the plan includes HandoffCheck.
+ * The backend works it all out and charges exactly `amountDue`.
+ */
+export interface UpgradeOption {
+  /** The plan the customer is on, whose price is the `credit`. */
+  from: SubscriptionPlan;
+  price: PlanPrice;
+  credit: number;
+  amountDue: number;
+  handoffCheck: boolean;
+}
+
 export type HandoffStatus =
   | 'DRAFT'
   | 'OUTGOING_SENT'
@@ -56,6 +70,19 @@ export interface SupportEntitlements {
   supportPhone?: string | null;
 }
 
+/** Whether the subscription is currently paid up; it follows from the plan's last day. */
+export type SubscriptionStatus = 'ACTIVE' | 'INACTIVE';
+
+export interface SubscriptionSummary {
+  /** Null for an account nothing has been activated on yet (it signed up without paying): status is INACTIVE, never "ended". */
+  plan: SubscriptionPlan | null;
+  status: SubscriptionStatus;
+  /** Null for accounts whose start was never recorded. */
+  startedAt?: string | null;
+  /** Null: no end date. */
+  validUntil?: string | null;
+}
+
 export interface User {
   id: number;
   /** The customer-facing Account ID, e.g. CUS-42. */
@@ -64,8 +91,34 @@ export interface User {
   displayName: string;
   organization?: string | null;
   phone?: string | null;
-  plan: SubscriptionPlan;
+  /** Null until a plan has been paid for or activated by support. */
+  plan: SubscriptionPlan | null;
+  /** Set by support; shown, never edited here. */
+  handoffPrefix: string;
+  /** What the plan includes — only while the subscription is active (the backend decides). */
   support: SupportEntitlements;
+  subscription: SubscriptionSummary;
+  /** Whether the plan includes HandoffCheck (while the subscription is active) — the backend decides, from the plan alone. */
+  handoffCheck: boolean;
+}
+
+/** What a customer may edit about themselves (not the Account ID, email, plan or prefix). */
+export interface ProfileInput {
+  displayName: string;
+  organization?: string;
+  phone?: string;
+}
+
+export interface ChangePasswordInput {
+  currentPassword: string;
+  newPassword: string;
+  confirmPassword: string;
+}
+
+export interface ResetPasswordInput {
+  token: string;
+  newPassword: string;
+  confirmPassword: string;
 }
 
 export interface RegisterInput {
@@ -160,6 +213,16 @@ export interface HandoffSummary {
   dueAt?: string | null;
   createdAt: string;
   updatedAt: string;
+}
+
+/** The reusable part of a handoff (the server decides what that is): what a duplicate starts from. */
+export interface HandoffTemplate {
+  title: string;
+  category?: string | null;
+  purpose?: string | null;
+  senderName: string;
+  senderOrganization?: string | null;
+  items: { name: string; quantity: string; unit?: string | null }[];
 }
 
 export interface HandoffDetail {
@@ -398,9 +461,47 @@ export interface SupportMessageInput {
   file?: File | null;
 }
 
+/** An item list read from a file, to review before it is added to a new handoff. */
+export interface ItemImportPreview {
+  fileName?: string | null;
+  lines: { name: string; quantity: string; duplicate: boolean }[];
+  /** Rows that had something in them but could not become an item. */
+  skippedRows: number;
+}
+
 export interface ApiError {
   status: number;
   code?: string;
   detail?: string;
   errors?: { field: string; message: string }[];
+}
+
+export type JobType = 'RETURN_REMINDER' | 'OVERDUE_REMINDER' | 'MISSING_ITEM_REMINDER' | 'WEEKLY_SUMMARY';
+export type JobStatus = 'SENT' | 'NOTHING_TO_REPORT' | 'FAILED';
+
+/** One of the customer's jobs: how it is set up, its next runs, and how its latest run went. */
+export interface Job {
+  type: JobType;
+  title: string;
+  description: string;
+  enabled: boolean;
+  /** Six fields: second, minute, hour, day of month, month, day of week. */
+  cronExpression: string;
+  timezone: string;
+  nextRunAt?: string | null;
+  upcomingRuns: string[];
+  lastRunAt?: string | null;
+  lastStatus?: JobStatus | null;
+  /** References of the handoffs the latest run told the customer about. */
+  lastHandoffs: string[];
+  lastDetail?: string | null;
+}
+
+export interface JobRun {
+  type: JobType;
+  title: string;
+  status: JobStatus;
+  handoffs: string[];
+  runAt: string;
+  message?: string | null;
 }

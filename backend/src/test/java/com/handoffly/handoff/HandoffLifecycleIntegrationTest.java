@@ -39,6 +39,9 @@ class HandoffLifecycleIntegrationTest {
     @Autowired
     CapturingEmailSender emailSender;
 
+    @Autowired
+    org.springframework.jdbc.core.JdbcTemplate jdbc;
+
     @Test
     void fullHandoffAndReturnLifecycle() throws Exception {
         String token = registerAndLogin("owner1@example.com");
@@ -637,6 +640,7 @@ class HandoffLifecycleIntegrationTest {
     @Test
     void standaloneHandoffCheckComparesTwoUploadedFilesWithoutAnyHandoff() throws Exception {
         String token = registerAndLogin("checker@example.com");
+        jdbc.update("UPDATE app_user SET subscription_plan = 'YEARLY' WHERE email = ?", "checker@example.com");   // HandoffCheck is a Half-Yearly / Yearly feature
         MockMultipartFile fileA = new MockMultipartFile("fileA", "a.csv", "text/csv",
                 "Item,Qty\nTable,100\nLight,10".getBytes());
         MockMultipartFile fileB = new MockMultipartFile("fileB", "b.csv", "text/csv",
@@ -787,6 +791,8 @@ class HandoffLifecycleIntegrationTest {
                         .contentType(MediaType.APPLICATION_JSON).content(body))
                 .andExpect(status().isCreated())
                 .andReturn();
+        // Registration leaves an account with no plan; these tests are about the handoff lifecycle, so put it on one (as a payment would).
+        jdbc.update("UPDATE app_user SET subscription_plan = 'MONTHLY' WHERE email = ?", email);
         return JsonPath.read(res.getResponse().getContentAsString(), "$.token");
     }
 

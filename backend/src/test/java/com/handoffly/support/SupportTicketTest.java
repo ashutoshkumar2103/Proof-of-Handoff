@@ -605,7 +605,8 @@ class SupportTicketTest extends ApiTestBase {
         mvc.perform(as(owner, multipart(upload).file(textFile("empty.txt", new byte[0])))).andExpect(status().isBadRequest());
         mvc.perform(as(owner, multipart(upload).file(textFile("big.txt", new byte[5 * 1024 * 1024 + 1])))).andExpect(status().isBadRequest());
         mvc.perform(as(owner, multipart(upload))).andExpect(status().isBadRequest());   // no file part at all
-        mvc.perform(as(owner, multipart(upload).file(new MockMultipartFile("file", "photo.png", "image/png", new byte[]{1, 2, 3}))))
-                .andExpect(status().isCreated());   // an allowed type is accepted
+        mvc.perform(as(owner, multipart(upload).file(new MockMultipartFile("file", "photo.png", "image/png",
+                        new byte[]{(byte) 0x89, 'P', 'N', 'G', 0x0D, 0x0A, 0x1A, 0x0A, 0, 0}))))
+                .andExpect(status().isCreated());   // an allowed type with matching content is accepted
     }
 }

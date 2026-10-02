@@ -25,6 +25,7 @@ handoffly:
   mail:
     provider: logging
     from: no-reply@handoffly.test
+    async: false
   storage:
     type: local
     local-dir: ./target/test-storage
@@ -35,5 +36,12 @@ handoffly:
     phone: "+1 555 0100"
   payment:
     demo-enabled: true
+  jobs:
+    # Tests run jobs themselves, at the moment they choose; a background ticker would make them unpredictable.
+    scheduler-enabled: false
+    default-timezone: UTC
+  rate-limit:
+    # Every test shares one caller address, so the limits are off here; the rate-limit tests switch them on.
+    enabled: false
   cors:
     allowed-origins: http://localhost:5173

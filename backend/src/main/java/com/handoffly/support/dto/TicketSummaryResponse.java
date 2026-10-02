@@ -41,7 +41,7 @@ public record TicketSummaryResponse(
                 account.getEmail(),
                 t.getContactPhone(),
                 account.getSubscriptionPlan(),
-                account.getSubscriptionPlan().supportPriority(),
+                account.entitledPlan().supportPriority(),   // a lapsed subscription is not priority
                 t.getContactMethod(),
                 t.getCategory(),
                 t.getSubject(),

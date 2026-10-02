@@ -1,5 +1,16 @@
 import type { HandoffStatus, SubscriptionPlan, SupportEntitlements, TicketCategory, TicketStatus } from '../api/types';
 
+/** Shown when a customer without an active subscription tries to start a new handoff. */
+export const SUBSCRIPTION_ENDED_MESSAGE =
+  'Your subscription has ended. Please subscribe to any of our plans to continue without any interruption.';
+
+/** Shown to an account that has never had a plan (it signed up without paying), where a paid feature is used or asked for. */
+export const NO_ACTIVE_SUBSCRIPTION_MESSAGE =
+  'No active plan is associated with this account. Please contact our support team to activate your account.';
+
+/** Shown where HandoffCheck is locked because the customer's plan does not include it. */
+export const HANDOFFCHECK_PLAN_MESSAGE = 'HandoffCheck is available on Half-Yearly and Yearly plans.';
+
 export const PLAN_LABELS: Record<SubscriptionPlan, string> = {
   MONTHLY: 'Monthly',
   QUARTERLY: 'Quarterly',
@@ -30,6 +41,11 @@ export function formatDateTime(iso?: string | null): string {
   return d.toLocaleString(undefined, {
     year: 'numeric', month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit',
   });
+}
+
+/** The last day a plan is paid for: the backend stores the instant it runs out, which is the start of the next day. */
+export function lastDay(validUntil: string): string {
+  return formatDate(new Date(new Date(validUntil).getTime() - 1000).toISOString());
 }
 
 export function formatDate(iso?: string | null): string {

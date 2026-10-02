@@ -4,6 +4,8 @@ import org.junit.jupiter.api.Test;
 import org.junit.jupiter.params.ParameterizedTest;
 import org.junit.jupiter.params.provider.ValueSource;
 
+import java.time.Instant;
+
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
@@ -62,12 +64,68 @@ class AccountModelTest {
     }
 
     @Test
-    void newAccountsAreOnTheMonthlyPlanWithTheDefaultPrefix() {
+    void newAccountsHaveNoPlanAndTheDefaultPrefix() {
         User user = newCustomer();
-        assertThat(user.getSubscriptionPlan()).isEqualTo(SubscriptionPlan.MONTHLY);
+        assertThat(user.hasPlan()).isFalse();
+        assertThat(user.getSubscriptionPlan()).isNull();
+        assertThat(user.getPlanStartedAt()).isNull();
+        assertThat(user.getPlanValidUntil()).isNull();
         assertThat(user.getHandoffPrefix()).isEqualTo("HO");
         assertThat(user.getHandoffSequence()).isZero();
         assertThat(user.isEnabled()).isTrue();
+    }
+
+    @Test
+    void anAccountWithNoPlanHasNothingActiveAndOnlyTheHelpToGetActivated() {
+        User user = newCustomer();
+        Instant now = Instant.parse("2026-10-02T10:00:00Z");
+        assertThat(user.subscriptionStatus(now)).isEqualTo(SubscriptionStatus.INACTIVE);
+        assertThat(user.entitledPlan(now)).isEqualTo(SubscriptionPlan.LAPSED_FALLBACK);   // none of the extras of any plan
+        // Contact Support and tickets to ask for the activation: no message form, no call, no priority, no phone number.
+        assertThat(SupportEntitlements.of(user, "+1 555 0100"))
+                .isEqualTo(new SupportEntitlements(true, false, true, false, SupportPriority.NORMAL, null));
+        assertThat(SubscriptionSummary.of(user, now))
+                .isEqualTo(new SubscriptionSummary(null, SubscriptionStatus.INACTIVE, null, null));
+    }
+
+    @Test
+    void oncePutOnAPlanAnAccountIsActiveAndItsSupportFollowsThePlan() {
+        User user = newCustomer();
+        Instant now = Instant.now();
+        user.startPlan(SubscriptionPlan.QUARTERLY, now, SubscriptionPlan.QUARTERLY.validUntil(now));
+        assertThat(user.hasPlan()).isTrue();
+        assertThat(user.subscriptionStatus(now)).isEqualTo(SubscriptionStatus.ACTIVE);
+        assertThat(SupportEntitlements.of(user, null)).isEqualTo(SupportEntitlements.of(SubscriptionPlan.QUARTERLY, null));
+
+        // When a plan runs out it is a lapsed plan, not 'no plan': the account keeps it, and gets no extras.
+        User lapsed = newCustomer();
+        Instant longAgo = Instant.parse("2020-01-01T00:00:00Z");
+        lapsed.startPlan(SubscriptionPlan.QUARTERLY, longAgo, SubscriptionPlan.QUARTERLY.validUntil(longAgo));
+        assertThat(lapsed.subscriptionStatus(Instant.now())).isEqualTo(SubscriptionStatus.INACTIVE);
+        assertThat(lapsed.hasPlan()).isTrue();
+        assertThat(SupportEntitlements.of(lapsed, null)).isEqualTo(SupportEntitlements.of(SubscriptionPlan.LAPSED_FALLBACK, null));
+    }
+
+    @Test
+    void everyPlanLastsItsOwnDurationFromWhereItStarts() {
+        Instant start = Instant.parse("2026-10-02T10:00:00Z");
+        assertThat(SubscriptionPlan.MONTHLY.validUntil(start)).isEqualTo(Instant.parse("2026-11-01T10:00:00Z"));       // 30 days
+        assertThat(SubscriptionPlan.QUARTERLY.validUntil(start)).isEqualTo(Instant.parse("2026-12-31T10:00:00Z"));     // 90 days
+        assertThat(SubscriptionPlan.HALF_YEARLY.validUntil(start)).isEqualTo(Instant.parse("2027-04-02T10:00:00Z"));   // 6 calendar months
+        assertThat(SubscriptionPlan.YEARLY.validUntil(start)).isEqualTo(Instant.parse("2027-10-02T10:00:00Z"));        // 365 days
+    }
+
+    @Test
+    void planDurationsDoNotDriftAtMonthEndsOrAcrossALeapDay() {
+        // Half-yearly counts calendar months and stops at the end of a shorter month rather than spilling over.
+        assertThat(SubscriptionPlan.HALF_YEARLY.validUntil(Instant.parse("2026-08-31T00:00:00Z")))
+                .isEqualTo(Instant.parse("2027-02-28T00:00:00Z"));
+        // Yearly is 365 days, not a calendar year: across a leap day it ends a day earlier on the calendar.
+        assertThat(SubscriptionPlan.YEARLY.validUntil(Instant.parse("2027-03-01T00:00:00Z")))
+                .isEqualTo(Instant.parse("2028-02-29T00:00:00Z"));
+        // Monthly is 30 days even from the 31st; the time of day is kept.
+        assertThat(SubscriptionPlan.MONTHLY.validUntil(Instant.parse("2026-12-31T23:59:59Z")))
+                .isEqualTo(Instant.parse("2027-01-30T23:59:59Z"));
     }
 
     @ParameterizedTest

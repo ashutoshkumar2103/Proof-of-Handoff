@@ -12,6 +12,7 @@ export function Layout() {
           <NavLink to="/dashboard">Dashboard</NavLink>
           {can('VIEW_CUSTOMERS') && <NavLink to="/customers">Customers</NavLink>}
           <NavLink to="/tickets">Tickets</NavLink>
+          {can('MANAGE_CUSTOMERS') && <NavLink to="/jobs">Jobs</NavLink>}
           {can('MANAGE_STAFF') && <NavLink to="/staff">Staff</NavLink>}
         </nav>
         {staff && (

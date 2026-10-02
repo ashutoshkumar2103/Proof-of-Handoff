@@ -45,6 +45,9 @@ export function LoginPage() {
           <PasswordInput id="password" autoComplete="current-password" value={password}
                          onChange={(e) => setPassword(e.target.value)} required />
         </div>
+        <p className="small" style={{ textAlign: 'right', marginTop: '-0.4rem' }}>
+          <Link to="/forgot-password">Forgot password?</Link>
+        </p>
         <button className="btn btn-primary btn-block" disabled={busy}>
           {busy ? 'Signing in…' : 'Sign in'}
         </button>

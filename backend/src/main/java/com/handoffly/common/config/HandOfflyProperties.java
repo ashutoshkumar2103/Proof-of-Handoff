@@ -18,7 +18,13 @@ public class HandOfflyProperties {
     private final Cors cors = new Cors();
     private final Support support = new Support();
     private final Payment payment = new Payment();
+    private final Auth auth = new Auth();
+    private final RateLimit rateLimit = new RateLimit();
+    private final Jobs jobs = new Jobs();
 
+    public Auth getAuth() { return auth; }
+    public RateLimit getRateLimit() { return rateLimit; }
+    public Jobs getJobs() { return jobs; }
     public Payment getPayment() { return payment; }
     public Jwt getJwt() { return jwt; }
     public Recipient getRecipient() { return recipient; }
@@ -59,7 +65,14 @@ public class HandOfflyProperties {
         private String from = "no-reply@handoffly.local";
         /** Optional path to a custom Proof-of-Handoff email template; blank uses the built-in one. */
         private String pdfTemplateFile = "";
+        /**
+         * Send account emails (password reset) in the background, so the time a request takes never shows whether an
+         * account exists. Only tests turn this off, to see the email at once.
+         */
+        private boolean async = true;
 
+        public boolean isAsync() { return async; }
+        public void setAsync(boolean async) { this.async = async; }
         public String getProvider() { return provider; }
         public void setProvider(String provider) { this.provider = provider; }
         public String getFrom() { return from; }
@@ -122,6 +135,97 @@ public class HandOfflyProperties {
         public void setPassword(String password) { this.password = password; }
         public String getRole() { return role; }
         public void setRole(String role) { this.role = role; }
+    }
+
+    public static class Auth {
+        /** The customer app's page that completes a password reset; the one-time token is appended to it. */
+        private String resetLinkBaseUrl = "http://localhost:5173/reset-password";
+        private int resetTokenTtlMinutes = 30;
+
+        public String getResetLinkBaseUrl() { return resetLinkBaseUrl; }
+        public void setResetLinkBaseUrl(String resetLinkBaseUrl) { this.resetLinkBaseUrl = resetLinkBaseUrl; }
+        public int getResetTokenTtlMinutes() { return resetTokenTtlMinutes; }
+        public void setResetTokenTtlMinutes(int resetTokenTtlMinutes) { this.resetTokenTtlMinutes = resetTokenTtlMinutes; }
+    }
+
+    /**
+     * How many attempts of each kind one caller may make in a window (the windows are fixed in code). Generous for a
+     * person, tight for a script. Tests raise them so that a suite sharing one address is not throttled.
+     */
+    public static class RateLimit {
+        private boolean enabled = true;
+        /** Sign-in requests per address, per 10 minutes. */
+        private int loginPerIp = 30;
+        /** FAILED sign-ins for one email from one address, per 15 minutes. */
+        private int loginFailuresPerAccount = 10;
+        /** Staff sign-in requests per address, per 10 minutes. */
+        private int staffLoginPerIp = 30;
+        /** Registrations per address, per hour. */
+        private int registerPerIp = 20;
+        /** Password-reset requests per address, per hour. */
+        private int forgotPerIp = 10;
+        /** Password-reset emails for one email address, per hour. */
+        private int forgotPerEmail = 3;
+        /** Password-reset completions per address, per hour. */
+        private int resetPerIp = 20;
+        /** Wrong current passwords for one signed-in account, per 15 minutes. */
+        private int passwordChangeFailures = 5;
+        /** Recipient-link requests per address, per minute. */
+        private int recipientPerIp = 120;
+        /** Demo payments per address, per hour. */
+        private int paymentPerIp = 30;
+        /** Customer job runs started by hand ("Run now") per customer, per hour — each one sends an email. */
+        private int jobRunsPerUser = 20;
+
+        public boolean isEnabled() { return enabled; }
+        public void setEnabled(boolean enabled) { this.enabled = enabled; }
+        public int getLoginPerIp() { return loginPerIp; }
+        public void setLoginPerIp(int v) { this.loginPerIp = v; }
+        public int getLoginFailuresPerAccount() { return loginFailuresPerAccount; }
+        public void setLoginFailuresPerAccount(int v) { this.loginFailuresPerAccount = v; }
+        public int getStaffLoginPerIp() { return staffLoginPerIp; }
+        public void setStaffLoginPerIp(int v) { this.staffLoginPerIp = v; }
+        public int getRegisterPerIp() { return registerPerIp; }
+        public void setRegisterPerIp(int v) { this.registerPerIp = v; }
+        public int getForgotPerIp() { return forgotPerIp; }
+        public void setForgotPerIp(int v) { this.forgotPerIp = v; }
+        public int getForgotPerEmail() { return forgotPerEmail; }
+        public void setForgotPerEmail(int v) { this.forgotPerEmail = v; }
+        public int getResetPerIp() { return resetPerIp; }
+        public void setResetPerIp(int v) { this.resetPerIp = v; }
+        public int getPasswordChangeFailures() { return passwordChangeFailures; }
+        public void setPasswordChangeFailures(int v) { this.passwordChangeFailures = v; }
+        public int getRecipientPerIp() { return recipientPerIp; }
+        public void setRecipientPerIp(int v) { this.recipientPerIp = v; }
+        public int getPaymentPerIp() { return paymentPerIp; }
+        public void setPaymentPerIp(int v) { this.paymentPerIp = v; }
+        public int getJobRunsPerUser() { return jobRunsPerUser; }
+        public void setJobRunsPerUser(int v) { this.jobRunsPerUser = v; }
+    }
+
+    /** Customer jobs (reminders and the weekly summary) and the scheduler that runs them. */
+    public static class Jobs {
+        /** Whether this instance runs scheduled jobs at all. Tests turn it off and run jobs themselves. */
+        private boolean schedulerEnabled = true;
+        /** How often the scheduler looks for jobs that are due. */
+        private int pollSeconds = 60;
+        /** The shortest time a customer's schedule may leave between two runs: more often than this is refused. */
+        private int minIntervalMinutes = 60;
+        /** The timezone a customer's job starts in (they can change it); a Java zone id such as Asia/Kolkata or UTC. */
+        private String defaultTimezone = "Asia/Kolkata";
+        /** How many days before a subscription ends the support-side expiry job reminds its customer (staff can change it). */
+        private int expiryWindowDays = 7;
+
+        public int getExpiryWindowDays() { return expiryWindowDays; }
+        public void setExpiryWindowDays(int expiryWindowDays) { this.expiryWindowDays = expiryWindowDays; }
+        public boolean isSchedulerEnabled() { return schedulerEnabled; }
+        public void setSchedulerEnabled(boolean schedulerEnabled) { this.schedulerEnabled = schedulerEnabled; }
+        public int getPollSeconds() { return pollSeconds; }
+        public void setPollSeconds(int pollSeconds) { this.pollSeconds = pollSeconds; }
+        public int getMinIntervalMinutes() { return minIntervalMinutes; }
+        public void setMinIntervalMinutes(int minIntervalMinutes) { this.minIntervalMinutes = minIntervalMinutes; }
+        public String getDefaultTimezone() { return defaultTimezone; }
+        public void setDefaultTimezone(String defaultTimezone) { this.defaultTimezone = defaultTimezone; }
     }
 
     public static class Payment {

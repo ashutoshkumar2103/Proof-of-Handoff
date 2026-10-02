@@ -1,6 +1,7 @@
 package com.handoffly.support.staff;
 
 import com.handoffly.auth.SecurityErrorResponder;
+import com.handoffly.auth.SecurityHeaders;
 import com.handoffly.auth.jwt.JwtService;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
@@ -47,6 +48,7 @@ public class SupportSecurityConfig {
                         .accessDeniedHandler(securityErrorResponder))
                 .addFilterBefore(new StaffJwtAuthenticationFilter(jwtService, staffService),
                         UsernamePasswordAuthenticationFilter.class);
+        SecurityHeaders.apply(http);
         return http.build();
     }
 }

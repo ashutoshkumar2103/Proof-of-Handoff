@@ -19,6 +19,7 @@ public class CapturingEmailSender implements EmailSender {
     private static final Pattern TOKEN_IN_LINK = Pattern.compile("/r/([A-Za-z0-9_-]+)");
 
     private volatile EmailMessage lastMessage;
+    private final java.util.List<EmailMessage> messages = new java.util.concurrent.CopyOnWriteArrayList<>();
     private volatile boolean failing;
 
     @Override
@@ -27,6 +28,17 @@ public class CapturingEmailSender implements EmailSender {
             throw new IllegalStateException("The mail server is unavailable.");
         }
         this.lastMessage = message;
+        this.messages.add(message);
+    }
+
+    /** Everything sent so far, oldest first. */
+    public java.util.List<EmailMessage> getMessages() {
+        return java.util.List.copyOf(messages);
+    }
+
+    /** The messages sent to one address, oldest first. */
+    public java.util.List<EmailMessage> messagesTo(String address) {
+        return messages.stream().filter(m -> m.to().equalsIgnoreCase(address)).toList();
     }
 
     public EmailMessage getLastMessage() {

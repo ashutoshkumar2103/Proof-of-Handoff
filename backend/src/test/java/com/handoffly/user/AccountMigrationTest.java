@@ -89,7 +89,16 @@ class AccountMigrationTest {
                     + "VALUES (1, 0, " + now + ", " + now + ", 101, 1, 'PLAN_CHANGED', 'MONTHLY', 'YEARLY', 'Old change')");
         }
 
-        flyway(null).migrate();   // everything after V12
+        flyway("15").migrate();   // + V13 (staff roles), V14 (short IDs), V15 (payments)
+        try (Connection c = DriverManager.getConnection(URL, "sa", "")) {
+            // A plan a customer paid for before subscription history existed.
+            exec(c, "INSERT INTO payment (id, version, created_at, updated_at, provider, plan, amount, currency, token_hash, paid_at, "
+                    + "expires_at, redeemed_at, redeemed_by_user_id, plan_before) VALUES (1, 0, " + now + ", " + now
+                    + ", 'DEMO', 'QUARTERLY', 549, 'INR', '" + "b".repeat(64) + "', " + now + ", TIMESTAMP '2030-01-01 00:00:00', "
+                    + now + ", 9, 'MONTHLY')");
+        }
+
+        flyway(null).migrate();   // everything after V15: V16 (sessions, password reset), V17 (subscription lifecycle), V20 (no plan until activated)
 
         try (Connection c = DriverManager.getConnection(URL, "sa", "")) {
             // Accounts: stable IDs, default plan and prefix, counters positioned after what exists.
@@ -98,6 +107,18 @@ class AccountMigrationTest {
             assertThat(column(c, "SELECT subscription_plan FROM app_user")).containsOnly("MONTHLY");
             assertThat(column(c, "SELECT handoff_prefix FROM app_user")).containsOnly("HO");
             assertThat(column(c, "SELECT handoff_sequence FROM app_user ORDER BY id")).containsExactly("6", "14", "0");
+            // Subscription lifecycle: the real start and end of existing plans were never recorded, so they stay empty
+            // (no end date means no change in what anyone can use), and nobody is signed out by the upgrade.
+            assertThat(column(c, "SELECT id FROM app_user WHERE plan_started_at IS NOT NULL OR plan_valid_until IS NOT NULL")).isEmpty();
+            assertThat(column(c, "SELECT token_version FROM app_user")).containsOnly("0");
+            // The history is filled only from what really happened: a plan change support made, and a plan paid for.
+            // Nothing is invented for the customers who were never moved, and no end date is made up.
+            assertThat(column(c, "SELECT user_id || ':' || previous_plan || '>' || new_plan || ':' || source || ':' "
+                    + "|| COALESCE(CAST(staff_id AS VARCHAR), '-') || ':' || COALESCE(reason, '-') "
+                    + "FROM subscription_history ORDER BY source"))
+                    .containsExactly("9:MONTHLY>QUARTERLY:PAYMENT:-:-", "1:MONTHLY>YEARLY:STAFF:101:Old change");
+            assertThat(column(c, "SELECT id FROM subscription_history WHERE valid_until IS NOT NULL")).isEmpty();
+
             // A customer the earlier design had promoted to a staff role is a plain customer again (staff are a
             // separate identity now); the account itself — Account ID, handoffs, everything — is untouched.
             assertThat(column(c, "SELECT role FROM app_user ORDER BY id")).containsExactly("USER", "USER", "USER");
@@ -171,6 +192,22 @@ class AccountMigrationTest {
             exec(c, "INSERT INTO app_user (id, version, created_at, updated_at, email, password_hash, display_name, enabled, account_code) "
                     + "VALUES (50, 0, " + now + ", " + now + ", 'u50@example.test', 'hash', 'User 50', TRUE, 'CUS-50')");
             assertThat(column(c, "SELECT role FROM app_user WHERE id = 50")).containsExactly("USER");
+
+            // V20: an account may have no plan at all (existing ones, asserted above, keep theirs), and the first plan a customer
+            // ever pays for is recorded as replacing nothing.
+            exec(c, "INSERT INTO app_user (id, version, created_at, updated_at, email, password_hash, display_name, enabled, account_code, "
+                    + "subscription_plan) VALUES (51, 0, " + now + ", " + now + ", 'u51@example.test', 'hash', 'User 51', TRUE, 'CUS-51', NULL)");
+            assertThat(column(c, "SELECT COALESCE(subscription_plan, 'NONE') FROM app_user WHERE id = 51")).containsExactly("NONE");
+            String payment = "INSERT INTO payment (id, version, created_at, updated_at, provider, plan, amount, currency, token_hash, paid_at, "
+                    + "expires_at, redeemed_at, redeemed_by_user_id, plan_before) VALUES ";
+            String paidAndExpiring = now + ", TIMESTAMP '2030-01-01 00:00:00', ";
+            exec(c, payment + "(2, 0, " + now + ", " + now + ", 'DEMO', 'YEARLY', 1999, 'INR', '" + "c".repeat(64) + "', " + paidAndExpiring
+                    + now + ", 51, NULL)");
+            // The constraint still guards what it always did: a redemption is recorded in full or not at all.
+            assertThatThrownBy(() -> exec(c, payment + "(3, 0, " + now + ", " + now + ", 'DEMO', 'YEARLY', 1999, 'INR', '" + "d".repeat(64)
+                    + "', " + paidAndExpiring + now + ", NULL, NULL)")).isInstanceOf(SQLException.class);   // redeemed, but by nobody
+            assertThatThrownBy(() -> exec(c, payment + "(4, 0, " + now + ", " + now + ", 'DEMO', 'YEARLY', 1999, 'INR', '" + "e".repeat(64)
+                    + "', " + paidAndExpiring + "NULL, NULL, 'MONTHLY')")).isInstanceOf(SQLException.class);   // not redeemed, yet has a result
 
             try (PreparedStatement ps = c.prepareStatement("SELECT COUNT(*) FROM handoff")) {
                 try (ResultSet rs = ps.executeQuery()) {

@@ -3,20 +3,83 @@ import { Link, useNavigate, useSearchParams } from 'react-router-dom';
 import { useMutation, useQuery } from '@tanstack/react-query';
 import { documentCheckApi, handoffApi } from '../api/endpoints';
 import type {
-  CompareInput, CompareResult, DocFieldInput, DocLineInput, ImportMatchState, MatchStatus, ReturnPrefill,
+  CompareInput, CompareResult, DocFieldInput, DocLineInput, ImportMatchState, MatchStatus, ReturnPrefill, SubscriptionPlan,
 } from '../api/types';
-import { ErrorNotice, Spinner, errorMessage } from '../components/ui';
+import { ErrorNotice, Gated, Spinner, errorMessage, useTransient } from '../components/ui';
+import { UpgradePlans } from '../components/UpgradePlans';
 import { owed } from '../components/ReturnForm';
-import { qty } from '../lib/format';
+import { isPlanRequired, saveBlob } from '../api/client';
+import { useSubscriptionGate } from '../auth/useSubscriptionGate';
+import { HANDOFFCHECK_PLAN_MESSAGE, PLAN_LABELS, qty } from '../lib/format';
 
 /**
  * Two separate journeys share this page. `?returnFor=<handoffId>` is return-import mode for
  * that handoff (feeds the return form); with no param it is the standalone File A vs File B check.
+ * Both need an active subscription: the gate checks it while the page is open and shows the dialog. The standalone comparison
+ * is also a feature of some plans only (Half-Yearly and Yearly): other plans see it locked, with the message and the plans that
+ * unlock it, which they can pay the difference for right there. Return-import mode is part of Returns, not that tool, and stays
+ * on every plan.
  */
 export function HandoffCheckPage() {
+  const gate = useSubscriptionGate();
   const [params] = useSearchParams();
+  const [upgraded, setUpgraded] = useTransient<string>();
   const returnFor = Number(params.get('returnFor'));
-  return returnFor > 0 ? <ReturnImport handoffId={returnFor} /> : <FileCompare />;
+  if (gate.state === 'checking') return <Spinner />;
+  if (!gate.shown) return null;   // never shown as usable without a subscription: all the customer sees is the dialog
+  // The plan is read from the backend's latest answer, so a plan changed by support shows on the next check, with no sign-in.
+  if (returnFor <= 0 && gate.state === 'active' && gate.account?.handoffCheck === false) {
+    // An active subscription always has a plan. After an upgrade the account is asked again at once, so the page unlocks by itself.
+    return <HandoffCheckLocked plan={gate.account.plan!} onUpgraded={(plan) => {
+      setUpgraded(`Your ${PLAN_LABELS[plan]} plan is now active — HandoffCheck is unlocked.`);
+      gate.refresh();
+    }} />;
+  }
+  // A request the backend refused: a subscription that ended is the gate's dialog; a plan without HandoffCheck (it changed
+  // since the last check) means ask again — the locked view follows. Anything else is left to the caller as an ordinary error.
+  const handleRefusal: HandleRefusal = (error) => {
+    if (gate.handle(error)) return true;
+    if (!isPlanRequired(error)) return false;
+    gate.recheck();
+    return true;
+  };
+  return (
+    <Gated blocked={gate.blocked}>
+      {upgraded && <div className="notice notice-success mb-2" role="status">{upgraded}</div>}
+      {returnFor > 0
+        ? <ReturnImport handoffId={returnFor} handleRefusal={handleRefusal} />
+        : <FileCompare handleRefusal={handleRefusal} />}
+    </Gated>
+  );
+}
+
+/** Takes a request's error and returns true if it was a refusal the page deals with itself (so there is no error to print). */
+type HandleRefusal = (error: unknown) => boolean;
+
+/**
+ * HandoffCheck as a feature the customer's plan does not include: still there to see, not usable, with the plans that unlock it —
+ * shown here, not on another page — and the way to pay the difference for one.
+ */
+function HandoffCheckLocked({ plan, onUpgraded }: { plan: SubscriptionPlan; onUpgraded: (plan: SubscriptionPlan) => void }) {
+  const [open, setOpen] = useState(false);
+  return (
+    <div className="stack">
+      <div>
+        <h1>HandoffCheck <span aria-hidden="true">🔒</span></h1>
+        <p className="muted">Compare two files and find differences.</p>
+      </div>
+      <div className="card">
+        <p style={{ margin: 0 }}><strong>{HANDOFFCHECK_PLAN_MESSAGE}</strong></p>
+        <p className="muted small">
+          You are on the {PLAN_LABELS[plan]} plan. Move to a plan that includes it and pay only the difference.
+        </p>
+        <button type="button" className="btn btn-primary btn-sm" aria-expanded={open} onClick={() => setOpen(!open)}>
+          {open ? 'Hide the plans' : 'See the plans'}
+        </button>
+      </div>
+      {open && <UpgradePlans onUpgraded={onUpgraded} />}
+    </div>
+  );
 }
 
 interface ImportRow { name: string; qty: string; itemId: number | ''; match: ImportMatchState }
@@ -27,7 +90,7 @@ const round3 = (n: number) => Math.round(n * 1000) / 1000;
  * correct matches/quantities, then go back to the same return form with Return qty prefilled.
  * Nothing is recorded here — the existing return form and API do that.
  */
-function ReturnImport({ handoffId }: { handoffId: number }) {
+function ReturnImport({ handoffId, handleRefusal }: { handoffId: number; handleRefusal: HandleRefusal }) {
   const navigate = useNavigate();
   const handoff = useQuery({ queryKey: ['handoff', handoffId], queryFn: () => handoffApi.get(handoffId) });
   const [rows, setRows] = useState<ImportRow[] | null>(null);
@@ -43,7 +106,7 @@ function ReturnImport({ handoffId }: { handoffId: number }) {
         name: r.importedName, qty: String(r.importedQuantity), itemId: r.itemId ?? '', match: r.match,
       })));
     },
-    onError: (e) => { setError(errorMessage(e)); setRows(null); },
+    onError: (e) => { if (!handleRefusal(e)) setError(errorMessage(e)); setRows(null); },
   });
 
   if (handoff.isLoading) return <Spinner />;
@@ -179,10 +242,11 @@ type Step = 'upload' | 'review' | 'result';
  * Standalone HandoffCheck: File A vs File B. Upload both, review/correct what was read,
  * compare. Not connected to any handoff or return, and nothing is stored.
  */
-function FileCompare() {
+function FileCompare({ handleRefusal }: { handleRefusal: HandleRefusal }) {
   const [step, setStep] = useState<Step>('upload');
   const [sides, setSides] = useState<[Side, Side]>([emptySide, emptySide]);
   const [error, setError] = useState<string | null>(null);
+  const [exporting, setExporting] = useState<'PDF' | 'CSV' | null>(null);
 
   const patchSide = (i: 0 | 1, p: Partial<Side>) =>
     setSides((s) => (i === 0 ? [{ ...s[0], ...p }, s[1]] : [s[0], { ...s[1], ...p }]));
@@ -194,6 +258,7 @@ function FileCompare() {
         const lines = await documentCheckApi.extract(s.file!);
         return { lines: lines.map((l) => ({ name: l.name, quantity: String(l.quantity ?? '') })), fields: [], error: null };
       } catch (e) {
+        handleRefusal(e);   // if it is the subscription refusal the dialog takes over; the per-file message is only the fallback
         return { lines: null, fields: [], error: errorMessage(e) };
       }
     })),
@@ -207,7 +272,7 @@ function FileCompare() {
   const compare = useMutation({
     mutationFn: (body: CompareInput) => documentCheckApi.compare(body),
     onSuccess: () => { setError(null); setStep('result'); },
-    onError: (e) => setError(errorMessage(e)),
+    onError: (e) => { if (!handleRefusal(e)) setError(errorMessage(e)); },
   });
 
   function runCompare() {
@@ -220,6 +285,22 @@ function FileCompare() {
       referenceLabel: SIDE_LABELS[0], referenceLines: rows(a), referenceFields: fields(a),
       targetLabel: SIDE_LABELS[1], targetLines: rows(b), targetFields: fields(b),
     });
+  }
+
+  /** The comparison on screen, as a file: the very request it was made from is sent again, so they cannot differ. */
+  async function download(format: 'PDF' | 'CSV') {
+    if (!compare.variables) return;
+    setError(null);
+    setExporting(format);
+    try {
+      const { blob, filename } = await documentCheckApi.exportComparison(
+        compare.variables, sides[0].file?.name, sides[1].file?.name, format);
+      saveBlob(blob, filename ?? `handoffcheck-comparison.${format.toLowerCase()}`);
+    } catch (e) {
+      if (!handleRefusal(e)) setError(errorMessage(e));
+    } finally {
+      setExporting(null);
+    }
   }
 
   function reset() {
@@ -286,6 +367,14 @@ function FileCompare() {
       {step === 'result' && compare.data && (
         <>
           <ResultView result={compare.data} fileNames={[sides[0].file?.name, sides[1].file?.name]} />
+          <div className="row">
+            <button className="btn btn-primary" disabled={exporting !== null} onClick={() => download('PDF')}>
+              {exporting === 'PDF' ? 'Preparing PDF…' : 'Download comparison PDF'}
+            </button>
+            <button className="btn" disabled={exporting !== null} onClick={() => download('CSV')}>
+              {exporting === 'CSV' ? 'Preparing CSV…' : 'Download comparison CSV'}
+            </button>
+          </div>
           <div className="row">
             <button className="btn" onClick={() => setStep('review')}>Edit data</button>
             <button className="btn btn-ghost" onClick={reset}>Compare other files</button>

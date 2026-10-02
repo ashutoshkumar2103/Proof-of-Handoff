@@ -1,9 +1,9 @@
-import { api, downloadBlob, downloadFile, upload } from './client';
+import { api, downloadBlob, downloadFile, postForFile, upload } from './client';
 import type {
   AuthResponse, CompareInput, CompareResult, CreateHandoffInput, CreateReturnInput, CreateTicketInput, DocLineInput,
   DashboardResponse, HandoffDetail, HandoffStatus, HandoffSummary, Page, RecipientView, RegisterInput,
-  PaymentReceipt, PlanPrice, ReturnEvent, ReturnImportResult, SubscriptionPlan, SupportMessageInput, TicketAttachment,
-  TicketDetail, TicketSummary, User, Attachment, AttachmentKind,
+  ChangePasswordInput, HandoffTemplate, ItemImportPreview, PaymentReceipt, PlanPrice, ProfileInput, ResetPasswordInput, ReturnEvent, ReturnImportResult, SubscriptionPlan, SupportMessageInput, TicketAttachment,
+  TicketDetail, TicketSummary, UpgradeOption, User, Attachment, AttachmentKind, Job, JobRun, JobType,
 } from './types';
 
 // --- Auth ---
@@ -12,7 +12,31 @@ export const authApi = {
     api<AuthResponse>('/auth/register', { method: 'POST', body, auth: false }),
   login: (body: { email: string; password: string }) =>
     api<AuthResponse>('/auth/login', { method: 'POST', body, auth: false }),
-  me: () => api<User>('/auth/me'),
+  /** The signed-in account as it is right now, subscription status included. */
+  me: (signal?: AbortSignal) => api<User>('/auth/me', { signal }),
+  updateProfile: (body: ProfileInput) => api<User>('/auth/me', { method: 'PUT', body }),
+  /** Needs the current password; resolves to a fresh session (every other session has ended). */
+  changePassword: (body: ChangePasswordInput) =>
+    api<AuthResponse>('/auth/change-password', { method: 'POST', body }),
+  /** Always succeeds for a well-formed email: it never says whether an account has it. */
+  forgotPassword: (email: string) =>
+    api<void>('/auth/forgot-password', { method: 'POST', body: { email }, auth: false }),
+  /** From a reset link: no current password, the link's token is the proof. */
+  resetPassword: (body: ResetPasswordInput) =>
+    api<void>('/auth/reset-password', { method: 'POST', body, auth: false }),
+};
+
+// --- Customer jobs (the signed-in customer's own reminders and weekly summary) ---
+export const jobApi = {
+  list: () => api<Job[]>('/account/jobs'),
+  updateSchedule: (type: JobType, body: { cronExpression: string; timezone: string }) =>
+    api<Job>(`/account/jobs/${type}/schedule`, { method: 'PUT', body }),
+  setEnabled: (type: JobType, enabled: boolean) =>
+    api<Job>(`/account/jobs/${type}/enabled`, { method: 'PUT', body: { enabled } }),
+  /** Runs one job now; its schedule and whether it is on stay as they are. */
+  run: (type: JobType) => api<JobRun>(`/account/jobs/${type}/run`, { method: 'POST' }),
+  /** Runs all four jobs once, now. */
+  runAll: () => api<JobRun[]>('/account/jobs/run-all', { method: 'POST' }),
 };
 
 // --- Handoffs (owner) ---
@@ -28,6 +52,8 @@ export const handoffApi = {
     return api<Page<HandoffSummary>>(`/handoffs?${sp.toString()}`);
   },
   get: (id: number) => api<HandoffDetail>(`/handoffs/${id}`),
+  /** What a duplicate of this handoff starts from. Creates nothing. */
+  template: (id: number) => api<HandoffTemplate>(`/handoffs/${id}/template`),
   create: (body: CreateHandoffInput) => api<HandoffDetail>('/handoffs', { method: 'POST', body }),
   update: (id: number, body: Omit<CreateHandoffInput, 'items'>) =>
     api<HandoffDetail>(`/handoffs/${id}`, { method: 'PATCH', body }),
@@ -129,6 +155,14 @@ export const paymentApi = {
     api<PaymentReceipt>('/public/payments/demo', { method: 'POST', body: { plan, ...card }, auth: false }),
   /** The signed-in customer applies a paid-for plan to their own account; resolves to the account as it now is. */
   redeem: (token: string) => api<User>('/payments/redeem', { method: 'POST', body: { token } }),
+  /** The plans the signed-in customer can move up to from their active plan, each priced as what is left to pay. */
+  upgradeOptions: () => api<UpgradeOption[]>('/payments/upgrades'),
+  /**
+   * The signed-in customer pays the difference to move up to a dearer plan and has it at once; resolves to the account as it now is.
+   * `expectedAmount` is what they were shown, not a price: the backend works the price out and refuses (409) if it is no longer that.
+   */
+  upgrade: (plan: SubscriptionPlan, expectedAmount: number, card: { cardNumber: string; expiry: string; cvc: string }) =>
+    api<User>('/payments/upgrade', { method: 'POST', body: { expectedAmount, payment: { plan, ...card } } }),
 };
 
 // --- Public (no sign-in) ---
@@ -142,6 +176,19 @@ export const publicApi = {
 // --- HandoffCheck ---
 export const documentCheckApi = {
   compare: (body: CompareInput) => api<CompareResult>('/handoff-check', { method: 'POST', body }),
+  /**
+   * A finished standalone comparison as a PDF or CSV. It sends the same request the comparison was made from, so
+   * the file is the comparison that was shown. Nothing is stored.
+   */
+  exportComparison: (comparison: CompareInput, fileAName: string | undefined, fileBName: string | undefined,
+                     format: 'PDF' | 'CSV') =>
+    postForFile(`/handoff-check/export?format=${format}`, { fileAName, fileBName, comparison }),
+  /** New Handoff: read an item list (CSV or Excel) into rows to review. Nothing is stored or created. */
+  importItems: (file: File) => {
+    const form = new FormData();
+    form.append('file', file);
+    return upload<ItemImportPreview>('/handoff-check/import-items', form);
+  },
   /** Standalone mode: read one file into editable item/quantity lines (nothing is stored). */
   extract: (file: File) => {
     const form = new FormData();

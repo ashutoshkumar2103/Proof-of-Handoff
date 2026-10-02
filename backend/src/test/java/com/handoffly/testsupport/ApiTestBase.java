@@ -18,6 +18,7 @@ import org.springframework.test.web.servlet.MockMvc;
 import org.springframework.test.web.servlet.MvcResult;
 import org.springframework.test.web.servlet.request.AbstractMockHttpServletRequestBuilder;
 
+import java.time.Instant;
 import java.util.UUID;
 
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.multipart;
@@ -70,7 +71,7 @@ public abstract class ApiTestBase {
     /** A signed-in SUPPORT STAFF member (a different identity from a customer). */
     public record StaffAccount(Long id, String staffCode, String email, String token) implements Bearer {}
 
-    /** A new customer on the default (monthly) plan. */
+    /** A new customer who can use the product: on the default (monthly) plan, activated as if it had been paid for. */
     protected Account register() throws Exception {
         return register(null);
     }
@@ -79,7 +80,19 @@ public abstract class ApiTestBase {
         return register("Test Customer", plan);
     }
 
+    /** A new customer on the given plan (monthly when null), activated as test setup: registration itself never does. */
     protected Account register(String displayName, SubscriptionPlan plan) throws Exception {
+        Account account = registerWithoutPlan(displayName);
+        setPlan(account, plan == null ? SubscriptionPlan.MONTHLY : plan);
+        return account;
+    }
+
+    /** A new customer exactly as public registration leaves them: signed in, with no plan and nothing active. */
+    protected Account registerWithoutPlan() throws Exception {
+        return registerWithoutPlan("Test Customer");
+    }
+
+    private Account registerWithoutPlan(String displayName) throws Exception {
         String email = "user-" + UUID.randomUUID().toString().substring(0, 12) + "@example.test";
         MvcResult res = mvc.perform(post("/api/v1/auth/register")
                         .contentType(MediaType.APPLICATION_JSON)
@@ -89,12 +102,7 @@ public abstract class ApiTestBase {
                 .andReturn();
         String json = res.getResponse().getContentAsString();
         Number id = JsonPath.read(json, "$.user.id");
-        Account account = new Account(id.longValue(), JsonPath.read(json, "$.user.accountCode"), email,
-                JsonPath.read(json, "$.token"));
-        if (plan != null) {
-            setPlan(account, plan);
-        }
-        return account;
+        return new Account(id.longValue(), JsonPath.read(json, "$.user.accountCode"), email, JsonPath.read(json, "$.token"));
     }
 
     protected Account login(String email) throws Exception {
@@ -130,9 +138,10 @@ public abstract class ApiTestBase {
         jdbc.update("UPDATE support_staff SET active = FALSE WHERE id = ?", staff.id());
     }
 
+    /** Puts the customer on the plan, keeping the dates they have; a first plan starts now, with no end date. */
     protected void setPlan(Account account, SubscriptionPlan plan) {
         User user = users.findById(account.id()).orElseThrow();
-        user.setSubscriptionPlan(plan);
+        user.startPlan(plan, user.getPlanStartedAt() != null ? user.getPlanStartedAt() : Instant.now(), user.getPlanValidUntil());
         users.saveAndFlush(user);
     }
 
@@ -170,6 +179,24 @@ public abstract class ApiTestBase {
                 .andExpect(status().isCreated())
                 .andReturn();
         return JsonPath.read(res.getResponse().getContentAsString(), "$.ticket.ticketCode");
+    }
+
+    /**
+     * A handoff taken to "active with the recipient": created with one item (10 Chairs), sent, and accepted through
+     * the recipient's own link. {@code dueAt} is an ISO instant or null. Returns the handoff id.
+     */
+    protected long activeHandoff(Account owner, String title, String dueAt) throws Exception {
+        String body = """
+                {"title":"%s","senderName":"Sender","recipientName":"Recipient %s","recipientEmail":"recipient@example.test",
+                 %s "items":[{"name":"Chairs","quantity":10,"unit":"pcs"}]}"""
+                .formatted(title, title, dueAt == null ? "" : "\"dueAt\":\"" + dueAt + "\",");
+        String created = mvc.perform(as(owner, post("/api/v1/handoffs").contentType(MediaType.APPLICATION_JSON).content(body)))
+                .andExpect(status().isCreated()).andReturn().getResponse().getContentAsString();
+        long id = ((Number) JsonPath.read(created, "$.id")).longValue();
+        mvc.perform(as(owner, post("/api/v1/handoffs/" + id + "/submit"))).andExpect(status().isOk());
+        mvc.perform(post("/api/v1/r/" + emailSender.extractLastToken() + "/accept").contentType(MediaType.APPLICATION_JSON)
+                .content("{\"acknowledgementName\":\"Recipient\"}")).andExpect(status().isOk());
+        return id;
     }
 
     /** Sends a support message as this customer (whose plan must include Contact Support); returns its reference. */

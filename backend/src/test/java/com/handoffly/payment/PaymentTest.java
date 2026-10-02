@@ -2,11 +2,17 @@ package com.handoffly.payment;
 
 import com.handoffly.testsupport.ApiTestBase;
 import com.handoffly.user.SubscriptionPlan;
+import com.handoffly.user.User;
 import com.jayway.jsonpath.JsonPath;
 import org.junit.jupiter.api.Test;
+import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.http.MediaType;
+import org.springframework.mock.web.MockHttpServletResponse;
+import org.springframework.transaction.PlatformTransactionManager;
+import org.springframework.transaction.support.TransactionTemplate;
 import org.springframework.test.web.servlet.ResultActions;
 
+import java.time.Instant;
 import java.util.List;
 import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.ExecutorService;
@@ -25,6 +31,9 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
  * the customer signs up with or signs in to. The backend alone decides the plan, from a payment it recorded.
  */
 class PaymentTest extends ApiTestBase {
+
+    @Autowired
+    private PlatformTransactionManager transactions;
 
     private static final String PAY = "/api/v1/public/payments/demo";
     private static final String REDEEM = "/api/v1/payments/redeem";
@@ -59,6 +68,29 @@ class PaymentTest extends ApiTestBase {
     private ResultActions redeem(Bearer who, String token) throws Exception {
         return mvc.perform(as(who, post(REDEEM).contentType(MediaType.APPLICATION_JSON)
                 .content("{\"token\":\"" + token + "\"}")));
+    }
+
+    private static final String UPGRADES = "/api/v1/payments/upgrades";
+    private static final String UPGRADE = "/api/v1/payments/upgrade";
+    private static final String COMPARE =
+            "{\"referenceLines\":[{\"name\":\"A\",\"quantity\":1}],\"targetLines\":[{\"name\":\"A\",\"quantity\":1}]}";
+
+    private ResultActions upgradeOptions(Bearer who) throws Exception {
+        return mvc.perform(as(who, get(UPGRADES)));
+    }
+
+    /** Pays the difference to move up to {@code plan}, saying what the customer was shown, with the approved demo card. */
+    private ResultActions upgrade(Bearer who, SubscriptionPlan plan, int expectedAmount) throws Exception {
+        return upgrade(who, plan.name(), expectedAmount, APPROVED_CARD, "12/99", "123");
+    }
+
+    private ResultActions upgrade(Bearer who, String plan, int expectedAmount, String card, String expiry, String cvc) throws Exception {
+        return mvc.perform(as(who, post(UPGRADE).contentType(MediaType.APPLICATION_JSON)
+                .content("{\"expectedAmount\":" + expectedAmount + ",\"payment\":" + body(plan, card, expiry, cvc) + "}")));
+    }
+
+    private void lapse(Account customer) {
+        jdbc.update("UPDATE app_user SET plan_valid_until = TIMESTAMPADD(DAY, -1, CURRENT_TIMESTAMP) WHERE id = ?", customer.id());
     }
 
     private void assertPlan(Account customer, SubscriptionPlan plan) throws Exception {
@@ -285,8 +317,219 @@ class PaymentTest extends ApiTestBase {
         mvc.perform(post("/api/v1/auth/register").contentType(MediaType.APPLICATION_JSON)
                         .content("{\"email\":\"sneaky@example.test\",\"password\":\"password123\",\"displayName\":\"Sneaky\","
                                 + "\"plan\":\"YEARLY\",\"subscriptionPlan\":\"YEARLY\"}"))
-                .andExpect(status().isCreated()).andExpect(jsonPath("$.user.plan").value("MONTHLY"));
+                .andExpect(status().isCreated()).andExpect(jsonPath("$.user.plan").isEmpty())
+                .andExpect(jsonPath("$.user.subscription.status").value("INACTIVE"));
         redeem(customer, "YEARLY").andExpect(status().isBadRequest());
         assertPlan(customer, SubscriptionPlan.MONTHLY);
+
+        // An account with no plan at all gains nothing from a made-up token either.
+        Account unpaid = registerWithoutPlan();
+        redeem(unpaid, "YEARLY").andExpect(status().isBadRequest());
+        mvc.perform(as(unpaid, get("/api/v1/auth/me"))).andExpect(jsonPath("$.plan").isEmpty())
+                .andExpect(jsonPath("$.subscription.status").value("INACTIVE"));
+    }
+
+    // ------------------------------------------------------------------ upgrading by paying the difference
+
+    @Test
+    void theUpgradeOptionsAreThePlansThatCostMoreAtTheDifferenceOfListPrices() throws Exception {
+        // The plan a customer is on counts in full as already paid: Quarterly 549 -> Half-yearly 999 leaves 450 to pay.
+        upgradeOptions(register(SubscriptionPlan.QUARTERLY)).andExpect(status().isOk())
+                .andExpect(jsonPath("$.length()").value(2))
+                .andExpect(jsonPath("$[0].from").value("QUARTERLY"))   // the credit is for the plan they are on
+                .andExpect(jsonPath("$[0].price.plan").value("HALF_YEARLY"))
+                .andExpect(jsonPath("$[0].price.amount").value(SubscriptionPlan.HALF_YEARLY.amount()))
+                .andExpect(jsonPath("$[0].price.currency").value("INR"))
+                .andExpect(jsonPath("$[0].credit").value(SubscriptionPlan.QUARTERLY.amount()))
+                .andExpect(jsonPath("$[0].amountDue").value(SubscriptionPlan.HALF_YEARLY.amount() - SubscriptionPlan.QUARTERLY.amount()))
+                .andExpect(jsonPath("$[0].handoffCheck").value(true))
+                .andExpect(jsonPath("$[1].price.plan").value("YEARLY"))
+                .andExpect(jsonPath("$[1].amountDue").value(SubscriptionPlan.YEARLY.amount() - SubscriptionPlan.QUARTERLY.amount()))
+                .andExpect(jsonPath("$[1].handoffCheck").value(true));
+        assertThat(SubscriptionPlan.HALF_YEARLY.upgradeAmountFrom(SubscriptionPlan.QUARTERLY)).isEqualTo(450);   // 999 - 549
+
+        // From Monthly every dearer plan is offered, and the response says which of them include HandoffCheck.
+        upgradeOptions(register(SubscriptionPlan.MONTHLY)).andExpect(status().isOk())
+                .andExpect(jsonPath("$.length()").value(3))
+                .andExpect(jsonPath("$[0].price.plan").value("QUARTERLY")).andExpect(jsonPath("$[0].handoffCheck").value(false))
+                .andExpect(jsonPath("$[1].price.plan").value("HALF_YEARLY")).andExpect(jsonPath("$[1].handoffCheck").value(true))
+                .andExpect(jsonPath("$[2].price.plan").value("YEARLY")).andExpect(jsonPath("$[2].handoffCheck").value(true));
+    }
+
+    @Test
+    void thereAreNoUpgradeOptionsFromTheDearestPlanOrWithoutAnActivePlan() throws Exception {
+        upgradeOptions(register(SubscriptionPlan.YEARLY)).andExpect(status().isOk()).andExpect(jsonPath("$.length()").value(0));
+        upgradeOptions(registerWithoutPlan()).andExpect(status().isOk()).andExpect(jsonPath("$.length()").value(0));
+        Account lapsed = register(SubscriptionPlan.QUARTERLY);
+        lapse(lapsed);   // a plan that ran out is bought again, not upgraded
+        upgradeOptions(lapsed).andExpect(status().isOk()).andExpect(jsonPath("$.length()").value(0));
+    }
+
+    @Test
+    void payingTheDifferenceMovesToTheDearerPlanAtOnceAndUnlocksHandoffCheck() throws Exception {
+        Account customer = register(SubscriptionPlan.QUARTERLY);
+        mvc.perform(as(customer, post("/api/v1/handoff-check").contentType(MediaType.APPLICATION_JSON).content(COMPARE)))
+                .andExpect(status().isForbidden()).andExpect(jsonPath("$.code").value("plan_required"));
+        int due = SubscriptionPlan.HALF_YEARLY.upgradeAmountFrom(SubscriptionPlan.QUARTERLY);
+
+        Instant before = Instant.now();
+        upgrade(customer, SubscriptionPlan.HALF_YEARLY, due).andExpect(status().isOk())
+                .andExpect(jsonPath("$.accountCode").value(customer.accountCode()))
+                .andExpect(jsonPath("$.plan").value("HALF_YEARLY"))
+                .andExpect(jsonPath("$.subscription.status").value("ACTIVE"))
+                .andExpect(jsonPath("$.handoffCheck").value(true))
+                .andExpect(jsonPath("$.support.ticket").value(true));
+
+        // The ledger: what was really charged, for which plan, replacing which.
+        var row = jdbc.queryForMap("SELECT plan, amount, plan_before FROM payment WHERE redeemed_by_user_id = ?", customer.id());
+        assertThat(row.get("plan")).isEqualTo("HALF_YEARLY");
+        assertThat(((Number) row.get("amount")).intValue()).isEqualTo(due);
+        assertThat(row.get("plan_before")).isEqualTo("QUARTERLY");
+        // The new plan starts now and lasts its own duration; the old one is replaced, not stacked on.
+        User saved = users.findById(customer.id()).orElseThrow();
+        assertThat(saved.getPlanStartedAt()).isBetween(before.minusSeconds(1), Instant.now().plusSeconds(1));
+        assertThat(saved.getPlanValidUntil()).isEqualTo(SubscriptionPlan.HALF_YEARLY.validUntil(saved.getPlanStartedAt()));
+        var history = jdbc.queryForMap("SELECT source, previous_plan, new_plan FROM subscription_history WHERE user_id = ?", customer.id());
+        assertThat(history.values()).containsExactly("PAYMENT", "QUARTERLY", "HALF_YEARLY");
+
+        // The tool that was locked works now, with no sign-in again, and only the dearest plan is left to move up to.
+        mvc.perform(as(customer, post("/api/v1/handoff-check").contentType(MediaType.APPLICATION_JSON).content(COMPARE)))
+                .andExpect(status().isOk());
+        upgradeOptions(customer).andExpect(jsonPath("$.length()").value(1)).andExpect(jsonPath("$[0].price.plan").value("YEARLY"));
+    }
+
+    @Test
+    void everyDearerPlanIsReachedByPayingExactlyTheDifference() throws Exception {
+        for (SubscriptionPlan from : SubscriptionPlan.values()) {
+            for (SubscriptionPlan to : SubscriptionPlan.values()) {
+                if (to.amount() <= from.amount()) continue;
+                Account customer = register(from);
+                int due = to.amount() - from.amount();
+                upgrade(customer, to, due).andExpect(status().isOk()).andExpect(jsonPath("$.plan").value(to.name()));
+                assertThat(jdbc.queryForObject("SELECT amount FROM payment WHERE redeemed_by_user_id = ?", Integer.class, customer.id()))
+                        .isEqualTo(due);
+            }
+        }
+    }
+
+    @Test
+    void anUpgradeThatIsNotOneOrWhoseAmountIsNotWhatWasShownChargesNothingAndChangesNothing() throws Exception {
+        Account customer = register(SubscriptionPlan.QUARTERLY);
+        long payments = paymentCount();
+        int due = SubscriptionPlan.HALF_YEARLY.upgradeAmountFrom(SubscriptionPlan.QUARTERLY);
+
+        upgrade(customer, SubscriptionPlan.QUARTERLY, due).andExpect(status().isConflict());   // the plan they are on
+        upgrade(customer, SubscriptionPlan.MONTHLY, due).andExpect(status().isConflict());     // a cheaper plan
+        upgrade(customer, SubscriptionPlan.HALF_YEARLY, due + 1).andExpect(status().isConflict())   // not what they were shown
+                .andExpect(jsonPath("$.detail").value(org.hamcrest.Matchers.containsString(String.valueOf(due))));
+        upgrade(customer, SubscriptionPlan.HALF_YEARLY, due - 1).andExpect(status().isConflict());
+
+        // A request that does not say what was shown is malformed, not a free upgrade.
+        for (String json : new String[]{"{\"payment\":" + body("HALF_YEARLY") + "}",
+                "{\"expectedAmount\":0,\"payment\":" + body("HALF_YEARLY") + "}",
+                "{\"expectedAmount\":" + due + "}", "{\"expectedAmount\":" + due + ",\"payment\":{}}", "not json"}) {
+            mvc.perform(as(customer, post(UPGRADE).contentType(MediaType.APPLICATION_JSON).content(json))).andExpect(status().isBadRequest());
+        }
+        assertThat(paymentCount()).isEqualTo(payments);
+        assertPlan(customer, SubscriptionPlan.QUARTERLY);
+    }
+
+    @Test
+    void onlyAnActivePlanCanBeUpgraded() throws Exception {
+        long payments = paymentCount();
+        Account none = registerWithoutPlan();
+        upgrade(none, SubscriptionPlan.HALF_YEARLY, SubscriptionPlan.HALF_YEARLY.amount()).andExpect(status().isConflict());
+        mvc.perform(as(none, get("/api/v1/auth/me"))).andExpect(jsonPath("$.plan").isEmpty());
+
+        Account lapsed = register(SubscriptionPlan.QUARTERLY);
+        lapse(lapsed);
+        upgrade(lapsed, SubscriptionPlan.HALF_YEARLY, SubscriptionPlan.HALF_YEARLY.upgradeAmountFrom(SubscriptionPlan.QUARTERLY))
+                .andExpect(status().isConflict());
+        assertPlan(lapsed, SubscriptionPlan.QUARTERLY);
+
+        Account dearest = register(SubscriptionPlan.YEARLY);
+        upgrade(dearest, SubscriptionPlan.YEARLY, 1).andExpect(status().isConflict());
+        assertThat(paymentCount()).isEqualTo(payments);
+    }
+
+    @Test
+    void anUpgradeWithACardThatDoesNotPayChargesNothingAndChangesNothing() throws Exception {
+        Account customer = register(SubscriptionPlan.QUARTERLY);
+        long payments = paymentCount();
+        int due = SubscriptionPlan.HALF_YEARLY.upgradeAmountFrom(SubscriptionPlan.QUARTERLY);
+
+        upgrade(customer, "HALF_YEARLY", due, DECLINED_CARD, "12/99", "123").andExpect(status().isPaymentRequired())
+                .andExpect(jsonPath("$.code").value("card_declined"));
+        String response = upgrade(customer, "HALF_YEARLY", due, "4111 1111 1111 1111", "12/99", "123").andExpect(status().isBadRequest())
+                .andReturn().getResponse().getContentAsString();
+        assertThat(response).doesNotContain("4111");   // a real-looking card is refused without being echoed
+        upgrade(customer, "HALF_YEARLY", due, APPROVED_CARD, "01/20", "123").andExpect(status().isBadRequest());
+        upgrade(customer, "HALF_YEARLY", due, APPROVED_CARD, "12/99", "12").andExpect(status().isBadRequest());
+
+        assertThat(paymentCount()).isEqualTo(payments);
+        assertPlan(customer, SubscriptionPlan.QUARTERLY);
+    }
+
+    @Test
+    void theClientCannotChooseWhatAnUpgradeCosts() throws Exception {
+        Account customer = register(SubscriptionPlan.QUARTERLY);
+        int due = SubscriptionPlan.HALF_YEARLY.upgradeAmountFrom(SubscriptionPlan.QUARTERLY);
+        mvc.perform(as(customer, post(UPGRADE).contentType(MediaType.APPLICATION_JSON).content(
+                        "{\"expectedAmount\":" + due + ",\"amount\":1,\"currency\":\"USD\",\"payment\":"
+                                + body("HALF_YEARLY").replace("}", ",\"amount\":1,\"currency\":\"USD\"}") + "}")))
+                .andExpect(status().isOk());
+        var row = jdbc.queryForMap("SELECT amount, currency FROM payment WHERE redeemed_by_user_id = ?", customer.id());
+        assertThat(((Number) row.get("amount")).intValue()).isEqualTo(due);
+        assertThat(row.get("currency")).isEqualTo("INR");
+    }
+
+    @Test
+    void upgradingNeedsASignedInCustomer() throws Exception {
+        int due = SubscriptionPlan.HALF_YEARLY.upgradeAmountFrom(SubscriptionPlan.QUARTERLY);
+        mvc.perform(get(UPGRADES)).andExpect(status().isUnauthorized());
+        mvc.perform(post(UPGRADE).contentType(MediaType.APPLICATION_JSON)
+                .content("{\"expectedAmount\":" + due + ",\"payment\":" + body("HALF_YEARLY") + "}")).andExpect(status().isUnauthorized());
+        StaffAccount staff = registerStaff(com.handoffly.support.staff.SupportRole.ADMIN);
+        upgradeOptions(staff).andExpect(status().isUnauthorized());
+        upgrade(staff, SubscriptionPlan.HALF_YEARLY, due).andExpect(status().isUnauthorized());
+    }
+
+    @Test
+    void twoUpgradesInFlightTogetherChargeOnlyOnce() throws Exception {
+        Account customer = register(SubscriptionPlan.QUARTERLY);
+        int due = SubscriptionPlan.HALF_YEARLY.upgradeAmountFrom(SubscriptionPlan.QUARTERLY);
+        ExecutorService pool = Executors.newFixedThreadPool(3);
+        CountDownLatch locked = new CountDownLatch(1);
+        CountDownLatch release = new CountDownLatch(1);
+        try {
+            // Hold the customer's row, as a request in the middle of changing their plan would, so that both upgrades below
+            // really are in flight together instead of one finishing before the other starts.
+            Future<?> holder = pool.submit(() -> new TransactionTemplate(transactions).executeWithoutResult(status -> {
+                users.findByIdForUpdate(customer.id());
+                locked.countDown();
+                try {
+                    release.await();
+                } catch (InterruptedException e) {
+                    Thread.currentThread().interrupt();
+                }
+            }));
+            assertThat(locked.await(10, TimeUnit.SECONDS)).isTrue();
+            List<Future<MockHttpServletResponse>> results = List.of(
+                    pool.submit(() -> upgrade(customer, SubscriptionPlan.HALF_YEARLY, due).andReturn().getResponse()),
+                    pool.submit(() -> upgrade(customer, SubscriptionPlan.HALF_YEARLY, due).andReturn().getResponse()));
+            Thread.sleep(400);   // both are now waiting for the customer's row
+            release.countDown();
+            holder.get(10, TimeUnit.SECONDS);
+            List<MockHttpServletResponse> responses = List.of(results.get(0).get(20, TimeUnit.SECONDS), results.get(1).get(20, TimeUnit.SECONDS));
+            assertThat(responses).extracting(MockHttpServletResponse::getStatus).containsExactlyInAnyOrder(200, 409);
+            // The second finds nothing left to upgrade and is told so plainly (the row lock), not with a generic lost-update error.
+            MockHttpServletResponse second = responses.stream().filter(r -> r.getStatus() == 409).findFirst().orElseThrow();
+            assertThat(second.getContentAsString()).contains("not an upgrade");
+        } finally {
+            release.countDown();
+            pool.shutdownNow();
+        }
+        assertThat(jdbc.queryForObject("SELECT COUNT(*) FROM payment WHERE redeemed_by_user_id = ?", Long.class, customer.id())).isEqualTo(1L);
+        assertPlan(customer, SubscriptionPlan.HALF_YEARLY);
     }
 }

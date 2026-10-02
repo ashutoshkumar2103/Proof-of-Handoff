@@ -4,18 +4,30 @@ import jakarta.persistence.criteria.Predicate;
 import org.springframework.data.jpa.domain.Specification;
 
 import java.util.Locale;
+import java.util.regex.Pattern;
 
 /** Composable, database-side filters for the staff list; a null/blank argument means "no restriction". */
 public final class StaffSpecifications {
 
+    /** A complete Staff ID (STAFF-01, STAFF-120 …). IDs are short, so it must not also match STAFF-010 or STAFF-120. */
+    private static final Pattern FULL_STAFF_ID = Pattern.compile("(?i)STAFF-\\d{2,}");
+
     private StaffSpecifications() {}
 
-    /** Case-insensitive match on Staff ID, name or email. */
+    /**
+     * Case-insensitive match on Staff ID, name or email. Typing a complete Staff ID finds exactly that person;
+     * anything else is a "contains" search.
+     */
     public static Specification<SupportStaff> matching(String text) {
         if (text == null || text.isBlank()) {
             return (root, query, cb) -> null;
         }
-        String like = "%" + text.trim().toLowerCase(Locale.ROOT) + "%";
+        String trimmed = text.trim();
+        if (FULL_STAFF_ID.matcher(trimmed).matches()) {
+            String code = trimmed.toUpperCase(Locale.ROOT);
+            return (root, query, cb) -> cb.equal(root.get("staffCode"), code);
+        }
+        String like = "%" + trimmed.toLowerCase(Locale.ROOT) + "%";
         return (root, query, cb) -> cb.or(
                 cb.like(cb.lower(root.get("staffCode")), like),
                 cb.like(cb.lower(root.get("name")), like),

@@ -22,7 +22,11 @@ import java.util.Date;
 @Service
 public class JwtService {
 
+    /** The value application.yml falls back to when JWT_SECRET is not set: fine on a laptop, never in production. */
+    private static final String DEVELOPMENT_SECRET_MARKER = "change-me-in-production";
+    private static final org.slf4j.Logger log = org.slf4j.LoggerFactory.getLogger(JwtService.class);
     private static final String CLAIM_EMAIL = "email";
+    private static final String CLAIM_TOKEN_VERSION = "tv";
     private static final String CUSTOMER_AUDIENCE = "handoffly-customers";
     private static final String STAFF_AUDIENCE = "handoffly-support";
 
@@ -37,6 +41,10 @@ public class JwtService {
             throw new IllegalStateException(
                     "handoffly.jwt.secret must be at least 32 bytes for HS256; set a strong JWT_SECRET.");
         }
+        if (properties.getJwt().getSecret().startsWith(DEVELOPMENT_SECRET_MARKER)) {
+            log.warn("The built-in development JWT secret is in use: anyone who knows it can forge sign-in tokens. "
+                    + "Set a strong, private JWT_SECRET before running anywhere real.");
+        }
         this.key = Keys.hmacShaKeyFor(secretBytes);
         this.customerExpirationMinutes = properties.getJwt().getExpirationMinutes();
         this.staffExpirationMinutes = properties.getJwt().getStaffExpirationMinutes();
@@ -44,11 +52,11 @@ public class JwtService {
     }
 
     public IssuedToken issueForCustomer(User user) {
-        return issue(CUSTOMER_AUDIENCE, user.getId(), user.getEmail(), customerExpirationMinutes);
+        return issue(CUSTOMER_AUDIENCE, user.getId(), user.getEmail(), customerExpirationMinutes, user.getTokenVersion());
     }
 
     public IssuedToken issueForStaff(Long staffId, String email) {
-        return issue(STAFF_AUDIENCE, staffId, email, staffExpirationMinutes);
+        return issue(STAFF_AUDIENCE, staffId, email, staffExpirationMinutes, 0);
     }
 
     /** @return the customer the token was issued to, or {@code null} for anything that is not a valid customer token. */
@@ -61,7 +69,7 @@ public class JwtService {
         return parse(token, STAFF_AUDIENCE);
     }
 
-    private IssuedToken issue(String audience, Long subjectId, String email, long expirationMinutes) {
+    private IssuedToken issue(String audience, Long subjectId, String email, long expirationMinutes, int tokenVersion) {
         Instant now = Instant.now();
         Instant expiry = now.plus(expirationMinutes, ChronoUnit.MINUTES);
         String token = Jwts.builder()
@@ -69,6 +77,7 @@ public class JwtService {
                 .audience().add(audience).and()
                 .subject(String.valueOf(subjectId))
                 .claim(CLAIM_EMAIL, email)
+                .claim(CLAIM_TOKEN_VERSION, tokenVersion)
                 .issuedAt(Date.from(now))
                 .expiration(Date.from(expiry))
                 .signWith(key)
@@ -85,7 +94,10 @@ public class JwtService {
                     .build()
                     .parseSignedClaims(token)
                     .getPayload();
-            return new ParsedToken(Long.valueOf(claims.getSubject()), claims.get(CLAIM_EMAIL, String.class));
+            // A token from before versions existed has no claim and counts as version 0, the starting version.
+            Integer version = claims.get(CLAIM_TOKEN_VERSION, Integer.class);
+            return new ParsedToken(Long.valueOf(claims.getSubject()), claims.get(CLAIM_EMAIL, String.class),
+                    version == null ? 0 : version);
         } catch (Exception e) {
             // Invalid tokens are simply unauthenticated; never log the token itself.
             return null;
@@ -94,5 +106,6 @@ public class JwtService {
 
     public record IssuedToken(String token, Instant expiresAt) {}
 
-    public record ParsedToken(Long id, String email) {}
+    /** {@code tokenVersion} is only meaningful for customer tokens (see {@code User#getTokenVersion}). */
+    public record ParsedToken(Long id, String email, int tokenVersion) {}
 }

@@ -1,6 +1,7 @@
 package com.handoffly.auth.dto;
 
 import com.handoffly.user.SubscriptionPlan;
+import com.handoffly.user.SubscriptionSummary;
 import com.handoffly.user.SupportEntitlements;
 import com.handoffly.user.User;
 
@@ -8,7 +9,9 @@ import java.time.Instant;
 
 /**
  * The signed-in user as the apps see it. {@code accountCode} is the customer-facing Account ID;
- * {@code support} is derived from the plan so the UI only offers what the plan includes.
+ * {@code plan} is null for an account nothing has been activated on yet;
+ * {@code support} is derived from the plan so the UI only offers what the plan includes, and {@code handoffCheck} says
+ * whether the plan includes HandoffCheck (a product feature, kept apart from the support entitlements).
  */
 public record UserResponse(
         Long id,
@@ -18,8 +21,11 @@ public record UserResponse(
         String organization,
         String phone,
         SubscriptionPlan plan,
+        String handoffPrefix,
         Instant createdAt,
-        SupportEntitlements support
+        SupportEntitlements support,
+        SubscriptionSummary subscription,
+        boolean handoffCheck
 ) {
     public static UserResponse from(User user, String configuredSupportPhone) {
         return new UserResponse(
@@ -30,7 +36,12 @@ public record UserResponse(
                 user.getOrganization(),
                 user.getPhone(),
                 user.getSubscriptionPlan(),
+                user.getHandoffPrefix(),
                 user.getCreatedAt(),
-                SupportEntitlements.of(user.getSubscriptionPlan(), configuredSupportPhone));
+                // What the plan includes only counts while the subscription is active (see User#entitledPlan); an account with
+                // no plan gets the activation help.
+                SupportEntitlements.of(user, configuredSupportPhone),
+                SubscriptionSummary.of(user, Instant.now()),
+                user.entitledPlan().includesHandoffCheck());
     }
 }

@@ -15,6 +15,10 @@ export interface ConfirmOptions {
    * `confirmed: false`.
    */
   choices?: { value: string; label: string; primary?: boolean }[];
+  /** An alert rather than a question: only the confirm button is shown (Escape and a click outside still close it). */
+  hideCancel?: boolean;
+  /** Aborting this closes the dialog from outside, resolving as not confirmed — for when what it says stops being true. */
+  signal?: AbortSignal;
 }
 
 export interface ConfirmResult {
@@ -40,7 +44,12 @@ export function ConfirmProvider({ children }: { children: ReactNode }) {
   const confirm = useCallback<ConfirmFn>((opts) => {
     setValue(opts.input?.defaultValue ?? '');
     return new Promise<ConfirmResult>((resolve) => {
-      setPending({ opts, resolve });
+      const entry: Pending = { opts, resolve };
+      setPending(entry);
+      opts.signal?.addEventListener('abort', () => {
+        resolve({ confirmed: false, value: '' });
+        setPending((current) => (current === entry ? null : current));   // only if it is still the one on screen
+      }, { once: true });
       // Focus the input/confirm button after render.
       setTimeout(() => inputRef.current?.focus(), 30);
     });
@@ -77,16 +86,18 @@ export function ConfirmProvider({ children }: { children: ReactNode }) {
               </div>
             )}
             <div className="modal-actions">
-              <button type="button" className="btn btn-ghost" onClick={() => settle(false)}>
-                {opts.cancelText ?? 'Cancel'}
-              </button>
+              {!opts.hideCancel && (
+                <button type="button" className="btn btn-ghost" onClick={() => settle(false)}>
+                  {opts.cancelText ?? 'Cancel'}
+                </button>
+              )}
               {opts.choices
                 ? opts.choices.map((c) => (
                     <button key={c.value} type="button" className={`btn ${c.primary ? 'btn-primary' : ''}`}
                             onClick={() => settle(true, c.value)}>{c.label}</button>
                   ))
                 : (
-                  <button type="button"
+                  <button type="button" autoFocus={opts.hideCancel}
                           className={`btn ${opts.danger ? 'btn-danger' : 'btn-primary'}`}
                           disabled={confirmDisabled} onClick={() => settle(true)}>
                     {opts.confirmText ?? 'Confirm'}

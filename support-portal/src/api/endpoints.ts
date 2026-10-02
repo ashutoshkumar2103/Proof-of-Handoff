@@ -1,6 +1,6 @@
 import { api, downloadBlob } from './client';
 import type {
-  AuditEvent, CustomerProfile, CustomerSummary, Dashboard, Page, PlanPrice, Staff, StaffAuthResponse, StaffRole,
+  AuditEvent, CustomerProfile, CustomerSummary, Dashboard, ExpiryJob, ExpiryJobRun, Page, PlanPrice, Staff, StaffAuthResponse, StaffRole,
   StaffSummary, SubscriptionPlan, TicketDetail, TicketStatus, TicketSummary,
 } from './types';
 
@@ -63,10 +63,11 @@ export const supportApi = {
   /** The prefix that NEW handoffs of this customer get. */
   setPrefix: (accountCode: string, prefix: string) =>
     api<CustomerProfile>(`/support/customers/${accountCode}/prefix`, { method: 'PUT', body: { prefix } }),
-  /** An explicit, confirmed plan change; entitlements follow the plan. `fromPlan` is the plan the staff member was looking at. */
-  changePlan: (accountCode: string, fromPlan: SubscriptionPlan, toPlan: SubscriptionPlan, reason?: string) =>
+  /** An explicit, confirmed plan change; entitlements follow the plan. `fromPlan` is the plan the staff member was looking at (null: none). */
+  changePlan: (accountCode: string, fromPlan: SubscriptionPlan | null, toPlan: SubscriptionPlan, reason?: string,
+               validUntil?: string) =>
     api<CustomerProfile>(`/support/customers/${accountCode}/plan`,
-      { method: 'PUT', body: { fromPlan, toPlan, reason: reason?.trim() || undefined } }),
+      { method: 'PUT', body: { fromPlan, toPlan, validUntil: validUntil || undefined, reason: reason?.trim() || undefined } }),
 
   tickets: (f: TicketFilters) => {
     const sp = new URLSearchParams({ page: String(f.page ?? 0), size: String(f.size ?? 20) });
@@ -82,4 +83,15 @@ export const supportApi = {
     api<TicketDetail>(`/support/tickets/${code}/messages`, { method: 'POST', body: { body } }),
   downloadAttachment: (code: string, attachmentId: number) =>
     downloadBlob(`/support/tickets/${code}/attachments/${attachmentId}/content`),
+};
+
+// --- Jobs (administrators and managers: the permission that covers changing plans) ---
+export const jobApi = {
+  expiry: () => api<ExpiryJob>('/support/jobs/subscription-expiry'),
+  updateExpiry: (body: { cronExpression: string; timezone: string; windowDays: number }) =>
+    api<ExpiryJob>('/support/jobs/subscription-expiry/schedule', { method: 'PUT', body }),
+  setExpiryEnabled: (enabled: boolean) =>
+    api<ExpiryJob>('/support/jobs/subscription-expiry/enabled', { method: 'PUT', body: { enabled } }),
+  /** Runs the job once, now; whether it is on and its schedule stay as they are. */
+  runExpiry: () => api<ExpiryJobRun>('/support/jobs/subscription-expiry/run', { method: 'POST' }),
 };

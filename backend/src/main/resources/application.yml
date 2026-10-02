@@ -42,6 +42,9 @@ spring:
 
 server:
   port: ${SERVER_PORT:8080}
+  # Behind a reverse proxy set FORWARD_HEADERS_STRATEGY=native, so the caller's real address (used by the rate limits)
+  # is read from the proxy's X-Forwarded-For. Left at "none" otherwise, so a caller cannot choose its own address.
+  forward-headers-strategy: ${FORWARD_HEADERS_STRATEGY:none}
   error:
     include-message: never
     include-stacktrace: never
@@ -104,6 +107,31 @@ handoffly:
       email: ${SUPPORT_STAFF_EMAIL:}
       password: ${SUPPORT_STAFF_PASSWORD:}
       role: ${SUPPORT_STAFF_ROLE:ADMIN}
+  auth:
+    # The customer app page that completes a password reset (the one-time token is appended). Set to the real site in production.
+    reset-link-base-url: ${PASSWORD_RESET_LINK_BASE_URL:http://localhost:5173/reset-password}
+    reset-token-ttl-minutes: ${PASSWORD_RESET_TTL_MINUTES:30}
+  rate-limit:
+    enabled: ${RATE_LIMIT_ENABLED:true}
+    # Per caller address unless stated; the windows are fixed in code. Behind a reverse proxy, set FORWARD_HEADERS_STRATEGY=native.
+    login-per-ip: ${RATE_LIMIT_LOGIN_PER_IP:30}
+    login-failures-per-account: ${RATE_LIMIT_LOGIN_FAILURES_PER_ACCOUNT:10}
+    staff-login-per-ip: ${RATE_LIMIT_STAFF_LOGIN_PER_IP:30}
+    register-per-ip: ${RATE_LIMIT_REGISTER_PER_IP:20}
+    forgot-per-ip: ${RATE_LIMIT_FORGOT_PER_IP:10}
+    forgot-per-email: ${RATE_LIMIT_FORGOT_PER_EMAIL:3}
+    reset-per-ip: ${RATE_LIMIT_RESET_PER_IP:20}
+    password-change-failures: ${RATE_LIMIT_PASSWORD_CHANGE_FAILURES:5}
+    recipient-per-ip: ${RATE_LIMIT_RECIPIENT_PER_IP:120}
+    payment-per-ip: ${RATE_LIMIT_PAYMENT_PER_IP:30}
+    job-runs-per-user: ${RATE_LIMIT_JOB_RUNS_PER_USER:20}
+  jobs:
+    # Customer reminders and the weekly summary. Turn the scheduler off on instances that should not run them.
+    scheduler-enabled: ${JOBS_SCHEDULER_ENABLED:true}
+    poll-seconds: ${JOBS_POLL_SECONDS:60}
+    min-interval-minutes: ${JOBS_MIN_INTERVAL_MINUTES:60}
+    default-timezone: ${JOBS_DEFAULT_TIMEZONE:Asia/Kolkata}
+    expiry-window-days: ${JOBS_EXPIRY_WINDOW_DAYS:7}
   payment:
     # DEMO provider: anyone can "pay" for a plan without real money. Development/testing only — keep false in production.
     demo-enabled: ${PAYMENT_DEMO_ENABLED:false}

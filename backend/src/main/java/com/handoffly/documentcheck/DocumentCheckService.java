@@ -6,6 +6,7 @@ import com.handoffly.documentcheck.dto.CompareRequest;
 import com.handoffly.documentcheck.dto.CompareResult;
 import com.handoffly.documentcheck.dto.DocumentField;
 import com.handoffly.documentcheck.dto.DocumentLine;
+import com.handoffly.documentcheck.dto.ItemImportPreview;
 import com.handoffly.documentcheck.dto.ReturnImportResult;
 import com.handoffly.handoff.Handoff;
 import com.handoffly.handoff.HandoffAction;
@@ -20,7 +21,9 @@ import org.springframework.web.multipart.MultipartFile;
 import java.math.BigDecimal;
 import java.text.Normalizer;
 import java.util.ArrayList;
+import java.util.HashSet;
 import java.util.LinkedHashMap;
+import java.util.Set;
 import java.util.List;
 import java.util.Locale;
 import java.util.Map;
@@ -33,6 +36,10 @@ import java.util.Map;
  */
 @Service
 public class DocumentCheckService {
+
+    private static final int MAX_ITEM_NAME = 300;
+    private static final int MAX_QUANTITY_DECIMALS = 3;
+    private static final int MAX_QUANTITY_INTEGER_DIGITS = 16;
 
     static final String FILE_A_LABEL = "File A";
     static final String FILE_B_LABEL = "File B";
@@ -117,6 +124,40 @@ public class DocumentCheckService {
         return compareDocuments(
                 FILE_A_LABEL, extractLabelled(FILE_A_LABEL, fileA), List.of(),
                 FILE_B_LABEL, extractLabelled(FILE_B_LABEL, fileB), List.of());
+    }
+
+    /**
+     * Reads an item list (CSV or Excel) for the New Handoff screen, for the customer to review before it is added
+     * to the ordinary item table. Uses the same extraction as HandoffCheck. Read-only: no handoff is created or
+     * changed here — the items go through the normal create/edit flow once the customer accepts them. Rows that
+     * cannot become an item (no quantity, a quantity that is not above zero or has more than three decimals, a name
+     * too long) are left out and counted; a repeated name is flagged, not merged.
+     */
+    public ItemImportPreview previewItemImport(MultipartFile file) {
+        DocumentLineExtractor.Extraction found = extractor.extractReport(file, DocumentLineExtractor.SPREADSHEET_TYPES);
+        int skipped = found.skippedRows();
+        List<ItemImportPreview.Line> lines = new ArrayList<>();
+        Set<String> seen = new HashSet<>();
+        for (DocumentLine line : found.lines()) {
+            if (!isUsableAsItem(line)) {
+                skipped++;
+                continue;
+            }
+            lines.add(new ItemImportPreview.Line(line.name(), line.quantity(), !seen.add(normalizeName(line.name()))));
+        }
+        if (lines.isEmpty()) {
+            throw new BadRequestException("No usable items were found in the file. Use a header row with an item (or "
+                    + "name) column and a quantity column, and quantities above zero.");
+        }
+        return new ItemImportPreview(file.getOriginalFilename(), lines, skipped);
+    }
+
+    /** What a handoff item accepts: a name up to 300 characters and a quantity above zero, up to 3 decimals. */
+    private static boolean isUsableAsItem(DocumentLine line) {
+        BigDecimal q = line.quantity();
+        return line.name().length() <= MAX_ITEM_NAME && q.signum() > 0
+                && q.stripTrailingZeros().scale() <= MAX_QUANTITY_DECIMALS
+                && q.precision() - q.scale() <= MAX_QUANTITY_INTEGER_DIGITS;
     }
 
     /** Extracts item/quantity lines from one uploaded file (the review step before comparing). */

@@ -18,6 +18,11 @@ public class LoggingEmailSender implements EmailSender {
 
     private static final Logger log = LoggerFactory.getLogger(LoggingEmailSender.class);
 
+    public LoggingEmailSender() {
+        log.warn("Email is NOT being sent: handoffly.mail.provider is 'logging', so every email (including password "
+                + "reset and recipient links) is only written to this log. Set MAIL_PROVIDER=smtp for real delivery.");
+    }
+
     @Override
     public boolean deliversMail() {
         return false;

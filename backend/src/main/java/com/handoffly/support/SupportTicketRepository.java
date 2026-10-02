@@ -10,6 +10,7 @@ import org.springframework.data.jpa.repository.JpaSpecificationExecutor;
 import org.springframework.data.jpa.repository.Query;
 import org.springframework.data.repository.query.Param;
 
+import java.time.Instant;
 import java.util.Collection;
 import java.util.Optional;
 
@@ -32,9 +33,14 @@ public interface SupportTicketRepository
 
     long countByAccountIdAndStatusIn(Long accountId, Collection<TicketStatus> statuses);
 
-    /** How many different customers on any of the given plans have a ticket in one of the given statuses. */
+    /**
+     * How many different customers on any of the given plans, with a subscription that is still active at {@code now},
+     * have a ticket in one of the given statuses.
+     */
     @Query("select count(distinct t.account.id) from SupportTicket t "
-            + "where t.status in :statuses and t.account.subscriptionPlan in :plans")
+            + "where t.status in :statuses and t.account.subscriptionPlan in :plans "
+            + "and (t.account.planValidUntil is null or t.account.planValidUntil > :now)")
     long countCustomersWithTickets(@Param("statuses") Collection<TicketStatus> statuses,
-                                   @Param("plans") Collection<SubscriptionPlan> plans);
+                                   @Param("plans") Collection<SubscriptionPlan> plans,
+                                   @Param("now") Instant now);
 }

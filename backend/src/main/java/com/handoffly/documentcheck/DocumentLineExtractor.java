@@ -35,13 +35,17 @@ import java.util.regex.Pattern;
 @Component
 public class DocumentLineExtractor {
 
-    private static final Set<String> EXTENSIONS = Set.of("csv", "xlsx", "pdf");
+    /** Every supported file type, in the order they are listed to the user. */
+    private static final List<String> TYPES = List.of("csv", "xlsx", "pdf");
+    /** The spreadsheet types: what an item list can be imported from. */
+    public static final Set<String> SPREADSHEET_TYPES = Set.of("csv", "xlsx");
     private static final int MAX_LINES = 2000;
     private static final int HEADER_SCAN_ROWS = 20;
     private static final char[] CSV_DELIMITERS = {',', ';', '\t'};
 
     private static final Set<String> NAME_HEADERS = Set.of(
-            "item", "items", "item name", "name", "description", "product", "particulars", "article", "material");
+            "item", "items", "item name", "item description", "item details", "name", "description", "product",
+            "product name", "particulars", "article", "material");
     private static final Set<String> QTY_HEADERS = Set.of(
             "qty", "quantity", "count", "nos", "units", "pcs", "returned", "return qty", "return quantity");
 
@@ -57,7 +61,23 @@ public class DocumentLineExtractor {
         this.maxFileSizeBytes = properties.getStorage().getMaxFileSizeBytes();
     }
 
+    /** The item/quantity lines found, and how many rows that had something in them were left out. */
+    public record Extraction(List<DocumentLine> lines, int skippedRows) {}
+
     public List<DocumentLine> extract(MultipartFile file) {
+        Extraction found = extractReport(file, Set.copyOf(TYPES));
+        if (found.lines().isEmpty()) {
+            throw new BadRequestException("No item and quantity rows could be found in the file.");
+        }
+        return found.lines();
+    }
+
+    /**
+     * The one place a file is read into lines, for any caller: checks the size and that its type is one of
+     * {@code allowedTypes}, reads it, and reports the rows it could not use. Having no usable rows is not an error
+     * here — {@link #extract} makes it one, and an importer can say something more helpful.
+     */
+    public Extraction extractReport(MultipartFile file, Set<String> allowedTypes) {
         if (file == null || file.isEmpty()) {
             throw new BadRequestException("No file was provided.");
         }
@@ -65,8 +85,8 @@ public class DocumentLineExtractor {
             throw new BadRequestException("File exceeds the maximum allowed size.");
         }
         String extension = extensionOf(file.getOriginalFilename());
-        if (!EXTENSIONS.contains(extension)) {
-            throw new BadRequestException("Unsupported file type. Upload a .csv, .xlsx or .pdf file.");
+        if (!allowedTypes.contains(extension)) {
+            throw new BadRequestException("Unsupported file type. Upload a " + describe(allowedTypes) + " file.");
         }
 
         List<List<String>> rows;
@@ -82,14 +102,18 @@ public class DocumentLineExtractor {
             throw new BadRequestException("The file could not be read as a valid ." + extension + " document.");
         }
 
-        List<DocumentLine> lines = toLines(rows);
-        if (lines.isEmpty()) {
-            throw new BadRequestException("No item and quantity rows could be found in the file.");
-        }
-        if (lines.size() > MAX_LINES) {
+        Extraction found = toLines(rows);
+        if (found.lines().size() > MAX_LINES) {
             throw new BadRequestException("The file has too many rows (maximum " + MAX_LINES + ").");
         }
-        return lines;
+        return found;
+    }
+
+    /** ".csv, .xlsx or .pdf" for the types in {@code allowed}. */
+    private static String describe(Set<String> allowed) {
+        List<String> names = TYPES.stream().filter(allowed::contains).map(t -> "." + t).toList();
+        return names.size() < 2 ? String.join("", names)
+                : String.join(", ", names.subList(0, names.size() - 1)) + " or " + names.getLast();
     }
 
     // ------------------------------------------------------------ Format readers
@@ -186,13 +210,13 @@ public class DocumentLineExtractor {
      * takes the first non-numeric cell as the name and the first number after it as the
      * quantity. Rows without both are skipped.
      */
-    private static List<DocumentLine> toLines(List<List<String>> rows) {
+    private static Extraction toLines(List<List<String>> rows) {
         int nameCol = -1, qtyCol = -1, firstData = 0;
         for (int r = 0; r < Math.min(rows.size(), HEADER_SCAN_ROWS) && nameCol < 0; r++) {
             List<String> cells = rows.get(r);
             int n = -1, q = -1;
             for (int c = 0; c < cells.size(); c++) {
-                String h = cells.get(c).toLowerCase(Locale.ROOT).trim();
+                String h = headerKey(cells.get(c));
                 if (n < 0 && NAME_HEADERS.contains(h)) n = c;
                 else if (q < 0 && QTY_HEADERS.contains(h)) q = c;
             }
@@ -200,6 +224,7 @@ public class DocumentLineExtractor {
         }
 
         List<DocumentLine> lines = new ArrayList<>();
+        int skipped = 0;
         for (int r = firstData; r < rows.size(); r++) {
             List<String> cells = rows.get(r);
             String name = null;
@@ -220,9 +245,29 @@ public class DocumentLineExtractor {
             }
             if (name != null && !name.isBlank() && quantity != null) {
                 lines.add(new DocumentLine(name.trim(), quantity));
+            } else if (isSkippedRow(cells, nameCol >= 0)) {
+                skipped++;
             }
         }
-        return lines;
+        return new Extraction(lines, skipped);
+    }
+
+    /**
+     * A header cell reduced to the words it is made of, so "Qty.", "QUANTITY (pcs)" and "Item  Description" match
+     * the same names as "qty", "quantity" and "item description".
+     */
+    private static String headerKey(String raw) {
+        return raw.toLowerCase(Locale.ROOT).replaceAll("\\(.*?\\)", " ").replaceAll("[^a-z ]", " ")
+                .replaceAll("\\s+", " ").trim();
+    }
+
+    /**
+     * A row that had content but gave no item and quantity. With a header row, any non-empty row counts; without one,
+     * a single-cell row is a title or a note, not a missing quantity, so only rows with two or more cells count.
+     */
+    private static boolean isSkippedRow(List<String> cells, boolean hasHeader) {
+        long filled = cells.stream().filter(c -> !c.isBlank()).count();
+        return hasHeader ? filled > 0 : filled > 1;
     }
 
     private static String cell(List<String> cells, int index) {

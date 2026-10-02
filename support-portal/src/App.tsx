@@ -10,6 +10,7 @@ import { CustomerPage } from './pages/CustomerPage';
 import { TicketsPage } from './pages/TicketsPage';
 import { TicketPage } from './pages/TicketPage';
 import { StaffPage } from './pages/StaffPage';
+import { JobsPage } from './pages/JobsPage';
 import type { Permission } from './api/types';
 
 /** Everything except the login page needs a signed-in member of staff. */
@@ -43,6 +44,7 @@ export function App() {
         <Route path="/customers/:accountId" element={<RequirePermission permission="VIEW_CUSTOMERS"><CustomerPage /></RequirePermission>} />
         <Route path="/tickets" element={<TicketsPage />} />
         <Route path="/tickets/:ticketId" element={<TicketPage />} />
+        <Route path="/jobs" element={<RequirePermission permission="MANAGE_CUSTOMERS"><JobsPage /></RequirePermission>} />
         <Route path="/staff" element={<RequirePermission permission="MANAGE_STAFF"><StaffPage /></RequirePermission>} />
       </Route>
       <Route path="*" element={<Navigate to="/dashboard" replace />} />

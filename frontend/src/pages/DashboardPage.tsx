@@ -1,11 +1,12 @@
-import { useMemo, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import { Link, useLocation, useNavigate } from 'react-router-dom';
 import { useQuery } from '@tanstack/react-query';
 import { handoffApi } from '../api/endpoints';
 import { useAuth } from '../auth/AuthContext';
 import type { HandoffStatus, HandoffSummary } from '../api/types';
 import { StatusBadge } from '../components/StatusBadge';
-import { ErrorNotice, Spinner } from '../components/ui';
+import { ErrorNotice, Spinner, useNoActivePlanModal } from '../components/ui';
+import { getPendingPayment } from '../lib/checkout';
 import { formatDate, qty, STATUS_LABELS } from '../lib/format';
 
 type Filter = HandoffStatus | 'ALL' | 'OVERDUE';
@@ -23,7 +24,21 @@ export function DashboardPage() {
   const navigate = useNavigate();
   const { user } = useAuth();
   // E.g. "Your Quarterly plan is now active." after paying for a plan and signing in.
-  const notice = (useLocation().state as { notice?: string } | null)?.notice;
+  const arrival = useLocation().state as { notice?: string; noPlanDialogSeen?: boolean } | null;
+  const notice = arrival?.notice;
+
+  // An account that signed up without paying has no plan: say so, and how to get it activated. Not while a payment made
+  // before signing up is still being applied to it (that is about to give it one), nor straight after the customer closed
+  // that same dialog on a page they could not use.
+  const showNoPlan = useNoActivePlanModal();
+  const needsActivation = !!user && !user.subscription.plan && !getPendingPayment() && !arrival?.noPlanDialogSeen;
+  useEffect(() => {
+    if (!needsActivation) return;
+    const dialog = new AbortController();
+    void showNoPlan(dialog.signal);
+    return () => dialog.abort();
+  }, [needsActivation, showNoPlan]);
+
   const [filter, setFilter] = useState<Filter>('ALL');
   const [q, setQ] = useState('');
   const [search, setSearch] = useState('');
