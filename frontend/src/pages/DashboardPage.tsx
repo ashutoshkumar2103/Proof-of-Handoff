@@ -1,5 +1,5 @@
 import { useMemo, useState } from 'react';
-import { Link, useNavigate } from 'react-router-dom';
+import { Link, useLocation, useNavigate } from 'react-router-dom';
 import { useQuery } from '@tanstack/react-query';
 import { handoffApi } from '../api/endpoints';
 import { useAuth } from '../auth/AuthContext';
@@ -22,6 +22,8 @@ const OVERDUE_STATUSES: HandoffStatus[] = ['ACTIVE_WITH_RECIPIENT', 'RETURN_PEND
 export function DashboardPage() {
   const navigate = useNavigate();
   const { user } = useAuth();
+  // E.g. "Your Quarterly plan is now active." after paying for a plan and signing in.
+  const notice = (useLocation().state as { notice?: string } | null)?.notice;
   const [filter, setFilter] = useState<Filter>('ALL');
   const [q, setQ] = useState('');
   const [search, setSearch] = useState('');
@@ -75,6 +77,8 @@ export function DashboardPage() {
           <Link to="/handoffs/new" className="btn btn-primary">+ New handoff</Link>
         </div>
       </div>
+
+      {notice && <div className="notice notice-success">{notice}</div>}
 
       {dashboard.isLoading ? <Spinner /> : dashboard.isError ? <ErrorNotice error={dashboard.error} /> : (
         <div className="stat-grid">

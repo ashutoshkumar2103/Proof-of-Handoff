@@ -11,6 +11,15 @@ export interface PlanPrice {
   support: SupportEntitlements;
 }
 
+/** Proof that a plan was paid for. The token applies it to an account once; it is only ever shown here. */
+export interface PaymentReceipt {
+  token: string;
+  plan: SubscriptionPlan;
+  amount: number;
+  currency: string;
+  expiresAt: string;
+}
+
 export type HandoffStatus =
   | 'DRAFT'
   | 'OUTGOING_SENT'

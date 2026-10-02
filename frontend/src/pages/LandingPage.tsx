@@ -203,7 +203,7 @@ export function LandingPage() {
                     <li>HandoffCheck comparison</li>
                     {supportHighlights(price.support).map((line) => <li key={line}>{line}</li>)}
                   </ul>
-                  <Link to="/register" className={`btn btn-block ${p.highlight ? 'btn-primary' : ''}`}>
+                  <Link to={`/checkout?plan=${p.plan}`} className={`btn btn-block ${p.highlight ? 'btn-primary' : ''}`}>
                     Choose {p.name}
                   </Link>
                 </div>

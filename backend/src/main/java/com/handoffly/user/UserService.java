@@ -95,6 +95,18 @@ public class UserService {
         return new AccountChange(customer, current.name(), newPlan.name());
     }
 
+    /**
+     * Puts the customer on a plan they have paid for and returns the plan they were on. Unlike a support
+     * staff change this needs no expected current plan: what was paid for is what they get. Runs in the
+     * caller's transaction.
+     */
+    public SubscriptionPlan applyPaidPlan(Long userId, SubscriptionPlan plan) {
+        User customer = getByIdForUpdate(userId);
+        SubscriptionPlan before = customer.getSubscriptionPlan();
+        customer.setSubscriptionPlan(plan);
+        return before;
+    }
+
     private User lockedCustomer(String accountCode) {
         return userRepository.findByAccountCodeForUpdate(accountCode)
                 .orElseThrow(() -> new NotFoundException("Customer not found."));

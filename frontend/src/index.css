@@ -163,7 +163,9 @@ textarea { resize: vertical; min-height: 72px; }
 .field { margin-bottom: 0.9rem; }
 .field-row { display: grid; grid-template-columns: 1fr 1fr; gap: 0.9rem; }
 /* Cards placed side by side share the row; the stacked-card top margin must not offset the second. */
-.field-row > .card { margin-top: 0; }
+.field-row > .card,
+.feature-grid > .card,
+.pricing-grid > .card { margin-top: 0; }
 /* File picker: whole area is clickable / droppable; the native input stays for keyboard + a11y. */
 .upload-zone {
   position: relative; display: flex; flex-direction: column; align-items: center; justify-content: center;

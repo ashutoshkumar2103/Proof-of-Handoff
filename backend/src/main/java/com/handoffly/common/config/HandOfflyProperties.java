@@ -17,7 +17,9 @@ public class HandOfflyProperties {
     private final Storage storage = new Storage();
     private final Cors cors = new Cors();
     private final Support support = new Support();
+    private final Payment payment = new Payment();
 
+    public Payment getPayment() { return payment; }
     public Jwt getJwt() { return jwt; }
     public Recipient getRecipient() { return recipient; }
     public Mail getMail() { return mail; }
@@ -120,6 +122,21 @@ public class HandOfflyProperties {
         public void setPassword(String password) { this.password = password; }
         public String getRole() { return role; }
         public void setRole(String role) { this.role = role; }
+    }
+
+    public static class Payment {
+        /**
+         * The demo payment provider: lets anyone "pay" for a plan without any money changing hands. For
+         * development and testing only — it must stay off wherever plans are worth something.
+         */
+        private boolean demoEnabled = false;
+        /** How long a paid-for plan can wait to be applied to an account before the payment expires. */
+        private int redeemTtlHours = 24;
+
+        public boolean isDemoEnabled() { return demoEnabled; }
+        public void setDemoEnabled(boolean demoEnabled) { this.demoEnabled = demoEnabled; }
+        public int getRedeemTtlHours() { return redeemTtlHours; }
+        public void setRedeemTtlHours(int redeemTtlHours) { this.redeemTtlHours = redeemTtlHours; }
     }
 
     public static class Cors {

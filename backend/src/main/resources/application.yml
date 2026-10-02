@@ -104,6 +104,10 @@ handoffly:
       email: ${SUPPORT_STAFF_EMAIL:}
       password: ${SUPPORT_STAFF_PASSWORD:}
       role: ${SUPPORT_STAFF_ROLE:ADMIN}
+  payment:
+    # DEMO provider: anyone can "pay" for a plan without real money. Development/testing only — keep false in production.
+    demo-enabled: ${PAYMENT_DEMO_ENABLED:false}
+    redeem-ttl-hours: ${PAYMENT_REDEEM_TTL_HOURS:24}
   cors:
     # Customer app (5173) and support portal (5175) in development; list real origins in production.
     allowed-origins: ${CORS_ALLOWED_ORIGINS:http://localhost:5173,http://localhost:5175}

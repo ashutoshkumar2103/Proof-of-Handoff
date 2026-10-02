@@ -12,6 +12,7 @@ import { EditHandoffPage } from './pages/EditHandoffPage';
 import { HandoffDetailPage } from './pages/HandoffDetailPage';
 import { RecipientPage } from './pages/RecipientPage';
 import { HandoffCheckPage } from './pages/HandoffCheckPage';
+import { CheckoutPage } from './pages/CheckoutPage';
 import { SupportPage } from './pages/SupportPage';
 import { NewTicketPage } from './pages/NewTicketPage';
 import { TicketDetailPage } from './pages/TicketDetailPage';
@@ -44,6 +45,8 @@ export function App() {
       <Route path="/" element={<LandingPage />} />
       <Route path="/login" element={<PublicOnly><LoginPage /></PublicOnly>} />
       <Route path="/register" element={<PublicOnly><RegisterPage /></PublicOnly>} />
+      {/* Paying for a plan comes first; signed-in customers can use it too (it applies to their account). */}
+      <Route path="/checkout" element={<CheckoutPage />} />
       {/* Public recipient review — no account required */}
       <Route path="/r/:token" element={<RecipientPage />} />
 

@@ -33,5 +33,7 @@ handoffly:
   support:
     mailbox: support-desk@handoffly.test
     phone: "+1 555 0100"
+  payment:
+    demo-enabled: true
   cors:
     allowed-origins: http://localhost:5173

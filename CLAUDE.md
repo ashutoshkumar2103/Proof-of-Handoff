@@ -18,7 +18,7 @@ differences are handled with **categories/templates**, never with per-industry c
 - **Modular monolith.** One Spring Boot app, package-by-module. Never microservices.
 - Backend modules (Java packages under `com.handoffly`):
   `common`, `auth`, `user`, `handoff`, `returns`, `recipient`, `attachment`,
-  `audit`, `notification`, `documentcheck`, `support`.
+  `audit`, `notification`, `documentcheck`, `support`, `payment`.
 - Keep module boundaries clean: a module exposes services; other modules depend on
   those services, not on each other's internals.
 - **Backend is the single authoritative source of business rules.** The frontend may

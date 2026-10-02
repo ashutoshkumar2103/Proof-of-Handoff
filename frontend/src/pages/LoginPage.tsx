@@ -4,6 +4,7 @@ import { useAuth } from '../auth/AuthContext';
 import { errorMessage } from '../components/ui';
 import { PasswordInput } from '../components/PasswordInput';
 import { AuthShell } from '../components/AuthShell';
+import { PendingPaymentNotice } from '../components/PendingPaymentNotice';
 
 export function LoginPage() {
   const { login } = useAuth();
@@ -18,8 +19,8 @@ export function LoginPage() {
     setError(null);
     setBusy(true);
     try {
-      await login(email, password);
-      navigate('/dashboard');
+      const notice = await login(email, password);
+      navigate('/dashboard', { state: { notice } });
     } catch (err) {
       setError(errorMessage(err));
     } finally {
@@ -32,7 +33,8 @@ export function LoginPage() {
       <form className="card auth-card" onSubmit={onSubmit}>
         <div className="brand">Hand<span>Offly</span></div>
         <p className="muted center mb-2">Welcome back — sign in to continue</p>
-        {error && <div className="notice notice-error mb-2">{error}</div>}
+        <PendingPaymentNotice action="Sign in" />
+        {error &&<div className="notice notice-error mb-2">{error}</div>}
         <div className="field">
           <label htmlFor="email">Email</label>
           <input id="email" type="email" autoComplete="username" value={email}

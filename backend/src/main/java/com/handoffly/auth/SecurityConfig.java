@@ -51,6 +51,8 @@ public class SecurityConfig {
                         .requestMatchers("/api/v1/r/**").permitAll()
                         // General contact address and plan prices for the public site (the support API itself is not public).
                         .requestMatchers(HttpMethod.GET, "/api/v1/public/contact", "/api/v1/public/plans").permitAll()
+                        // Paying for a plan comes before having an account (404 unless the demo provider is enabled).
+                        .requestMatchers(HttpMethod.POST, "/api/v1/public/payments/demo").permitAll()
                         .requestMatchers("/actuator/health", "/actuator/info").permitAll()
                         .requestMatchers(HttpMethod.OPTIONS, "/**").permitAll()
                         .anyRequest().authenticated())

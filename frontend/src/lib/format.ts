@@ -1,4 +1,11 @@
-import type { HandoffStatus, SupportEntitlements, TicketCategory, TicketStatus } from '../api/types';
+import type { HandoffStatus, SubscriptionPlan, SupportEntitlements, TicketCategory, TicketStatus } from '../api/types';
+
+export const PLAN_LABELS: Record<SubscriptionPlan, string> = {
+  MONTHLY: 'Monthly',
+  QUARTERLY: 'Quarterly',
+  HALF_YEARLY: 'Half-yearly',
+  YEARLY: 'Yearly',
+};
 
 /**
  * What a plan includes from support, in words, built only from the entitlements the backend reports —

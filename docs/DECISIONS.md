@@ -165,3 +165,18 @@ project brief. Each can be revisited.
     (`SupportStaffProvisioner`, create-only, from the environment) or direct database promotion. Migration V13
     maps existing `SUPPORT` staff to `MANAGER`: they could already change plans/prefixes and work tickets, which
     is exactly a manager's job, so nobody loses a capability and nobody gains staff management.
+
+23. **A plan is bought, not claimed: payment first, then a one-time token applies it.**
+    Choosing a plan on the pricing page leads to checkout; the customer then signs up or signs in and the plan
+    is applied automatically. Registration deliberately cannot set a plan (anyone could pick the top one for free),
+    and neither can the client at any other point. Instead the backend records a `payment` (its own module, table
+    `payment`) and hands back a high-entropy one-time token; only the token's SHA-256 hash is stored, like recipient
+    links. A signed-in customer presents it to `POST /api/v1/payments/redeem`; under a row lock the backend checks it is
+    known, unexpired and unused, sets the plan the payment bought (price from `SubscriptionPlan`, never from the request),
+    and records who redeemed it and the plan it replaced. Unknown, expired and used tokens are refused identically.
+    Paying needs no account so the pricing page can lead straight to it; applying needs one. The only provider is
+    `DEMO` (no money, off unless `PAYMENT_DEMO_ENABLED=true`, then 404; a card form that accepts only the public test cards
+    in `DemoCard` — one always approved, one always declined (402) — and refuses any other number without echoing or keeping it,
+    so no real card data is ever handled): a real provider will confirm payments its own
+    way and then feed the same token and redeem step. Support staff can still change plans by hand (decision 17).
+    Known gap: plans have no end date, so nothing lapses when a billing period ends.

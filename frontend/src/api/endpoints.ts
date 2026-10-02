@@ -2,8 +2,8 @@ import { api, downloadBlob, downloadFile, upload } from './client';
 import type {
   AuthResponse, CompareInput, CompareResult, CreateHandoffInput, CreateReturnInput, CreateTicketInput, DocLineInput,
   DashboardResponse, HandoffDetail, HandoffStatus, HandoffSummary, Page, RecipientView, RegisterInput,
-  PlanPrice, ReturnEvent, ReturnImportResult, SupportMessageInput, TicketAttachment, TicketDetail, TicketSummary, User,
-  Attachment, AttachmentKind,
+  PaymentReceipt, PlanPrice, ReturnEvent, ReturnImportResult, SubscriptionPlan, SupportMessageInput, TicketAttachment,
+  TicketDetail, TicketSummary, User, Attachment, AttachmentKind,
 } from './types';
 
 // --- Auth ---
@@ -117,6 +117,18 @@ export const supportMessageApi = {
     if (input.file) form.append('file', input.file);
     return upload<{ reference: string }>('/support-messages', form);
   },
+};
+
+// --- Payments (the backend decides the plan from a payment it recorded; the client only carries the token) ---
+export const paymentApi = {
+  /**
+   * Demo provider (no money): pays for a plan with a demo test card, before there is an account. Refused unless
+   * the backend enables it; a card that is not a demo test card is refused (and never kept).
+   */
+  payDemo: (plan: SubscriptionPlan, card: { cardNumber: string; expiry: string; cvc: string }) =>
+    api<PaymentReceipt>('/public/payments/demo', { method: 'POST', body: { plan, ...card }, auth: false }),
+  /** The signed-in customer applies a paid-for plan to their own account; resolves to the account as it now is. */
+  redeem: (token: string) => api<User>('/payments/redeem', { method: 'POST', body: { token } }),
 };
 
 // --- Public (no sign-in) ---

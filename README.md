@@ -184,8 +184,8 @@ the API addresses a handoff by. Numbers never restart: changing a prefix only af
 carries on from the customer's current number, and numbers are issued under a row lock so concurrent
 creation can never repeat one. A prefix is 2–5 capital letters.
 
-**Plans.** Every customer is on a plan; new accounts start on `MONTHLY`. There is no public way to
-choose or change one. What a plan includes is derived from the plan alone — nobody edits
+**Plans.** Every customer is on a plan; new accounts start on `MONTHLY`. A plan is chosen by
+paying for it (below) or set by support staff. What a plan includes is derived from the plan alone — nobody edits
 entitlements separately, so changing the plan changes them automatically:
 
 | Plan | Contact Support in the app | Send a message | Support tickets (create, view, reply) | Phone support | Support priority |
@@ -208,10 +208,21 @@ portal shows the amount beside each plan, and the charge for the new plan when s
 so they cannot disagree. To change a price, edit it in `SubscriptionPlan`.
 
 The customer app *hides* what a plan doesn't include and the backend refuses it regardless.
-Monthly customers still see the general contact address in the public site's footer. There are no
-payments yet, so **support staff change a plan by hand** from the support portal (an explicit,
-confirmed action, recorded in an audit trail). That a plan was changed does not prove a payment; a
-future payment integration can change the plan automatically instead.
+Monthly customers still see the general contact address in the public site's footer. Support staff can also change a
+plan by hand from the support portal (an explicit, confirmed action, recorded in an audit trail).
+
+**Choosing a plan = paying for it.** On the pricing page, *Choose <plan>* leads to a checkout page; after paying the
+customer signs up (or signs in) and the plan is applied to that account automatically, so they can start straight
+away. Today the only payment provider is a **demo** one for testing: the checkout page asks for a card, but only the listed
+**test cards** work (`4242 4242 4242 4242` pays, `4000 0000 0000 0002` is declined; any future expiry, any 3–4 digit code),
+no money moves, and any other number — a real card — is refused (by the page before it sends anything, and again by the
+backend, which never stores, returns or logs card details). It is **off by
+default** and enabled with `PAYMENT_DEMO_ENABLED=true` (development only — with it on, anyone can get any plan for free).
+The backend decides everything: paying records a payment and returns a one-time token (only its hash is stored, it
+expires after `PAYMENT_REDEEM_TTL_HOURS`, default 24); the signed-in customer presents the token to
+`POST /api/v1/payments/redeem`, which applies the plan the payment bought, once — registering or updating a profile
+never sets a plan. A real provider replaces the demo card form; everything after payment stays the same. Plans have no
+end date yet, so a payment does not expire a plan later.
 
 ### Customers and support staff are separate identities
 
@@ -310,6 +321,7 @@ records are append-only: the application offers no way to edit or delete them, a
 | `STAFF_JWT_EXPIRATION_MINUTES` | Length of a support session (default 480) |
 | `SUPPORT_MAILBOX` | Where new-ticket and customer-reply notices are emailed; also the public contact address |
 | `SUPPORT_PHONE` | The number shown to `YEARLY` customers (blank = no call option) |
+| `PAYMENT_DEMO_ENABLED` | `true` turns on the demo payment page (no real money; development only; default `false`) |
 | `CORS_ALLOWED_ORIGINS` | Must include the portal's origin (`http://localhost:5175` in dev) when the portal calls the API directly |
 | `VITE_API_BASE_URL` (portal, `support-portal/.env.example`) | Backend address: the dev proxy target, or the API URL baked into a production build |
 
@@ -335,6 +347,9 @@ only staff account was a `SUPPORT` one it is now a manager, so promote it with t
 `TKT-01`, `STAFF-000001` becomes `STAFF-01`. Nothing is renumbered — each ID keeps its number, the counters carry on —
 so IDs stay unique and still point at the same account, ticket or staff member. Anything that saved an old-style ID
 (a note, a bookmark, an email already sent) shows the old form; search with the new one.
+
+`V15` only adds the `payment` table (nothing existing is touched). The demo payment page stays off until you set
+`PAYMENT_DEMO_ENABLED=true`.
 
 Two things to expect on the first start of this version: **everyone signs in again once** (tokens are
 now bound to customers or staff, so sessions from before the upgrade stop working), and **a support

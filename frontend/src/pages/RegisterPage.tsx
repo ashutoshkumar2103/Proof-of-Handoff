@@ -4,6 +4,7 @@ import { useAuth } from '../auth/AuthContext';
 import { errorMessage } from '../components/ui';
 import { PasswordInput } from '../components/PasswordInput';
 import { AuthShell } from '../components/AuthShell';
+import { PendingPaymentNotice } from '../components/PendingPaymentNotice';
 
 export function RegisterPage() {
   const { register } = useAuth();
@@ -20,12 +21,12 @@ export function RegisterPage() {
     setError(null);
     setBusy(true);
     try {
-      await register({
+      const notice = await register({
         email: form.email, password: form.password,
         displayName: form.displayName, organization: form.organization || undefined,
         phone: form.phone || undefined,
       });
-      navigate('/dashboard');
+      navigate('/dashboard', { state: { notice } });
     } catch (err) {
       setError(errorMessage(err));
     } finally {
@@ -38,7 +39,8 @@ export function RegisterPage() {
       <form className="card auth-card" onSubmit={onSubmit}>
         <div className="brand">Hand<span>Offly</span></div>
         <p className="muted center mb-2">Create your account</p>
-        {error && <div className="notice notice-error mb-2">{error}</div>}
+        <PendingPaymentNotice action="Create your account" />
+        {error &&<div className="notice notice-error mb-2">{error}</div>}
         <div className="field">
           <label htmlFor="displayName">Your name</label>
           <input id="displayName" value={form.displayName} onChange={set('displayName')} required />
