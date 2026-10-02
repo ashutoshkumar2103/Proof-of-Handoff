@@ -101,7 +101,7 @@ h3 { font-size: 1.05rem; }
   padding: 0.75rem 1.25rem; background: var(--surface);
   border-bottom: 1px solid var(--border); position: sticky; top: 0; z-index: 10;
 }
-.topbar .brand { display: flex; align-items: center; gap: 0.5rem; font-weight: 700; font-size: 1.15rem; color: var(--text); }
+.topbar .brand { display: flex; align-items: center; gap: 0.0rem; font-weight: 700; font-size: 1.15rem; color: var(--text); }
 .topbar .brand span { color: var(--primary); }
 .topbar .brand:hover { text-decoration: none; }
 .topbar nav { display: flex; align-items: center; gap: 0.4rem; }
@@ -248,6 +248,55 @@ th.sortable:hover { color: var(--text); }
 .stat .l { color: var(--text-muted); font-size: 0.82rem; margin-top: 0.35rem; }
 .stat.active-filter { border-color: var(--primary); box-shadow: 0 0 0 2px var(--primary-soft); }
 
+/* Dashboard sections; the cards that need attention carry an accent only while there is something to look at */
+.section-label { margin: 0 0 0.5rem; font-size: 0.78rem; font-weight: 700; letter-spacing: 0.04em; text-transform: uppercase; color: var(--text-muted); }
+.stat .hint { color: var(--text-muted); font-size: 0.75rem; margin-top: 0.15rem; }
+.stat.attn-danger { border-left: 4px solid var(--danger); }
+.stat.attn-danger .n { color: var(--danger); }
+.stat.attn-warning { border-left: 4px solid var(--warning); }
+.stat.attn-warning .n { color: var(--warning); }
+.stat.attn-info { border-left: 4px solid var(--primary); }
+.stat.attn-info .n { color: var(--primary); }
+.stat.static { cursor: default; }
+.stat.static:hover { border-color: var(--border); transform: none; }
+.scroll-target { scroll-margin-top: 4.5rem; }
+
+/* Handoff Detail: the header, and the handoff's progress along its usual path (reuses the landing page's lifecycle chips) */
+.handoff-ref { font-weight: 700; letter-spacing: 0.02em; color: var(--primary); }
+.handoff-head h1 { margin: 0.15rem 0 0.4rem; }
+.handoff-meta { display: flex; flex-wrap: wrap; gap: 0.6rem 2.25rem; margin: 0.9rem 0 0; }
+.handoff-meta dt { font-size: 0.78rem; color: var(--text-muted); }
+.handoff-meta dd { margin: 0; font-weight: 600; }
+.handoff-meta dd.overdue { color: var(--danger); }
+.lifecycle { display: flex; flex-wrap: wrap; align-items: center; gap: 0.2rem 0; margin-top: 1rem; padding-top: 0.9rem; border-top: 1px solid var(--border); }
+.lifecycle .lifecycle-chip { font-weight: 500; padding: 0.2rem 0.65rem; border-radius: 999px; }
+.lifecycle .lifecycle-chip.done { color: var(--text); }
+.lifecycle .lifecycle-chip.current { background: var(--primary); color: #fff; font-weight: 700; }
+.lifecycle .lifecycle-arrow { margin: 0 0.2rem; color: var(--text-muted); }
+.actions .menu { margin-left: auto; }
+.doc-actions { margin-top: 0.5rem; }
+
+/* "More" dropdown (ActionMenu) */
+.menu { position: relative; display: inline-block; }
+.menu-panel {
+  position: absolute; right: 0; top: calc(100% + 4px); z-index: 20; min-width: 11rem; padding: 0.3rem;
+  display: flex; flex-direction: column; background: var(--surface); border: 1px solid var(--border);
+  border-radius: var(--radius); box-shadow: var(--shadow-lg);
+}
+.menu-item { text-align: left; background: transparent; border: 0; padding: 0.5rem 0.7rem; border-radius: var(--radius-sm); color: var(--text); font: inherit; cursor: pointer; }
+.menu-item:hover:not(:disabled) { background: var(--surface-2); }
+.menu-item.danger { color: var(--danger); }
+.menu-item:disabled { opacity: 0.5; cursor: not-allowed; }
+
+@media (max-width: 560px) {
+  .attention-grid > .stat:last-child:nth-child(odd),
+  .summary-grid > .stat:last-child:nth-child(odd) { grid-column: 1 / -1; }   /* no orphan card on the last row */
+  .lifecycle { gap: 0.3rem; }
+  .lifecycle .lifecycle-arrow { display: none; }
+  .lifecycle .lifecycle-chip { border: 1px solid var(--border); font-size: 0.78rem; padding: 0.15rem 0.55rem; }
+  .lifecycle .lifecycle-chip.current { border-color: var(--primary); }
+}
+
 /* Timeline */
 .timeline { list-style: none; margin: 0; padding: 0; }
 .timeline li { position: relative; padding: 0 0 1rem 1.25rem; border-left: 2px solid var(--border); }
@@ -300,12 +349,22 @@ th.sortable:hover { color: var(--text); }
 .search-bar { display: flex; align-items: center; gap: 0.5rem; }
 .search-bar input { min-width: 240px; }
 
+/* Reports: the period picker on one line (wraps on small screens), and the rows dimmed while a new page or sort arrives */
+.report-filter { display: flex; flex-wrap: wrap; align-items: flex-end; gap: 0.75rem 1rem; }
+.report-filter .field { margin: 0; flex: 0 1 180px; }
+.report-filter .field select, .report-filter .field input { width: 100%; }
+.report-filter-error { flex-basis: 100%; margin-top: 0; }
+.report-toolbar select { width: auto; min-width: 14rem; }   /* the global select is full width, which would push Export onto its own line */
+.is-refreshing { opacity: 0.6; transition: opacity 0.15s; }
+
 @media (max-width: 640px) {
+  .report-filter .field { flex: 1 1 140px; }
   .field-row { grid-template-columns: 1fr; }
   .detail-row { grid-template-columns: 1fr; }
   .kv { grid-template-columns: 1fr; gap: 0.1rem 0; }
   .kv dd { margin-bottom: 0.5rem; }
-  .topbar nav { gap: 0.3rem; font-size: 0.9rem; }
+  .topbar nav { gap: 0.3rem; font-size: 0.9rem; flex-wrap: wrap; }
+  .topbar { flex-wrap: wrap; gap: 0.4rem 0.75rem; }   /* so Account and Sign out stay reachable on a phone */
   .search-bar { width: 100%; }
   .search-bar input { flex: 1; min-width: 0; }
 }
@@ -388,6 +447,8 @@ th.sortable:hover { color: var(--text); }
 .price-features { list-style: none; padding: 0; margin: 0 0 1rem; font-size: 0.9rem; }
 .price-features li { padding: 0.3rem 0 0.3rem 1.4rem; position: relative; color: var(--text); }
 .price-features li::before { content: '✓'; position: absolute; left: 0; color: var(--success); font-weight: 700; }
+.price-features li.off { color: var(--text-muted); }
+.price-features li.off::before { content: '✕'; color: var(--text-muted); }
 .price-card .btn { margin-top: auto; }
 
 .landing-cta { text-align: center; padding: 3.5rem 1.5rem; background:
@@ -467,3 +528,41 @@ th.sortable:hover { color: var(--text); }
 .job-facts dd { margin: 0; }
 .job-editor { margin-top: 1rem; padding-top: 1rem; border-top: 1px solid var(--border); }
 @media (max-width: 560px) { .job-facts { grid-template-columns: 1fr; gap: 0; } .job-facts dd { margin-bottom: 0.5rem; } }
+
+/* ============================ Recipient page (/r/:token) ============================ */
+.container.recipient-page { max-width: 760px; }
+.recipient-page > * + * { margin-top: 1rem; }
+.recipient-top { margin-bottom: 0.25rem; }
+.recipient-brand { font-size: 1.35rem; font-weight: 700; }
+.recipient-brand span { color: var(--primary); }
+/* Long titles, names, references and file names wrap instead of pushing the page sideways. */
+.recipient-page h1, .recipient-page dd, .recipient-page li, .recipient-page .notice { overflow-wrap: anywhere; }
+.recipient-page .handoff-meta .wide { flex-basis: 100%; }
+.items-compact td:first-child { white-space: normal; min-width: 9rem; overflow-wrap: anywhere; }
+.recipient-docs { list-style: none; margin: 0; padding: 0; }
+.recipient-docs li { display: flex; justify-content: space-between; align-items: baseline; gap: 0.25rem 1rem; flex-wrap: wrap; padding: 0.5rem 0; border-bottom: 1px solid var(--border); }
+.recipient-docs li:last-child { border-bottom: none; padding-bottom: 0; }
+.recipient-missing { margin: 0 0 1rem; padding-left: 1.2rem; }
+.recipient-actions { display: flex; flex-wrap: wrap; gap: 0.75rem; }
+.recipient-return { background: var(--surface-2); border: 1px solid var(--border); border-radius: var(--radius-sm); padding: 0.75rem 0.9rem; }
+/* Comfortable to tap, and a visible ring for keyboard users. */
+.recipient-page .btn, .recipient-page input { min-height: 44px; }
+.recipient-page a:focus-visible, .recipient-page .btn:focus-visible { outline: 2px solid var(--primary); outline-offset: 2px; }
+@media (max-width: 560px) {
+  .container.recipient-page { padding: 1rem 1rem 3rem; }
+  .recipient-actions .btn { flex: 1 1 100%; }
+  .recipient-tiles .stat .n { font-size: 1.5rem; }
+  .recipient-page .handoff-head h1 { font-size: 1.45rem; }
+  .items-compact th, .items-compact td { padding: 0.55rem 0.5rem; }
+  .items-compact td:first-child { min-width: 7.5rem; }
+}
+
+/* Account menu in the top bar (an ActionMenu styled as a nav link), and the Dashboard's welcome line */
+.topbar nav .nav-menu-trigger {
+  background: transparent; border: 0; font: inherit; cursor: pointer; color: var(--text-muted); font-weight: 500;
+  padding: 0.4rem 0.65rem; border-radius: var(--radius-sm); transition: background 0.12s, color 0.12s;
+}
+.topbar nav .nav-menu-trigger:hover, .topbar nav .menu:focus-within .nav-menu-trigger { background: var(--surface-2); color: var(--text); }
+.topbar nav .nav-menu-trigger.active { color: var(--primary); background: var(--primary-soft); font-weight: 600; }
+.menu-hover .menu-panel { top: 100%; }   /* no gap between the button and the list, so moving the pointer down does not close it */
+.welcome { margin: 0.1rem 0 0.2rem; font-weight: 600; }

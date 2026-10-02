@@ -1,11 +1,11 @@
-import { useEffect, useMemo, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import { Link, useLocation, useNavigate } from 'react-router-dom';
 import { useQuery } from '@tanstack/react-query';
 import { handoffApi } from '../api/endpoints';
 import { useAuth } from '../auth/AuthContext';
 import type { HandoffStatus, HandoffSummary } from '../api/types';
 import { StatusBadge } from '../components/StatusBadge';
-import { ErrorNotice, Spinner, useNoActivePlanModal } from '../components/ui';
+import { EmptyState, ErrorNotice, Spinner, useNoActivePlanModal } from '../components/ui';
 import { getPendingPayment } from '../lib/checkout';
 import { formatDate, qty, STATUS_LABELS } from '../lib/format';
 
@@ -13,10 +13,20 @@ type Filter = HandoffStatus | 'ALL' | 'OVERDUE';
 type SortField = 'id' | 'createdAt' | 'updatedAt';
 type SortDir = 'asc' | 'desc';
 
-const CARD_ORDER: HandoffStatus[] = [
-  'DRAFT', 'AWAITING_RECIPIENT', 'ACTIVE_WITH_RECIPIENT', 'RETURN_PENDING',
-  'PARTIALLY_RETURNED', 'FULLY_RETURNED', 'CLOSED',
+type Tone = 'danger' | 'warning' | 'info';
+
+/**
+ * What needs the owner's attention, shown first. Each is a count the dashboard already returns and a filter the list already has —
+ * nothing is worked out here. (Handoffs due soon, or with items missing, are not counted by the backend yet.)
+ */
+const ATTENTION: { filter: Filter; label: string; hint: string; tone: Tone }[] = [
+  { filter: 'OVERDUE', label: 'Overdue', hint: 'Past their return date', tone: 'danger' },
+  { filter: 'AWAITING_RECIPIENT', label: 'Awaiting recipient', hint: 'Not accepted yet', tone: 'info' },
+  { filter: 'RETURN_PENDING', label: 'Return pending', hint: 'Returns to confirm', tone: 'warning' },
 ];
+
+/** The rest of the status cards, in the order a handoff moves through them. */
+const OVERVIEW_ORDER: HandoffStatus[] = ['DRAFT', 'ACTIVE_WITH_RECIPIENT', 'PARTIALLY_RETURNED', 'FULLY_RETURNED', 'CLOSED'];
 
 const OVERDUE_STATUSES: HandoffStatus[] = ['ACTIVE_WITH_RECIPIENT', 'RETURN_PENDING', 'PARTIALLY_RETURNED'];
 
@@ -76,11 +86,24 @@ export function DashboardPage() {
     return filter === 'OVERDUE' ? content.filter((h) => h.overdue) : content;
   }, [list.data, filter]);
 
+  const counts = dashboard.data;
+  const countOf = (f: Filter) => (!counts ? 0 : f === 'ALL' ? counts.total : f === 'OVERDUE' ? counts.overdueCount : counts.statusCounts[f] ?? 0);
+  const nothingToAttend = ATTENTION.every((a) => countOf(a.filter) === 0);
+  const noHandoffsYet = counts?.total === 0 && filter === 'ALL' && !search;
+
+  // The cards sit above the list they filter, so bring the list into view when one is picked.
+  const listRef = useRef<HTMLDivElement>(null);
+  function choose(f: Filter) {
+    setFilter(f);
+    listRef.current?.scrollIntoView({ behavior: 'smooth', block: 'start' });
+  }
+
   return (
     <div className="stack">
       <div className="spread">
         <div>
           <h1>Dashboard</h1>
+          {user && <h1 className="welcome">Welcome, {user.displayName}</h1>}
           <p className="muted">
             Track every handoff from give to full return.
             {user && <span className="small"> · Account ID <strong>{user.accountCode}</strong></span>}
@@ -95,20 +118,37 @@ export function DashboardPage() {
 
       {notice && <div className="notice notice-success">{notice}</div>}
 
-      {dashboard.isLoading ? <Spinner /> : dashboard.isError ? <ErrorNotice error={dashboard.error} /> : (
-        <div className="stat-grid">
-          <StatCard label="All handoffs" n={dashboard.data!.total}
-                    active={filter === 'ALL'} onClick={() => setFilter('ALL')} />
-          {CARD_ORDER.map((s) => (
-            <StatCard key={s} label={STATUS_LABELS[s]} n={dashboard.data!.statusCounts[s] ?? 0}
-                      active={filter === s} onClick={() => setFilter(s)} />
-          ))}
-          <StatCard label="Overdue" n={dashboard.data!.overdueCount} danger
-                    active={filter === 'OVERDUE'} onClick={() => setFilter('OVERDUE')} />
-        </div>
+      {dashboard.isLoading ? <Spinner /> : dashboard.isError ? <ErrorNotice error={dashboard.error} /> : noHandoffsYet ? null : (
+        <>
+          <section>
+            <h2 className="section-label">Needs attention</h2>
+            <div className="stat-grid attention-grid">
+              {ATTENTION.map((a) => (
+                <StatCard key={a.filter} label={a.label} hint={a.hint} tone={a.tone} n={countOf(a.filter)}
+                          active={filter === a.filter} onClick={() => choose(a.filter)} />
+              ))}
+            </div>
+            {nothingToAttend && <p className="muted small" style={{ margin: '0.5rem 0 0' }}>Nothing needs your attention right now.</p>}
+          </section>
+          <section>
+            <h2 className="section-label">Overview</h2>
+            <div className="stat-grid">
+              <StatCard label="All handoffs" n={countOf('ALL')} active={filter === 'ALL'} onClick={() => choose('ALL')} />
+              {OVERVIEW_ORDER.map((s) => (
+                <StatCard key={s} label={STATUS_LABELS[s]} n={countOf(s)} active={filter === s} onClick={() => choose(s)} />
+              ))}
+            </div>
+          </section>
+        </>
       )}
 
-      <div className="card">
+      {noHandoffsYet ? (
+        <EmptyState title="No handoffs yet"
+                    action={<Link to="/handoffs/new" className="btn btn-primary">Create your first handoff</Link>}>
+          A handoff records what you give someone, their acknowledgement, and every return until it is all back.
+        </EmptyState>
+      ) : (
+      <div className="card scroll-target" ref={listRef}>
         <div className="list-toolbar">
           <h2 style={{ margin: 0 }}>{filter === 'ALL' ? 'All handoffs' : filter === 'OVERDUE' ? 'Overdue' : STATUS_LABELS[filter]}</h2>
           <form className="search-bar" onSubmit={(e) => { e.preventDefault(); setSearch(q); }}>
@@ -120,7 +160,14 @@ export function DashboardPage() {
         </div>
 
         {list.isLoading ? <Spinner /> : list.isError ? <ErrorNotice error={list.error} /> : (
-          rows.length === 0 ? <p className="muted center mt-3">No handoffs found.</p> : (
+          rows.length === 0 ? (
+            <div className="center mt-3">
+              <p className="muted">{search ? `No handoffs match “${search}”.` : 'No handoffs in this view.'}</p>
+              {(search || filter !== 'ALL') && (
+                <button className="btn btn-sm" onClick={() => { setQ(''); setSearch(''); setFilter('ALL'); }}>Show all handoffs</button>
+              )}
+            </div>
+          ) : (
             <div className="table-wrap">
               <table>
                 <thead>
@@ -141,17 +188,20 @@ export function DashboardPage() {
           )
         )}
       </div>
+      )}
     </div>
   );
 }
 
-function StatCard({ label, n, onClick, active, danger }:
-  { label: string; n: number; onClick: () => void; active: boolean; danger?: boolean }) {
+/** A count that filters the list when picked. `tone` marks it as needing attention, but only while there is something to look at. */
+function StatCard({ label, n, onClick, active, tone, hint }:
+  { label: string; n: number; onClick: () => void; active: boolean; tone?: Tone; hint?: string }) {
   return (
-    <div className={`stat ${active ? 'active-filter' : ''}`} onClick={onClick} role="button" tabIndex={0}
-         onKeyDown={(e) => e.key === 'Enter' && onClick()}>
-      <div className="n" style={danger && n > 0 ? { color: 'var(--danger)' } : undefined}>{n}</div>
+    <div className={`stat ${active ? 'active-filter' : ''} ${tone && n > 0 ? `attn-${tone}` : ''}`} onClick={onClick}
+         role="button" tabIndex={0} onKeyDown={(e) => e.key === 'Enter' && onClick()}>
+      <div className="n">{n}</div>
       <div className="l">{label}</div>
+      {hint && <div className="hint">{hint}</div>}
     </div>
   );
 }

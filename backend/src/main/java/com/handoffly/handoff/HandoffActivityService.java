@@ -9,6 +9,7 @@ import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
 import java.math.BigDecimal;
+import java.time.Duration;
 import java.time.Instant;
 import java.time.LocalDate;
 import java.time.ZoneId;
@@ -33,6 +34,9 @@ public class HandoffActivityService {
     public record ReminderLine(String reference, String title, String recipientName, Instant dueAt,
                                BigDecimal notReturned, BigDecimal missing) {}
 
+    /** A handoff still waiting for its recipient to answer: who it is for and when it went out. */
+    public record AwaitingLine(String reference, String title, String recipientName, Instant sentAt) {}
+
     /** A handoff named in the summary. */
     public record Ref(String reference, String title) {}
 
@@ -48,8 +52,8 @@ public class HandoffActivityService {
     /** Statuses in which items are out with the recipient and a return is still to come (and not yet overdue). */
     private static final Set<HandoffStatus> DUE_SOON_STATUSES = EnumSet.of(
             HandoffStatus.ACTIVE_WITH_RECIPIENT, HandoffStatus.RETURN_PENDING, HandoffStatus.PARTIALLY_RETURNED);
-    /** Not a draft and not finished: the handoffs that are still "open". */
-    private static final Set<HandoffStatus> OPEN_STATUSES = EnumSet.complementOf(EnumSet.of(
+    /** Not a draft and not finished: the handoffs that are still "open" (also what the handoff report counts as open). */
+    static final Set<HandoffStatus> OPEN_STATUSES = EnumSet.complementOf(EnumSet.of(
             HandoffStatus.DRAFT, HandoffStatus.CLOSED, HandoffStatus.REJECTED, HandoffStatus.CANCELLED));
 
     private final HandoffRepository handoffs;
@@ -83,6 +87,20 @@ public class HandoffActivityService {
                 .filter(this::notFullyReturned)
                 .sorted(Comparator.comparing(Handoff::getDueAt).thenComparing(Handoff::getId))
                 .map(this::line)
+                .toList();
+    }
+
+    /**
+     * Handoffs that went out at least {@code wait} ago and whose recipient has neither accepted nor declined: still
+     * {@link HandoffStatus#AWAITING_RECIPIENT}, the one state in which the recipient is offered that choice. Once they answer
+     * the status moves on (or the handoff is cancelled), so it drops out by itself. Oldest first; each handoff appears once.
+     */
+    public List<AwaitingLine> awaitingRecipient(Long ownerId, Instant now, Duration wait) {
+        Instant sentBefore = now.minus(wait);
+        return handoffs.findByOwnerIdAndStatusIn(ownerId, EnumSet.of(HandoffStatus.AWAITING_RECIPIENT)).stream()
+                .filter(h -> h.getOutgoingAt() != null && !h.getOutgoingAt().isAfter(sentBefore))
+                .sorted(Comparator.comparing(Handoff::getOutgoingAt).thenComparing(Handoff::getId))
+                .map(h -> new AwaitingLine(h.getPublicCode(), h.getTitle(), h.getRecipientName(), h.getOutgoingAt()))
                 .toList();
     }
 

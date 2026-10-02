@@ -49,6 +49,7 @@ Transitions are enforced by `HandoffStateMachine` (single source of truth).
 - `POST /api/v1/handoffs/{id}/close`
 - `GET/POST /api/v1/handoffs/{id}/attachments`, `GET .../attachments/{aid}/content`
 - `GET /api/v1/handoffs/{id}/events`
+- `GET /api/v1/reports/handoffs` (read-only period report: totals + one page), `GET /api/v1/reports/handoffs/export` (CSV)
 - Recipient (public, token-scoped): `GET /api/v1/r/{token}`,
   `POST /api/v1/r/{token}/accept`, `/reject`, `POST /api/v1/r/{token}/returns`
 - `POST /api/v1/handoff-check` (compare reference doc vs handoff / doc vs doc)

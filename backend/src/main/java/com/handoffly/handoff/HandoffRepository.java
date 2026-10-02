@@ -28,6 +28,13 @@ public interface HandoffRepository
     @EntityGraph(attributePaths = "items")
     List<Handoff> findByOwnerIdAndOutgoingAtGreaterThanEqualAndOutgoingAtLessThan(Long ownerId, Instant from, Instant to);
 
+    /** How many handoffs a customer created in a period (so a report can refuse one too large to read in one go). */
+    long countByOwnerIdAndCreatedAtGreaterThanEqualAndCreatedAtLessThan(Long ownerId, Instant from, Instant to);
+
+    /** A customer's handoffs created in a period, with their items in the same query (for the report). */
+    @EntityGraph(attributePaths = "items")
+    List<Handoff> findWithItemsByOwnerIdAndCreatedAtGreaterThanEqualAndCreatedAtLessThan(Long ownerId, Instant from, Instant to);
+
     /** A customer's own handoff by its reference (references are unique per account, not globally). */
     Optional<Handoff> findByOwnerIdAndPublicCodeIgnoreCase(Long ownerId, String publicCode);
 

@@ -78,6 +78,62 @@ export function localPartsToIso(date: string, time: string): string | null {
   return Number.isNaN(d.getTime()) ? null : d.toISOString();
 }
 
+/** A calendar day (yyyy-mm-dd, no time) shown in the reader's own format. Built from its parts so no time zone can move it a day. */
+export function formatDay(ymd: string): string {
+  const [y, m, d] = ymd.split('-').map(Number);
+  return new Date(y, m - 1, d).toLocaleDateString(undefined, { year: 'numeric', month: 'short', day: 'numeric' });
+}
+
+/** A date as the yyyy-mm-dd the report API takes, in the browser's own calendar. */
+export function localDateString(d: Date): string {
+  const pad = (n: number) => String(n).padStart(2, '0');
+  return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}`;
+}
+
+export type ReportPreset = 'TODAY' | 'THIS_WEEK' | 'THIS_MONTH' | 'LAST_MONTH' | 'THIS_QUARTER' | 'CUSTOM';
+
+export const REPORT_PRESET_LABELS: Record<ReportPreset, string> = {
+  TODAY: 'Today',
+  THIS_WEEK: 'This week',
+  THIS_MONTH: 'This month',
+  LAST_MONTH: 'Last month',
+  THIS_QUARTER: 'This quarter',
+  CUSTOM: 'Custom range',
+};
+
+/** The first and last day of a ready-made period, in the browser's calendar (a week runs Monday to Sunday). Custom has no days of its own. */
+export function presetRange(preset: Exclude<ReportPreset, 'CUSTOM'>, now: Date = new Date()): { from: string; to: string } {
+  const y = now.getFullYear();
+  const m = now.getMonth();
+  let first: Date;
+  let last: Date;
+  switch (preset) {
+    case 'TODAY':
+      first = last = new Date(y, m, now.getDate());
+      break;
+    case 'THIS_WEEK': {
+      first = new Date(y, m, now.getDate() - ((now.getDay() + 6) % 7));
+      last = new Date(first.getFullYear(), first.getMonth(), first.getDate() + 6);
+      break;
+    }
+    case 'THIS_MONTH':
+      first = new Date(y, m, 1);
+      last = new Date(y, m + 1, 0);
+      break;
+    case 'LAST_MONTH':
+      first = new Date(y, m - 1, 1);
+      last = new Date(y, m, 0);
+      break;
+    case 'THIS_QUARTER': {
+      const start = Math.floor(m / 3) * 3;
+      first = new Date(y, start, 1);
+      last = new Date(y, start + 3, 0);
+      break;
+    }
+  }
+  return { from: localDateString(first), to: localDateString(last) };
+}
+
 /** An amount in its currency, e.g. ₹1,999 (whole units, Indian digit grouping). */
 export function formatMoney(amount: number, currency: string): string {
   return new Intl.NumberFormat('en-IN', { style: 'currency', currency, maximumFractionDigits: 0 }).format(amount);
@@ -120,6 +176,14 @@ export const STATUS_TONE: Record<HandoffStatus, BadgeTone> = {
   DISPUTED: 'danger',
   OVERDUE: 'danger',
 };
+
+/**
+ * The resting states of a handoff in the order it normally moves through them, for showing where it is. Display only: which
+ * moves are allowed is the backend's (HandoffStateMachine). A state off this path (rejected, cancelled, disputed …) is shown apart.
+ */
+export const LIFECYCLE_ORDER: HandoffStatus[] = [
+  'DRAFT', 'AWAITING_RECIPIENT', 'ACTIVE_WITH_RECIPIENT', 'RETURN_PENDING', 'PARTIALLY_RETURNED', 'FULLY_RETURNED', 'CLOSED',
+];
 
 /**
  * Statuses with nothing left to do: the handoff is read-only and its story lives in the event history.

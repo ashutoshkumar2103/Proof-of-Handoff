@@ -259,7 +259,7 @@ Plans bought outright (the pricing page, an account with no plan or an ended pla
 date** and no active subscription. The customer can sign in and see their Dashboard and account, and is told "No active plan is
 associated with this account. Please contact our support team to activate your account." — a dialog with **Contact Support** and
 **Create Ticket** on the Dashboard and wherever a paid action is tried. It cannot start a handoff or draft, duplicate, import into a
-new handoff, send a draft or use HandoffCheck: the API refuses all of them with `403` and code `no_active_subscription` (a plan
+new handoff, send a draft, use HandoffCheck or open Reports: the API refuses all of them with `403` and code `no_active_subscription` (a plan
 that *ran out* is still `subscription_expired` with its own message). Only in this state are Contact Support and tickets available, to
 ask for the activation (no message form, no phone number, normal priority); they end the moment a plan exists, when that plan's
 ordinary rules apply (`MONTHLY` none, `QUARTERLY` message only, and so on). A plan arrives by paying for it from the pricing page —
@@ -274,11 +274,11 @@ day of the plan*). Accounts that existed before have no end date and are unchang
 **Subscription start, end and status.** A plan can have a start date and a last paid day. The customer's **Account →
 Subscription** shows the plan, *Active* or *Expired*, and the dates; the status is worked out from the end date, never
 stored. Accounts that existed before this feature have **no end date** (the real dates were never recorded and are not
-invented), so they stay active exactly as before. **An active subscription is required to start a new handoff, to send a draft
-and to use HandoffCheck.** When a plan has ended the customer cannot create a handoff or draft (*New handoff*, *Duplicate*,
+invented), so they stay active exactly as before. **An active subscription is required to start a new handoff, to send a draft,
+to use HandoffCheck and to open Reports.** When a plan has ended the customer cannot create a handoff or draft (*New handoff*, *Duplicate*,
 import into a new handoff), cannot turn an existing draft into an outgoing handoff (*Submit & send link*), and cannot use
 HandoffCheck at all — comparing files, exporting a comparison, and the *Import from File* options for items and returns,
-whatever the plan (an ended subscription is answered as ended, before the plan is considered). Each
+whatever the plan (an ended subscription is answered as ended, before the plan is considered) — and cannot open Reports. Each
 of those shows "Your subscription has ended. Please subscribe to any of our plans to continue without any interruption." with
 a single **OK** that returns to the Dashboard, and the API refuses with `403` and code `subscription_expired` before anything
 is saved, sent or read. The plan's support extras pause too. Nothing else is locked: handoffs and drafts they already have stay
@@ -319,9 +319,28 @@ account. With `MAIL_PROVIDER=logging` the link is written to the backend log ins
 - **Export** (HandoffCheck) downloads a finished comparison as **PDF** or **CSV**. The export re-runs the same comparison, so
   the file matches what was shown; nothing is stored, and standalone comparisons stay independent of handoffs.
 
+### Reports
+
+**Reports** (top menu) is a read-only view of how the handoffs created in a period are doing — the deeper, historical companion to the
+Dashboard, which stays the quick view of what needs attention now. Pick *Today*, *This week* (Monday to Sunday), *This month*, *Last
+month*, *This quarter* or a *Custom range* of two dates (both days included). The period is matched against the date each handoff was
+**created** — the one date every handoff has, drafts included — as whole calendar days in the browser's time zone, which the CSV
+states; nothing is mixed between zones. The **summary** covers every handoff created in the period, whatever its status:
+handoffs created, closed, open (sent and not closed yet) and overdue (open and past their return date — both as of today, not as of
+the end of the period), and the items given, returned and missing. The item figures are the very ones the Dashboard and the handoff page
+show (a draft has given nothing, so it is in no item total). Whatever is neither back nor missing is shown too, split by where it stayed —
+**still out** (not back yet), **rejected** (the recipient refused the handoff) and **cancelled** — so the row always adds up: items given =
+returned + missing + still out + rejected + cancelled. Below it, the **table** lists the handoffs (reference, title, recipient,
+created, expected return, status, given, returned, missing), can be narrowed to one status or to the overdue ones, is sortable by
+every column and paged; a reference or title opens the ordinary handoff page. **Export CSV** downloads every handoff that matches
+the current period and status (not only the page on screen) with the period, the time zone, the filter and the whole-period summary
+above the rows; text that came from a customer is made harmless in a spreadsheet. Nothing can be changed from Reports and nothing is
+stored. A **Report PDF** is not offered yet. Needs an active subscription, on any plan.
+API: `GET /api/v1/reports/handoffs?from=&to=&timezone=&status=&overdue=&sort=&page=&size=` and `.../handoffs/export` (see decision 34).
+
 ### Jobs
 
-**Customer jobs** (Account → Jobs). Four automatic emails about the customer's own handoffs; each customer has their own
+**Customer jobs** (Account → Jobs). Five automatic emails about the customer's own handoffs; each customer has their own
 schedule (a six-field cron expression — second minute hour day-of-month month day-of-week — and a timezone) and they all start
 **switched off**:
 
@@ -331,9 +350,10 @@ schedule (a six-field cron expression — second minute hour day-of-month month 
 | Overdue Reminder | open handoffs past their return date and not fully returned |
 | Missing Item Reminder | open handoffs with items still marked missing (never one that was force-closed) |
 | Weekly Summary | what happened over the last 7 days |
+| Recipient Response Reminder | handoffs sent to a recipient who has neither accepted nor declined after 24 hours (it stops by itself once they respond) |
 
 A run sends **one** email (or none if there is nothing to say), with the job's name as a bold heading. **Run now** runs one job
-without touching its schedule or whether it is on; **RUN ALL NOW** runs the customer's four jobs once. A table shows how each
+without touching its schedule or whether it is on; **RUN ALL NOW** runs the customer's five jobs once. A table shows how each
 job's latest run went. A schedule is validated when saved: it must be a real cron expression in a real timezone, must run,
 and may not run more often than once an hour (`JOBS_MIN_INTERVAL_MINUTES`). The background ticker is switched off with
 `JOBS_SCHEDULER_ENABLED=false`.
@@ -498,8 +518,8 @@ partial returns → full return → close), authorization, over-return guards, e
 invalid links, and document comparison — plus account IDs, per-customer numbering
 (including concurrent creation), plan entitlements, the staff-only support API, the ticket
 system, customer isolation, and an upgrade of a legacy-shaped database; and the account/password flows, abuse limits,
-upload checks, subscription lifecycle, duplicate, item import, comparison export, the customer jobs and the support expiry
-job — all on H2, no external services required.
+upload checks, subscription lifecycle, duplicate, item import, comparison export, the customer jobs, the support expiry
+job and the handoff report (totals, periods and time zones, filters, sorting, CSV, customer isolation, the subscription gate) — all on H2, no external services required.
 
 ```bash
 cd frontend && npm run build          # customer app: type-check + build
@@ -513,6 +533,7 @@ cd support-portal && npm run build    # support portal: type-check + build
 | Auth | `POST /api/v1/auth/register`, `/login`, `/change-password`, `/forgot-password`, `/reset-password`, `GET/PUT /auth/me` |
 | Customer jobs | `GET /api/v1/account/jobs`, `PUT /account/jobs/{type}/schedule` · `/enabled`, `POST /account/jobs/{type}/run` · `/account/jobs/run-all` |
 | Handoffs | `GET/POST /api/v1/handoffs`, `GET/PATCH/DELETE /handoffs/{id}`, `GET /handoffs/dashboard` |
+| Reports (read-only; active subscription) | `GET /api/v1/reports/handoffs` (summary + one page), `GET /reports/handoffs/export` (CSV) — `from`, `to`, `timezone`, `status`, `overdue`, `sort` |
 | Lifecycle | `POST /handoffs/{id}/submit` · `/resend-link` · `/cancel` · `/dispute` · `/close` |
 | Items | `PUT /handoffs/{id}/items`, `GET /handoffs/{id}/template` (what *Duplicate* prefills) |
 | Returns | `POST /handoffs/{id}/returns`, `POST /handoffs/{id}/returns/{rid}/confirm` |

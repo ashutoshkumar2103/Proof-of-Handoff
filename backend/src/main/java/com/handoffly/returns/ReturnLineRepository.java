@@ -32,6 +32,29 @@ public interface ReturnLineRepository extends JpaRepository<ReturnLine, Long> {
     BigDecimal sumReturnedForOwnerBetween(@Param("ownerId") Long ownerId, @Param("missing") ItemCondition missing,
                                           @Param("from") Instant from, @Param("to") Instant to);
 
+    /**
+     * Per item, what came back on confirmed returns (any condition except MISSING) across every handoff one customer created
+     * in a period — one query for the whole period instead of one per handoff (for the report).
+     */
+    @Query("select rl.item.id as itemId, sum(rl.quantity) as total from ReturnLine rl "
+            + "where rl.returnEvent.handoff.owner.id = :ownerId and rl.returnEvent.confirmed = true "
+            + "and rl.condition <> :missing "
+            + "and rl.returnEvent.handoff.createdAt >= :from and rl.returnEvent.handoff.createdAt < :to "
+            + "group by rl.item.id")
+    List<ItemReturnTotal> sumReturnedForHandoffsCreatedBetween(@Param("ownerId") Long ownerId,
+                                                               @Param("missing") ItemCondition missing,
+                                                               @Param("from") Instant from, @Param("to") Instant to);
+
+    /** The same, for what was reported MISSING on confirmed returns (the raw figure, before {@code netMissing}). */
+    @Query("select rl.item.id as itemId, sum(rl.quantity) as total from ReturnLine rl "
+            + "where rl.returnEvent.handoff.owner.id = :ownerId and rl.returnEvent.confirmed = true "
+            + "and rl.condition = :missing "
+            + "and rl.returnEvent.handoff.createdAt >= :from and rl.returnEvent.handoff.createdAt < :to "
+            + "group by rl.item.id")
+    List<ItemReturnTotal> sumMissingForHandoffsCreatedBetween(@Param("ownerId") Long ownerId,
+                                                              @Param("missing") ItemCondition missing,
+                                                              @Param("from") Instant from, @Param("to") Instant to);
+
     /** Projection: total returned quantity for a single handoff item. */
     interface ItemReturnTotal {
         Long getItemId();

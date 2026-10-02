@@ -1,4 +1,4 @@
-import { useRef, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { useParams } from 'react-router-dom';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { recipientApi } from '../api/endpoints';
@@ -20,6 +20,7 @@ export function RecipientPage() {
   const [reasonInvalid, setReasonInvalid] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const reasonRef = useRef<HTMLInputElement>(null);
+  const errorRef = useRef<HTMLDivElement>(null);
   const confirm = useConfirm();
 
   const view = useQuery({
@@ -29,6 +30,14 @@ export function RecipientPage() {
   });
 
   const refresh = () => qc.invalidateQueries({ queryKey: ['recipient', token] });
+
+  // A refusal from the server (an expired link, a handoff that has moved on) shows at the top of the page, which may be well above
+  // the button that was pressed: bring it into view. A missing decline reason is shown beside its own field instead.
+  // Only when the message itself changes — not when the reason field is edited afterwards.
+  useEffect(() => {
+    if (error && !reasonInvalid) errorRef.current?.scrollIntoView({ behavior: 'smooth', block: 'center' });
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [error]);
 
   const accept = useMutation({
     mutationFn: () => recipientApi.accept(token!, ackName.trim()),
@@ -68,61 +77,78 @@ export function RecipientPage() {
     if (res.confirmed) reject.mutate();
   }
 
-  if (view.isLoading) return <div className="auth-wrap"><Spinner label="Loading handoff…" /></div>;
+  if (view.isLoading) return <div className="auth-wrap" role="status" aria-live="polite"><Spinner label="Loading handoff…" /></div>;
   if (view.isError) {
     return (
       <div className="auth-wrap">
         <div className="card auth-card center">
           <div className="brand">Hand<span>Offly</span></div>
-          <ErrorNotice error={view.error} />
-          <p className="muted small mt-2">This link may have expired or is invalid.</p>
+          <h1 style={{ fontSize: '1.15rem', margin: '0.5rem 0 0.75rem' }}>This link can’t be opened</h1>
+          <div role="alert"><ErrorNotice error={view.error} /></div>
+          <p className="muted small mt-2">This link may have expired or is invalid. Please ask the sender to send you a new link.</p>
         </div>
       </div>
     );
   }
   const h = view.data as RecipientView;
+  // The handoff has been accepted (not declined): from here the recipient sees what is back, what is missing and what is still to return.
+  const accepted = !!h.acknowledgementName && !h.awaitingResponse && h.status !== 'REJECTED';
 
   return (
-    <div className="container container-narrow">
-      <div className="row" style={{ justifyContent: 'flex-end', paddingTop: '1rem' }}><ThemeToggle /></div>
-      <div className="center mb-2">
-        <div className="brand" style={{ fontSize: '1.5rem', fontWeight: 700 }}>Hand<span style={{ color: 'var(--primary)' }}>Offly</span></div>
-        <p className="muted small">Handoff review · {h.publicCode}</p>
+    <div className="container recipient-page">
+      <div className="spread recipient-top">
+        <div className="recipient-brand">Hand<span>Offly</span></div>
+        <ThemeToggle />
       </div>
 
-      {error && <div className="notice notice-error mb-2">{error}</div>}
+      <div ref={errorRef} aria-live="assertive">
+        {error && <div className="notice notice-error mb-2" role="alert">{error}</div>}
+      </div>
 
-      <div className="card">
-        <div className="spread">
-          <h1 style={{ marginBottom: 4 }}>{h.title}</h1>
+      {/* What is this handoff, who is it from, and where does it stand? */}
+      <div className="card handoff-head">
+        <div className="row">
+          <span className="handoff-ref">{h.publicCode}</span>
+          {h.category && <span className="badge">{h.category}</span>}
           <StatusBadge status={h.status} />
         </div>
-        <dl className="kv mt-2">
-          <dt>From</dt><dd>{h.senderName}{h.senderOrganization ? ` · ${h.senderOrganization}` : ''}</dd>
-          <dt>To</dt><dd>{h.recipientName}</dd>
-          {h.purpose && <><dt>Purpose</dt><dd>{h.purpose}</dd></>}
-          {h.dueAt && <><dt>Expected return</dt><dd>{formatDateTime(h.dueAt)}</dd></>}
+        <h1>{h.title}</h1>
+        <dl className="handoff-meta">
+          <div><dt>From</dt><dd>{h.senderName}{h.senderOrganization ? ` · ${h.senderOrganization}` : ''}</dd></div>
+          <div><dt>To</dt><dd>{h.recipientName}</dd></div>
+          {h.outgoingAt && <div><dt>Sent</dt><dd>{formatDateTime(h.outgoingAt)}</dd></div>}
+          {h.dueAt && <div><dt>Expected return</dt><dd>{formatDateTime(h.dueAt)}</dd></div>}
+          {h.purpose && <div className="wide"><dt>Purpose</dt><dd>{h.purpose}</dd></div>}
         </dl>
       </div>
 
+      {h.awaitingResponse && (
+        <div className="notice notice-info">
+          Please review the items below, then acknowledge receipt or decline at the bottom of the page.
+        </div>
+      )}
+
       <div className="card">
-        <h2>Items handed to you</h2>
-        <ItemsTable items={h.items} showPending={false} />
+        <div className="card-header">
+          <h2 style={{ margin: 0 }}>Items handed to you</h2>
+          <span className="muted small">{h.items.length} {h.items.length === 1 ? 'item' : 'items'}</span>
+        </div>
+        <ItemsTable items={h.items} showPending={false} compact showProgress={accepted} />
       </div>
 
       {h.attachments.length > 0 && (
         <div className="card">
           <h2>Attached documents</h2>
-          <div className="stack">
+          <ul className="recipient-docs">
             {h.attachments.map((a) => (
-              <div key={a.id} className="spread" style={{ padding: '0.3rem 0' }}>
+              <li key={a.id}>
                 <a href={`${API_BASE}/api/v1/r/${token}/attachments/${a.id}/content`} target="_blank" rel="noreferrer">
                   {a.originalFilename}
                 </a>
                 <span className="muted small">{a.kind === 'REFERENCE_DOCUMENT' ? 'Reference' : 'Evidence'} · {formatBytes(a.sizeBytes)}</span>
-              </div>
+              </li>
             ))}
-          </div>
+          </ul>
         </div>
       )}
 
@@ -135,29 +161,31 @@ export function RecipientPage() {
             binding electronic signature.
           </p>
           <div className="field">
-            <label>Your name</label>
-            <input value={ackName} onChange={(e) => setAckName(e.target.value)} placeholder="e.g. Priya Sharma" />
+            <label htmlFor="ack-name">Your name</label>
+            <input id="ack-name" autoComplete="name" value={ackName} onChange={(e) => setAckName(e.target.value)} placeholder="e.g. Priya Sharma" />
           </div>
           <div className="field">
-            <label>Reason for declining <span className="muted">(required only if you decline)</span></label>
-            <input ref={reasonRef} className={reasonInvalid ? 'input-error' : ''} value={reason}
-                   onChange={(e) => { setReason(e.target.value); if (reasonInvalid) setReasonInvalid(false); }}
+            <label htmlFor="decline-reason">Reason for declining <span className="muted">(required only if you decline)</span></label>
+            <input id="decline-reason" ref={reasonRef} className={reasonInvalid ? 'input-error' : ''} value={reason}
+                   aria-invalid={reasonInvalid} aria-describedby={reasonInvalid ? 'decline-reason-error' : undefined}
+                   onChange={(e) => { setReason(e.target.value); if (reasonInvalid) { setReasonInvalid(false); setError(null); } }}
                    placeholder="e.g. Quantity does not match what we agreed" />
-            {reasonInvalid && <div className="form-error">A reason is required to decline.</div>}
+            {reasonInvalid && <div id="decline-reason-error" className="form-error">A reason is required to decline.</div>}
           </div>
-          <div className="row">
+          <div className="recipient-actions">
             <button className="btn btn-primary" disabled={accept.isPending || ackName.trim() === ''}
-                    onClick={() => accept.mutate()}>Accept & acknowledge</button>
+                    onClick={() => accept.mutate()}>{accept.isPending ? 'Accepting…' : 'Accept & acknowledge'}</button>
             <button className="btn btn-danger" disabled={reject.isPending || ackName.trim() === ''}
-                    onClick={onDecline}>Decline</button>
+                    onClick={onDecline}>{reject.isPending ? 'Declining…' : 'Decline'}</button>
           </div>
+          {ackName.trim() === '' && <p className="muted small" style={{ margin: '0.75rem 0 0' }}>Enter your name to accept or decline.</p>}
         </div>
       )}
 
       {/* Acknowledged summary */}
       {h.acknowledgementName && !h.awaitingResponse && (
         <div className="card">
-          <div className={`notice ${h.status === 'REJECTED' ? 'notice-error' : 'notice-success'}`}>
+          <div className={`notice ${h.status === 'REJECTED' ? 'notice-error' : 'notice-success'}`} role="status">
             {h.status === 'REJECTED'
               ? <>Declined by {h.acknowledgementName} on {formatDateTime(h.acknowledgedAt)}.</>
               : <>Acknowledged by {h.acknowledgementName} on {formatDateTime(h.acknowledgedAt)}.</>}
@@ -179,12 +207,12 @@ export function RecipientPage() {
             The sender reports the following item(s) as missing (not returned). Please review and confirm
             so the handoff can be closed — or request to wait if you plan to return the items.
           </p>
-          <ul>
+          <ul className="recipient-missing">
             {h.missingItems.map((m, i) => (
               <li key={i}>{m.itemName}: <strong>{qty(m.quantity)}</strong></li>
             ))}
           </ul>
-          <div className="row">
+          <div className="recipient-actions">
             <button className="btn btn-primary" disabled={confirmMissing.isPending || requestReturnWait.isPending}
                     onClick={async () => {
                       const res = await confirm({
@@ -222,7 +250,7 @@ export function RecipientPage() {
       )}
       {/* A pending request is only worth showing while the handoff is still open. */}
       {!isFinished(h.status) && h.returnWaitRequestedAt && !h.missingConfirmedAt && (
-        <div className="notice notice-warning mb-2">
+        <div className="notice notice-warning" role="status">
           You requested to wait for return on {formatDateTime(h.returnWaitRequestedAt)}
           {h.returnWaitRequestedByName && <> — by <strong>{h.returnWaitRequestedByName}</strong></>}.
           <div className="small muted">Reason: &ldquo;{h.returnWaitReason}&rdquo;</div>
@@ -230,7 +258,7 @@ export function RecipientPage() {
         </div>
       )}
       {h.missingConfirmedAt && !h.missingToConfirm && (
-        <div className="notice notice-success mb-2">
+        <div className="notice notice-success" role="status">
           You confirmed the missing items on {formatDateTime(h.missingConfirmedAt)}
           {h.missingConfirmedByName && <> — acknowledged by <strong>{h.missingConfirmedByName}</strong></>}.
           <div className="small muted">(Typed acknowledgement — not a legally binding e-signature.)</div>
@@ -238,28 +266,29 @@ export function RecipientPage() {
       )}
 
       {/* Return progress (read-only for the recipient — the sender records returns) */}
-      {h.acknowledgementName && !h.awaitingResponse && h.status !== 'REJECTED' && (() => {
+      {accepted && (() => {
         const totalReturned = h.items.reduce((s, i) => s + Number(i.returnedConfirmed || 0), 0);
         const totalMissing = h.items.reduce((s, i) => s + Number(i.missing || 0), 0);
         return (
         <div className="card">
           <h2>Return progress</h2>
-          <p className="muted small">
-            <strong>{totalReturned}</strong> returned of {qty(h.totalOutgoing)} total
-            {totalMissing > 0 && <>, <span style={{ color: 'var(--danger)' }}><strong>{totalMissing}</strong> missing</span></>}
-            {Number(h.totalRemaining) > 0 && <>, <strong>{qty(h.totalRemaining)}</strong> still to return</>}.
-            {' '}Returns are recorded by the sender when items come back.
-          </p>
+          <div className="stat-grid recipient-tiles">
+            <div className="stat static"><div className="n">{qty(h.totalOutgoing)}</div><div className="l">Handed to you</div></div>
+            <div className="stat static"><div className="n">{qty(String(totalReturned))}</div><div className="l">Returned</div></div>
+            <div className="stat static"><div className="n" style={totalMissing > 0 ? { color: 'var(--danger)' } : undefined}>{qty(String(totalMissing))}</div><div className="l">Missing</div></div>
+            <div className="stat static"><div className={`n ${Number(h.totalRemaining) > 0 ? 'remaining-open' : 'remaining-zero'}`}>{qty(h.totalRemaining)}</div><div className="l">Still to return</div></div>
+          </div>
+          <p className="muted small" style={{ margin: '0.75rem 0 0' }}>Returns are recorded by the sender when items come back.</p>
           {!isFinished(h.status) && totalMissing > 0 && !h.missingConfirmedAt && (
-            <p className="small" style={{ color: 'var(--danger)', margin: '0 0 0.5rem' }}>
+            <div className="notice notice-error mt-2">
               Note: {totalMissing} item(s) are reported missing (not returned) and are awaiting confirmation.
-            </p>
+            </div>
           )}
           {h.returns.length > 0 && (
             <div className="stack mt-2">
-              {h.returns.map((r) => (
-                <div key={r.id} className="card" style={{ background: 'var(--surface-2)' }}>
-                  <div className="small"><strong>{formatDateTime(r.occurredAt)}</strong></div>
+              {h.returns.map((r, n) => (
+                <div key={r.id} className="recipient-return">
+                  <div className="small"><strong>Return {n + 1}</strong> <span className="muted">· {formatDateTime(r.occurredAt)}</span></div>
                   {r.note && <p className="small" style={{ margin: '0.3rem 0' }}>{r.note}</p>}
                   <ul className="small" style={{ margin: '0.3rem 0 0', paddingLeft: '1.1rem' }}>
                     {r.lines.map((l, idx) => (

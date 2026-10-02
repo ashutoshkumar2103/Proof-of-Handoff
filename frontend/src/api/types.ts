@@ -215,6 +215,45 @@ export interface HandoffSummary {
   updatedAt: string;
 }
 
+/** The days a report covers, as the backend applied them: first and last included, in `timezone`, matched against the creation date. */
+export interface ReportPeriod {
+  from: string;
+  to: string;
+  timezone: string;
+}
+
+/** Totals for every handoff created in the period, whatever its status. `open` and `overdue` are as of now. */
+export interface ReportSummary {
+  created: number;
+  closed: number;
+  open: number;
+  overdue: number;
+  itemsGiven: string;
+  itemsReturned: string;
+  itemsMissing: string;
+  /** Neither back nor missing, split by where it stayed: on a handoff not back yet, one the recipient rejected, one that was cancelled. */
+  itemsStillOut: string;
+  itemsRejected: string;
+  itemsCancelled: string;
+}
+
+export interface HandoffReport {
+  period: ReportPeriod;
+  summary: ReportSummary;
+  /** The same compact rows the Dashboard list uses, narrowed by the filter and sorted as asked. */
+  handoffs: Page<HandoffSummary>;
+}
+
+/** What a report is asked: the days (yyyy-mm-dd) and the zone they are days in, and optionally one status or only the overdue. */
+export interface ReportQuery {
+  from: string;
+  to: string;
+  timezone: string;
+  status?: HandoffStatus;
+  overdue?: boolean;
+  sort?: string;
+}
+
 /** The reusable part of a handoff (the server decides what that is): what a duplicate starts from. */
 export interface HandoffTemplate {
   title: string;
@@ -476,7 +515,8 @@ export interface ApiError {
   errors?: { field: string; message: string }[];
 }
 
-export type JobType = 'RETURN_REMINDER' | 'OVERDUE_REMINDER' | 'MISSING_ITEM_REMINDER' | 'WEEKLY_SUMMARY';
+export type JobType = 'RETURN_REMINDER' | 'OVERDUE_REMINDER' | 'MISSING_ITEM_REMINDER' | 'WEEKLY_SUMMARY'
+  | 'RECIPIENT_RESPONSE_REMINDER';
 export type JobStatus = 'SENT' | 'NOTHING_TO_REPORT' | 'FAILED';
 
 /** One of the customer's jobs: how it is set up, its next runs, and how its latest run went. */

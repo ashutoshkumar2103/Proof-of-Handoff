@@ -7,6 +7,7 @@ import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
 import java.math.BigDecimal;
+import java.time.Instant;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
@@ -70,6 +71,19 @@ public class ReturnQueryService {
     /** itemId -> total quantity returned in UNCONFIRMED events (awaiting confirmation). */
     public Map<Long, BigDecimal> pendingReturnedByItem(Long handoffId) {
         return toMap(returnLineRepository.sumByHandoffAndConfirmed(handoffId, false));
+    }
+
+    /**
+     * {@link #confirmedReturnedByItem(Long)} for every handoff a customer created in {@code [from, to)} at once, so a period
+     * can be reported without a query per handoff. Item ids are unique across handoffs, so one map serves them all.
+     */
+    public Map<Long, BigDecimal> confirmedReturnedByItem(Long ownerId, Instant from, Instant to) {
+        return toMap(returnLineRepository.sumReturnedForHandoffsCreatedBetween(ownerId, ItemCondition.MISSING, from, to));
+    }
+
+    /** {@link #declaredMissingByItem(Long)} for every handoff a customer created in {@code [from, to)} at once. */
+    public Map<Long, BigDecimal> declaredMissingByItem(Long ownerId, Instant from, Instant to) {
+        return toMap(returnLineRepository.sumMissingForHandoffsCreatedBetween(ownerId, ItemCondition.MISSING, from, to));
     }
 
     public List<ReturnEvent> eventsForHandoff(Long handoffId) {

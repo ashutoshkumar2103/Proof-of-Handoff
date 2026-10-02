@@ -246,7 +246,7 @@ project brief. Each can be revisited.
     same `compare` from the same request, so the file is exactly what was shown, with CSV formula-injection protection;
     nothing is stored and the standalone HandoffCheck mode stays independent of handoffs.
 
-29. **Customer jobs: four per customer, off by default, one email per run, scoped by construction.**
+29. **Customer jobs: four per customer, off by default, one email per run, scoped by construction.** (A fifth job was added later: decision 35.)
     Return Reminder (due tomorrow or the day after — not today, not overdue), Overdue Reminder, Missing Item Reminder
     (open handoffs only, so a force-closed handoff is never reminded about) and Weekly Summary. Each customer has one row
     per job (`customer_job`, unique `(user_id, job_type)`), created the first time they open it and switched off, with its
@@ -332,3 +332,51 @@ project brief. Each can be revisited.
     Entry point only the HandoffCheck page for now; the Account page and the pricing page are unchanged and still charge the list price.
     The card form moved out of the checkout page into one shared component (`DemoCardFields`, with its helpers in `lib/checkout`)
     rather than being copied. No migration: `payment.amount` already holds what was charged and `plan_before` what it replaced.
+
+## Reports
+
+34. **Reports show the same per-handoff figures as the Dashboard and the handoff page, for the handoffs created in a period.**
+    A read-only page (`GET /api/v1/reports/handoffs` and `/export`) in the `handoff` module, next to `HandoffActivityService` — the
+    other period view of one customer's handoffs — rather than a new module. *Which date:* the period is matched against the date each
+    handoff was **created**: the one date every handoff has (a draft has no sent date), so each handoff falls in exactly one period and
+    the table rows add up to the summary cards. The alternative — counting each thing on its own date (closed in the period, returned in
+    the period) — answers "what happened this week", gives rows that do not add up to the cards, and is what the Weekly Summary job
+    already does; Reports answers "how did the handoffs I created in this period do" and says so on the page. *Which zone:* whole
+    calendar days, both ends included, in the zone the caller names (the browser's; UTC if none), echoed back and written into the CSV,
+    so the table's dates (shown in the browser's zone) and the filter always agree. *Which numbers:* no new calculation. Every handoff's
+    figures are `HandoffMapper.toSummary`, fed with the return totals of the whole period fetched at once (`ReturnQueryService`
+    overloads, same confirmed-only rule, same `netMissing` formula) instead of one query per handoff; the summary, the status/overdue
+    filter, the sorting, the page and the CSV are then plain operations on those rows, so they cannot disagree, and a test compares
+    every row and total with the handoff page. "Open" is `HandoffActivityService.OPEN_STATUSES`, "overdue" is `HandoffMapper.isOverdue`
+    (both as of now, not as of the end of the period), and the item totals count handoffs that were sent — a draft has given nothing.
+    Every item given is back, missing or neither (the handoff's `remaining`, outgoing = returned + missing + remaining), so that third part is
+    shown too, split by where it stayed — on a rejected handoff, on a cancelled one, or still out on any other — and the row always adds up:
+    given = returned + missing + still out + rejected + cancelled. Showing only returned and missing left a difference (for example a
+    rejected handoff's whole quantity) that the customer had to go and find.
+    The summary ignores the status filter (it describes the period); the table and the CSV rows follow it. *Who:* the customer is always
+    the signed-in one (no parameter names another); every lookup is by that id. *Access:* `UserService.requireActiveSubscription` first
+    thing in both endpoints, on any plan — no new entitlement, flag or column — and the page uses the same `useSubscriptionGate` and
+    dialog as New handoff and HandoffCheck. *Limits:* a period may hold at most 10,000 handoffs (otherwise 400, "Choose a shorter
+    period") and dates must lie between 1970 and 9998; reading a period is done in memory in three queries — chosen over SQL
+    aggregates so there is still exactly one quantity calculation — and is the thing to revisit if accounts outgrow that limit.
+    *CSV:* `common.util.Csv` (quoting, spreadsheet-formula protection, plain quantities). The HandoffCheck export has its own private
+    copies of the same few lines and was deliberately left untouched; moving it onto `Csv` is a follow-up. *PDF:* deferred — each of the
+    two PDF generators keeps its own private OpenPDF layout helpers (fonts, tables, page numbers), so a third report would copy them or
+    force edits to the Proof-of-Handoff PDF and the HandoffCheck export. No migration, no stored report, nothing changes in any handoff or return.
+
+35. **A fifth customer job, Recipient Response Reminder, is one more value of the existing job type — nothing else is new.**
+    It tells the customer about handoffs that went out and whose recipient has neither accepted nor declined after a day, so one
+    that was never opened does not sit unnoticed. It is the same machinery as the other four: `JobType.RECIPIENT_RESPONSE_REMINDER`
+    (stored in the existing `customer_job.job_type` column, which has room and no value list, so **no migration**; every
+    customer's job list and Run All Now already walk `JobType.values()`, and a customer who has the four gets the fifth, switched
+    off, the next time their jobs are looked at), the same cron and timezone checks, the same claim by the ticker, the same
+    one-email-per-run and none-when-empty rules, the same monitoring row. *Which handoffs:* those in `AWAITING_RECIPIENT` — the one
+    state in which the recipient is offered accept or decline (`RecipientService`), so there is no second definition of "has not
+    responded" — that went out at least 24 hours ago (`RESPONSE_WAIT`, a constant beside `DUE_SOON_DAYS`, in one place). The wait is
+    elapsed time from the handoff's own sent time, not a calendar day, so the customer's timezone only decides how the sent date is
+    written in the email (as for the other jobs). When the recipient answers the status moves to active or rejected (or the owner
+    cancels), and the handoff drops out with nothing to switch off. The query is `HandoffActivityService.awaitingRecipient`, read-only
+    and by owner id like its neighbours. *Email:* one per run, oldest first, each handoff once: reference, title, recipient, the date
+    it was sent and how many days it has waited. It carries no recipient link: a link is only ever stored hashed, and issuing a new
+    one would be a change to the handoff, which a job never makes — the note says to use Resend link. *Consequence to know:* Run All
+    Now now costs five of the hourly run allowance instead of four.

@@ -23,8 +23,7 @@ class CustomerJobRateLimitTest extends ApiTestBase {
         Account a = register();
         Account b = register();
 
-        mvc.perform(as(a, post(JOBS + "/run-all"))).andExpect(status().isOk());   // four runs
-        mvc.perform(as(a, post(JOBS + "/WEEKLY_SUMMARY/run"))).andExpect(status().isOk());   // the fifth
+        mvc.perform(as(a, post(JOBS + "/run-all"))).andExpect(status().isOk());   // one run per job: five, the whole allowance
         mvc.perform(as(a, post(JOBS + "/WEEKLY_SUMMARY/run"))).andExpect(status().isTooManyRequests())
                 .andExpect(header().exists("Retry-After"));
         mvc.perform(as(a, post(JOBS + "/run-all"))).andExpect(status().isTooManyRequests());

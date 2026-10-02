@@ -146,7 +146,9 @@ export function CustomerPage() {
                   </div>
                   {subscription.status === 'INACTIVE' && (
                     <div className="small remaining-open">
-                      Expired: the {planName(subscription.plan)} plan's support features are paused until it is renewed.
+                      Expired: the {planName(subscription.plan)} plan's support features are paused. The customer cannot
+                      start new handoffs or drafts or duplicate one, and plan-gated features such as HandoffCheck are
+                      unavailable; their existing handoffs and records stay usable. Renewing the plan restores access.
                     </div>
                   )}
                 </>
@@ -200,8 +202,9 @@ export function CustomerPage() {
                 <input id="validUntil" type="date" value={validUntil} min={new Date().toISOString().slice(0, 10)}
                        onChange={(e) => setValidUntil(e.target.value)} />
                 <p className="small muted mt-1">
-                  After this day the plan counts as expired and its support features pause until it is renewed. The
-                  core product is unaffected.
+                  After this day the plan counts as expired: its support features pause, and the customer cannot start
+                  new handoffs, send drafts or use HandoffCheck until it is renewed. Their existing handoffs and returns
+                  stay available.
                 </p>
               </div>
               <div className="field">

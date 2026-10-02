@@ -12,7 +12,8 @@ import { EditHandoffPage } from './pages/EditHandoffPage';
 import { HandoffDetailPage } from './pages/HandoffDetailPage';
 import { RecipientPage } from './pages/RecipientPage';
 import { HandoffCheckPage } from './pages/HandoffCheckPage';
-import { AccountPage } from './pages/AccountPage';
+import { ReportsPage } from './pages/ReportsPage';
+import { AccountPage, JobsHistoryPage, JobsPage } from './pages/AccountPage';
 import { CheckoutPage } from './pages/CheckoutPage';
 import { ForgotPasswordPage } from './pages/ForgotPasswordPage';
 import { ResetPasswordPage } from './pages/ResetPasswordPage';
@@ -62,7 +63,10 @@ export function App() {
         <Route path="/handoffs/:id" element={<HandoffDetailPage />} />
         <Route path="/handoffs/:id/edit" element={<EditHandoffPage />} />
         <Route path="/handoff-check" element={<HandoffCheckPage />} />
+        <Route path="/reports" element={<ReportsPage />} />
         <Route path="/account" element={<AccountPage />} />
+        <Route path="/account/jobs" element={<JobsPage />} />
+        <Route path="/account/jobs/history" element={<JobsHistoryPage />} />
         <Route path="/support" element={<RequireSupport need="contactSupport"><SupportPage /></RequireSupport>} />
         <Route path="/support/new" element={<RequireSupport need="ticket"><NewTicketPage /></RequireSupport>} />
         <Route path="/support/message" element={<RequireSupport need="message"><NewTicketPage mode="message" /></RequireSupport>} />

@@ -9,11 +9,14 @@ import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.dao.DataIntegrityViolationException;
 import org.springframework.http.MediaType;
 
+import java.time.Duration;
 import java.time.Instant;
+import java.time.ZoneId;
 import java.time.ZoneOffset;
 import java.time.LocalDate;
 import java.time.temporal.ChronoUnit;
 import java.util.List;
+import java.util.Map;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
@@ -23,7 +26,7 @@ import static org.springframework.test.web.servlet.request.MockMvcRequestBuilder
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
-/** The customer's four jobs as the app uses them: set up, scheduled, run, and the email each run sends. */
+/** The customer's five jobs as the app uses them: set up, scheduled, run, and the email each run sends. */
 class CustomerJobTest extends ApiTestBase {
 
     private static final String JOBS = "/api/v1/account/jobs";
@@ -35,8 +38,18 @@ class CustomerJobTest extends ApiTestBase {
 
     // ------------------------------------------------------------------ helpers
 
+    /** Noon, {@code days} calendar days from today in UTC — the zone the test profile gives every job unless a test schedules another. */
     private static String daysFromToday(int days) {
-        return LocalDate.now(ZoneOffset.UTC).plusDays(days).atTime(12, 0).toInstant(ZoneOffset.UTC).toString();
+        return daysFromToday(days, ZoneOffset.UTC);
+    }
+
+    /**
+     * Noon, {@code days} calendar days from today <em>in {@code zone}</em>. A job decides what "tomorrow" is in its own zone, so a
+     * test that schedules a job in a zone must build its dates in that same zone: between 18:30 and 24:00 UTC the calendar day in
+     * Asia/Kolkata is already the next one, and a date counted in UTC would land on "today" there.
+     */
+    private static String daysFromToday(int days, ZoneId zone) {
+        return LocalDate.now(zone).plusDays(days).atTime(12, 0).atZone(zone).toInstant().toString();
     }
 
     private String json(Account who, String path) throws Exception {
@@ -98,17 +111,17 @@ class CustomerJobTest extends ApiTestBase {
     // ------------------------------------------------------------------ setting up
 
     @Test
-    void aCustomerGetsFourJobsSwitchedOffWithDefaultSchedules() throws Exception {
+    void aCustomerGetsFiveJobsSwitchedOffWithDefaultSchedules() throws Exception {
         Account a = register();
         mvc.perform(as(a, get(JOBS))).andExpect(status().isOk())
-                .andExpect(jsonPath("$.length()").value(4))
+                .andExpect(jsonPath("$.length()").value(5))
                 .andExpect(jsonPath("$[*].type").value(org.hamcrest.Matchers.containsInAnyOrder(
-                        "RETURN_REMINDER", "OVERDUE_REMINDER", "MISSING_ITEM_REMINDER", "WEEKLY_SUMMARY")))
+                        "RETURN_REMINDER", "OVERDUE_REMINDER", "MISSING_ITEM_REMINDER", "WEEKLY_SUMMARY", "RECIPIENT_RESPONSE_REMINDER")))
                 .andExpect(jsonPath("$[*].enabled").value(org.hamcrest.Matchers.everyItem(org.hamcrest.Matchers.is(false))))
                 .andExpect(jsonPath("$[0].timezone").value("UTC"));
         // Looking again does not set up a second set.
-        mvc.perform(as(a, get(JOBS))).andExpect(jsonPath("$.length()").value(4));
-        assertThat(jdbc.queryForObject("select count(*) from customer_job where user_id = ?", Integer.class, a.id())).isEqualTo(4);
+        mvc.perform(as(a, get(JOBS))).andExpect(jsonPath("$.length()").value(5));
+        assertThat(jdbc.queryForObject("select count(*) from customer_job where user_id = ?", Integer.class, a.id())).isEqualTo(5);
     }
 
     @Test
@@ -165,7 +178,7 @@ class CustomerJobTest extends ApiTestBase {
         mvc.perform(as(b, get(JOBS))).andExpect(jsonPath("$[?(@.type=='RETURN_REMINDER')].enabled").value(false))
                 .andExpect(jsonPath("$[?(@.type=='RETURN_REMINDER')].cronExpression").value("0 0 9 * * *"))
                 .andExpect(jsonPath("$[?(@.type=='RETURN_REMINDER')].timezone").value("UTC"));
-        assertThat(jdbc.queryForObject("select count(*) from customer_job where user_id = ?", Integer.class, b.id())).isEqualTo(4);
+        assertThat(jdbc.queryForObject("select count(*) from customer_job where user_id = ?", Integer.class, b.id())).isEqualTo(5);
     }
 
     @Test
@@ -182,9 +195,10 @@ class CustomerJobTest extends ApiTestBase {
     @Test
     void runningNowChangesNeitherTheScheduleNorWhetherTheJobIsOn() throws Exception {
         Account a = register();
-        long due = activeHandoff(a, "Due tomorrow", daysFromToday(1));
+        String zone = "Asia/Kolkata";   // the zone the job is scheduled in, so "tomorrow" below is tomorrow there
+        long due = activeHandoff(a, "Due tomorrow", daysFromToday(1, ZoneId.of(zone)));
         enable(a, JobType.RETURN_REMINDER);
-        schedule(a, JobType.RETURN_REMINDER, "0 15 6 * * *", "Asia/Kolkata");
+        schedule(a, JobType.RETURN_REMINDER, "0 15 6 * * *", zone);
         String before = job(a, JobType.RETURN_REMINDER).toString();
         Object nextBefore = JsonPath.read(before, "$[0].nextRunAt");
 
@@ -194,7 +208,7 @@ class CustomerJobTest extends ApiTestBase {
         String after = job(a, JobType.RETURN_REMINDER).toString();
         assertThat((Object) JsonPath.read(after, "$[0].nextRunAt")).isEqualTo(nextBefore);
         assertThat((Object) JsonPath.read(after, "$[0].cronExpression")).isEqualTo("0 15 6 * * *");
-        assertThat((Object) JsonPath.read(after, "$[0].timezone")).isEqualTo("Asia/Kolkata");
+        assertThat((Object) JsonPath.read(after, "$[0].timezone")).isEqualTo(zone);
         assertThat((Object) JsonPath.read(after, "$[0].enabled")).isEqualTo(true);
         assertThat((Object) JsonPath.read(after, "$[0].lastStatus")).isEqualTo("SENT");
         assertThat((Object) JsonPath.read(after, "$[0].lastRunAt")).isNotNull();
@@ -207,7 +221,7 @@ class CustomerJobTest extends ApiTestBase {
     }
 
     @Test
-    void runAllNowRunsTheFourJobsOfThatCustomerOnly() throws Exception {
+    void runAllNowRunsTheFiveJobsOfThatCustomerOnly() throws Exception {
         Account a = register();
         Account b = register();
         long soon = activeHandoff(a, "A due soon", daysFromToday(1));
@@ -220,12 +234,12 @@ class CustomerJobTest extends ApiTestBase {
         String missingCode = codeOf(a, missing[0]);
 
         String result = mvc.perform(as(a, post(JOBS + "/run-all"))).andExpect(status().isOk())
-                .andExpect(jsonPath("$.length()").value(4))
+                .andExpect(jsonPath("$.length()").value(5))
                 .andReturn().getResponse().getContentAsString();
         assertThat((List<String>) JsonPath.read(result, "$[*].type")).containsExactlyInAnyOrder(
-                "RETURN_REMINDER", "OVERDUE_REMINDER", "MISSING_ITEM_REMINDER", "WEEKLY_SUMMARY");
+                "RETURN_REMINDER", "OVERDUE_REMINDER", "MISSING_ITEM_REMINDER", "WEEKLY_SUMMARY", "RECIPIENT_RESPONSE_REMINDER");
 
-        // One email per job, all to A, none of them mentioning B's handoff.
+        // One email per job that has something to say, all to A (the fifth has nothing: none of A's handoffs is waiting for a recipient), none of them mentioning B's handoff.
         List<EmailMessage> sent = mailTo(a);
         assertThat(sent).hasSize(4);
         assertThat(sent).allSatisfy(m -> assertThat(m.textBody()).doesNotContain("B overdue"));   // public codes are per customer, so titles tell them apart
@@ -519,5 +533,289 @@ class CustomerJobTest extends ApiTestBase {
         jobService.runDue(due.plusSeconds(5));
 
         assertThat(mailTo(a)).isEmpty();
+    }
+
+    // ------------------------------------------------------------------ the recipient response reminder
+
+    private static final JobType RESPONSE = JobType.RECIPIENT_RESPONSE_REMINDER;
+
+    /** A handoff that has been sent and not answered; {@code token} is the recipient's own link from the email. */
+    private record Sent(long id, String code, String token) {}
+
+    private Sent sentUnanswered(Account owner, String title) throws Exception {
+        String body = """
+                {"title":"%s","senderName":"Sender","recipientName":"Recipient of %s","recipientEmail":"recipient@example.test",
+                 "items":[{"name":"Chairs","quantity":10,"unit":"pcs"}]}""".formatted(title, title);
+        long id = ((Number) JsonPath.read(mvc.perform(as(owner, post("/api/v1/handoffs").contentType(MediaType.APPLICATION_JSON)
+                .content(body))).andExpect(status().isCreated()).andReturn().getResponse().getContentAsString(), "$.id")).longValue();
+        mvc.perform(as(owner, post("/api/v1/handoffs/" + id + "/submit"))).andExpect(status().isOk());
+        return new Sent(id, codeOf(owner, id), emailSender.extractLastToken());
+    }
+
+    /** The recipient answers through their own link, exactly as on the recipient page. */
+    private void answer(Sent s, boolean accept) throws Exception {
+        String body = accept ? "{\"acknowledgementName\":\"Recipient\"}" : "{\"acknowledgementName\":\"Recipient\",\"reason\":\"Not what we agreed\"}";
+        mvc.perform(post("/api/v1/r/" + s.token() + (accept ? "/accept" : "/reject")).contentType(MediaType.APPLICATION_JSON).content(body))
+                .andExpect(status().isOk());
+    }
+
+    /** Backdates when a handoff went out, bound the way the driver binds every instant (so the zone of the JVM does not matter). */
+    private void sentAt(long handoffId, Instant at) {
+        jdbc.update("update handoff set outgoing_at = ? where id = ?", java.sql.Timestamp.from(at), handoffId);
+    }
+
+    private void sentHoursAgo(Sent s, long hours) {
+        sentAt(s.id(), Instant.now().minus(hours, ChronoUnit.HOURS));
+    }
+
+    @SuppressWarnings("unchecked")
+    private List<String> handoffsOf(String runJson) {
+        return JsonPath.read(runJson, "$.handoffs");
+    }
+
+    private List<String> awaitingRefs(Account owner, Instant now, Duration wait) {
+        return activity.awaitingRecipient(owner.id(), now, wait).stream().map(HandoffActivityService.AwaitingLine::reference).toList();
+    }
+
+    @Test
+    void onlyAHandoffStillWaitingForItsRecipientForADayIsInTheResponseReminder() throws Exception {
+        Account a = register();
+        Sent waiting = sentUnanswered(a, "Wait-A");
+        Sent fresh = sentUnanswered(a, "Fresh-B");
+        Sent accepted = sentUnanswered(a, "Yes-C");
+        answer(accepted, true);
+        Sent rejected = sentUnanswered(a, "No-D");
+        answer(rejected, false);
+        Sent cancelled = sentUnanswered(a, "Cancel-E");
+        mvc.perform(as(a, post("/api/v1/handoffs/" + cancelled.id() + "/cancel"))).andExpect(status().isOk());
+        handoffAt(a, "ACTIVE", null);     // accepted and out with the recipient
+        handoffAt(a, "PARTIAL", null);    // partly returned
+        handoffAt(a, "RETURNED", null);   // fully returned
+        handoffAt(a, "CLOSED", null);
+        handoffAt(a, "DRAFT", null);      // never sent
+
+        // Everything that has gone out went out 30 hours ago, except one that went out 23 hours ago.
+        jdbc.update("update handoff set outgoing_at = ? where owner_user_id = ? and outgoing_at is not null",
+                java.sql.Timestamp.from(Instant.now().minus(30, ChronoUnit.HOURS)), a.id());
+        sentHoursAgo(fresh, 23);
+
+        String result = run(a, RESPONSE);
+
+        assertThat(handoffsOf(result)).containsExactly(waiting.code());
+        assertThat((Object) JsonPath.read(result, "$.status")).isEqualTo("SENT");
+        assertThat(mailTo(a)).hasSize(1);
+        String body = mailTo(a).get(0).textBody();
+        assertThat(body).contains("Wait-A").doesNotContain("Fresh-B", "Yes-C", "No-D", "Cancel-E", "Stage ");
+    }
+
+    @Test
+    void aHandoffBecomesEligibleExactlyADayAfterItWasSent() throws Exception {
+        Account a = register();
+        Sent s = sentUnanswered(a, "Edge");
+        sentAt(s.id(), utc(10, 2, 10, 0));
+        Duration day = Duration.ofHours(24);
+
+        assertThat(awaitingRefs(a, utc(10, 3, 10, 0).minusSeconds(1), day)).isEmpty();                       // 23 h 59 m 59 s: not yet
+        assertThat(awaitingRefs(a, utc(10, 3, 10, 0), day)).containsExactly(s.code());                       // exactly a day: eligible
+        assertThat(awaitingRefs(a, utc(10, 3, 10, 0).plusSeconds(1), day)).containsExactly(s.code());
+    }
+
+    @Test
+    void theResponseReminderOnlyEverLooksAtThatCustomersHandoffs() throws Exception {
+        Account a = register();
+        Account b = register();
+        Sent mine = sentUnanswered(a, "Alpha-only");
+        Sent theirs = sentUnanswered(b, "Bravo-only");
+        sentHoursAgo(mine, 30);
+        sentHoursAgo(theirs, 30);
+
+        assertThat(handoffsOf(run(a, RESPONSE))).hasSize(1);
+        assertThat(mailTo(a)).hasSize(1);
+        assertThat(mailTo(a).get(0).textBody()).contains("Alpha-only").doesNotContain("Bravo-only");
+        assertThat(mailTo(b)).isEmpty();                                               // B was not emailed, and B's job did not run
+        assertThat((Object) JsonPath.read(job(b, RESPONSE).toString(), "$[0].lastRunAt")).isNull();
+
+        assertThat(handoffsOf(run(b, RESPONSE))).hasSize(1);
+        assertThat(mailTo(b)).hasSize(1);
+        assertThat(mailTo(b).get(0).textBody()).contains("Bravo-only").doesNotContain("Alpha-only");
+        assertThat(mailTo(a)).hasSize(1);                                              // and A got nothing more
+    }
+
+    @Test
+    void fiveWaitingHandoffsAreOneEmailOldestFirstAndEachOnlyOnce() throws Exception {
+        Account a = register();
+        List<Sent> batch = new java.util.ArrayList<>();
+        for (int i = 1; i <= 5; i++) {
+            Sent s = sentUnanswered(a, "Batch-" + i);
+            sentHoursAgo(s, 60 - i);   // Batch-1 has waited longest
+            batch.add(s);
+        }
+
+        String result = run(a, RESPONSE);
+
+        assertThat(handoffsOf(result)).containsExactlyElementsOf(batch.stream().map(Sent::code).toList());
+        assertThat(mailTo(a)).hasSize(1);   // five handoffs, ONE email
+        EmailMessage mail = mailTo(a).get(0);
+        assertThat(mail.subject()).contains("Recipient Response Reminder").contains(a.accountCode());
+        assertThat(mail.textBody()).contains("RECIPIENT RESPONSE REMINDER", "still waiting for a response");
+        assertThat(mail.htmlBody()).contains("<h1").contains("font-weight:bold").contains(">Recipient Response Reminder</h1>");
+        for (int i = 1; i <= 5; i++) {
+            String title = "Batch-" + i;
+            String line = batch.get(i - 1).code() + " — " + title + " — Recipient of " + title + " — sent ";
+            assertThat(mail.textBody().split(java.util.regex.Pattern.quote(line), -1)).as(title + " has exactly one line").hasSize(2);
+        }
+        assertThat(mail.textBody()).containsPattern("sent \\d{1,2} \\w{3} \\d{4} — waiting \\d+ days");
+    }
+
+    @Test
+    void withNoWaitingHandoffNothingIsSentAndTheRunSaysSo() throws Exception {
+        Account a = register();
+        sentUnanswered(a, "Only just sent");   // sent a moment ago: not yet a day
+        handoffAt(a, "ACTIVE", null);
+
+        String result = run(a, RESPONSE);
+
+        assertThat((Object) JsonPath.read(result, "$.status")).isEqualTo("NOTHING_TO_REPORT");
+        assertThat(handoffsOf(result)).isEmpty();
+        assertThat(mailTo(a)).isEmpty();
+        assertThat((Object) JsonPath.read(job(a, RESPONSE).toString(), "$[0].lastStatus")).isEqualTo("NOTHING_TO_REPORT");
+    }
+
+    @Test
+    void theReminderStopsForAHandoffAsSoonAsItsRecipientAcceptsOrDeclines() throws Exception {
+        Account a = register();
+        Sent keeps = sentUnanswered(a, "Keeps waiting");
+        Sent accepts = sentUnanswered(a, "Will accept");
+        Sent declines = sentUnanswered(a, "Will decline");
+        for (Sent s : List.of(keeps, accepts, declines)) sentHoursAgo(s, 30);
+
+        assertThat(handoffsOf(run(a, RESPONSE))).containsExactlyInAnyOrder(keeps.code(), accepts.code(), declines.code());
+
+        answer(accepts, true);
+        assertThat(handoffsOf(run(a, RESPONSE))).containsExactlyInAnyOrder(keeps.code(), declines.code());
+
+        answer(declines, false);
+        assertThat(handoffsOf(run(a, RESPONSE))).containsExactly(keeps.code());
+
+        answer(keeps, true);
+        String last = run(a, RESPONSE);
+        assertThat((Object) JsonPath.read(last, "$.status")).isEqualTo("NOTHING_TO_REPORT");
+        assertThat(mailTo(a)).hasSize(3);   // the three runs that had something to say; the last had nothing
+    }
+
+    @Test
+    void runningTheResponseReminderByHandRunsOnlyItAndMovesNoSchedule() throws Exception {
+        Account a = register();
+        Sent s = sentUnanswered(a, "Waiting");
+        sentHoursAgo(s, 30);
+        enable(a, RESPONSE);
+        schedule(a, RESPONSE, "0 15 6 * * *", "Asia/Kolkata");
+        json(a, JOBS);
+        Map<JobType, String> others = new java.util.EnumMap<>(JobType.class);
+        for (JobType t : JobType.values()) if (t != RESPONSE) others.put(t, job(a, t).toString());
+        String before = job(a, RESPONSE).toString();
+
+        run(a, RESPONSE);
+
+        for (Map.Entry<JobType, String> e : others.entrySet()) {
+            assertThat(job(a, e.getKey()).toString()).as(e.getKey() + " is untouched").isEqualTo(e.getValue());
+        }
+        String after = job(a, RESPONSE).toString();
+        for (String field : new String[]{"cronExpression", "timezone", "enabled", "nextRunAt"}) {
+            assertThat((Object) JsonPath.read(after, "$[0]." + field)).as(field).isEqualTo(JsonPath.read(before, "$[0]." + field));
+        }
+        assertThat((Object) JsonPath.read(after, "$[0].lastStatus")).isEqualTo("SENT");
+        assertThat((Object) JsonPath.read(after, "$[0].lastRunAt")).isNotNull();
+        assertThat(mailTo(a)).hasSize(1);
+    }
+
+    @Test
+    @SuppressWarnings("unchecked")
+    void runAllNowIncludesTheResponseReminderAndStaysWithThatCustomer() throws Exception {
+        Account a = register();
+        Account b = register();
+        Sent mine = sentUnanswered(a, "Mine waiting");
+        Sent theirs = sentUnanswered(b, "Theirs waiting");
+        sentHoursAgo(mine, 30);
+        sentHoursAgo(theirs, 30);
+        json(b, JOBS);
+
+        String result = mvc.perform(as(a, post(JOBS + "/run-all"))).andExpect(status().isOk()).andExpect(jsonPath("$.length()").value(5))
+                .andReturn().getResponse().getContentAsString();
+
+        assertThat((List<String>) JsonPath.read(result, "$[?(@.type=='RECIPIENT_RESPONSE_REMINDER')].status")).containsExactly("SENT");
+        assertThat((List<List<String>>) JsonPath.read(result, "$[?(@.type=='RECIPIENT_RESPONSE_REMINDER')].handoffs"))
+                .containsExactly(List.of(mine.code()));
+        assertThat(mailTo(a)).anySatisfy(m -> assertThat(m.textBody()).contains("Mine waiting").doesNotContain("Theirs waiting"));
+        assertThat(mailTo(b)).isEmpty();
+        mvc.perform(as(b, get(JOBS))).andExpect(jsonPath("$[*].lastRunAt").value(org.hamcrest.Matchers.everyItem(org.hamcrest.Matchers.nullValue())));
+    }
+
+    @Test
+    @SuppressWarnings("unchecked")
+    void theMonitoringRowShowsTheLatestResponseReminderRunAndItsReferences() throws Exception {
+        Account a = register();
+        Sent first = sentUnanswered(a, "First");
+        Sent second = sentUnanswered(a, "Second");
+        sentHoursAgo(first, 50);
+        sentHoursAgo(second, 40);
+
+        run(a, RESPONSE);
+
+        String row = job(a, RESPONSE).toString();
+        assertThat((Object) JsonPath.read(row, "$[0].title")).isEqualTo("Recipient Response Reminder");
+        assertThat((Object) JsonPath.read(row, "$[0].lastStatus")).isEqualTo("SENT");
+        assertThat((Object) JsonPath.read(row, "$[0].lastRunAt")).isNotNull();
+        assertThat((List<String>) JsonPath.read(row, "$[0].lastHandoffs")).containsExactly(first.code(), second.code());
+    }
+
+    @Test
+    void theEmailShowsTheSentDateInTheZoneTheJobRunsIn() throws Exception {
+        Account a = register();
+        Sent s = sentUnanswered(a, "Sent late in the evening UTC");
+        sentAt(s.id(), Instant.parse("2026-09-20T20:30:00Z"));   // 20 Sep in UTC, already 21 Sep 02:00 in Kolkata
+
+        run(a, RESPONSE);                                         // the test profile's default job zone is UTC
+        schedule(a, RESPONSE, "0 0 9 * * *", "Asia/Kolkata");
+        run(a, RESPONSE);
+
+        List<EmailMessage> mails = mailTo(a);
+        assertThat(mails).hasSize(2);
+        assertThat(mails.get(0).textBody()).contains("sent 20 Sep 2026");
+        assertThat(mails.get(1).textBody()).contains("sent 21 Sep 2026");
+    }
+
+    @Test
+    void theResponseReminderHasTheSameControlsAsTheOtherJobs() throws Exception {
+        Account a = register();
+        json(a, JOBS);
+        String fresh = job(a, RESPONSE).toString();
+        assertThat((Object) JsonPath.read(fresh, "$[0].enabled")).isEqualTo(false);
+        assertThat((Object) JsonPath.read(fresh, "$[0].cronExpression")).isEqualTo("0 0 9 * * *");
+        assertThat((Object) JsonPath.read(fresh, "$[0].timezone")).isEqualTo("UTC");
+        assertThat((Object) JsonPath.read(fresh, "$[0].nextRunAt")).isNull();
+
+        mvc.perform(as(a, put(JOBS + "/RECIPIENT_RESPONSE_REMINDER/schedule").contentType(MediaType.APPLICATION_JSON)
+                .content("{\"cronExpression\":\"* * * * *\",\"timezone\":\"UTC\"}"))).andExpect(status().isBadRequest());   // the one cron check
+        enable(a, RESPONSE);
+        schedule(a, RESPONSE, "0 30 8 * * MON-FRI", "Asia/Kolkata");
+        String on = job(a, RESPONSE).toString();
+        assertThat((Object) JsonPath.read(on, "$[0].nextRunAt")).isNotNull();
+        assertThat((Object) JsonPath.read(on, "$[0].upcomingRuns[2]")).isNotNull();
+
+        mvc.perform(as(a, put(JOBS + "/RECIPIENT_RESPONSE_REMINDER/enabled").contentType(MediaType.APPLICATION_JSON)
+                .content("{\"enabled\":false}"))).andExpect(status().isOk());
+        String paused = job(a, RESPONSE).toString();
+        assertThat((Object) JsonPath.read(paused, "$[0].enabled")).isEqualTo(false);
+        assertThat((Object) JsonPath.read(paused, "$[0].cronExpression")).isEqualTo("0 30 8 * * MON-FRI");   // pausing keeps the schedule
+
+        // The scheduler runs it like any other job, once.
+        Sent s = sentUnanswered(a, "Scheduled");
+        sentHoursAgo(s, 30);
+        enable(a, RESPONSE);
+        Instant due = Instant.parse(JsonPath.read(job(a, RESPONSE).toString(), "$[0].nextRunAt"));
+        jobService.runDue(due.plusSeconds(5));
+        jobService.runDue(due.plusSeconds(5));
+        assertThat(mailTo(a)).hasSize(1);
     }
 }

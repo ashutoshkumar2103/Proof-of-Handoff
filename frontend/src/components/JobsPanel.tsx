@@ -1,4 +1,5 @@
 import { useState } from 'react';
+import { Link } from 'react-router-dom';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { jobApi } from '../api/endpoints';
 import type { Job, JobRun, JobStatus, JobType } from '../api/types';
@@ -47,15 +48,16 @@ function inZone(iso: string | null | undefined, zone: string): string {
 function runSummary(runs: JobRun[]): string {
   const sent = runs.filter((r) => r.status === 'SENT').length;
   const failed = runs.filter((r) => r.status === 'FAILED').length;
-  if (!sent && !failed) return 'All four jobs ran. There was nothing to report, so no emails were sent.';
-  return `All four jobs ran: ${sent} email${sent === 1 ? '' : 's'} sent`
+  if (!sent && !failed) return `All ${runs.length} jobs ran. There was nothing to report, so no emails were sent.`;
+  return `All ${runs.length} jobs ran: ${sent} email${sent === 1 ? '' : 's'} sent`
     + `${failed ? `, ${failed} failed` : ''}. The others had nothing to report.`;
 }
 
 /**
- * The customer's four jobs: each can be switched on or off, scheduled with its own cron expression and timezone, and
- * run on demand. Running a job by hand never moves its schedule. Below them, a read-only table shows how each one's
- * latest run went. The backend is the authority on everything here — it validates schedules and decides what a run says.
+ * The customer's jobs: each can be switched on or off, scheduled with its own cron expression and timezone, and
+ * run on demand. Running a job by hand never moves its schedule. How each one's latest run went is on its own page
+ * ({@link JobMonitoring}), so this page stays short however many jobs there are. The backend is the authority on everything
+ * here — it validates schedules and decides what a run says.
  */
 export function JobsPanel() {
   const qc = useQueryClient();
@@ -80,10 +82,11 @@ export function JobsPanel() {
       <div className="card">
         <div className="row" style={{ justifyContent: 'space-between' }}>
           <div>
-            <h2 style={{ margin: 0 }}>Jobs</h2>
+            <h1 style={{ margin: 0 }}>Jobs</h1>
             <p className="small muted" style={{ margin: '0.3rem 0 0' }}>
               Automatic emails about your own handoffs. Each job sends one email per run, and nothing when there is
-              nothing to say. They start switched off.
+              nothing to say. They start switched off. Each job's latest run is in{' '}
+              <Link to="/account/jobs/history">Jobs Monitoring History</Link>.
             </p>
           </div>
           <button className="btn btn-primary" disabled={runAll.isPending}
@@ -102,38 +105,6 @@ export function JobsPanel() {
       {list.map((job) => (
         <JobCard key={job.type} job={job} onNotice={setNotice} />
       ))}
-
-      <div className="card">
-        <h3>Job monitoring</h3>
-        <p className="small muted">The latest run of each job. This is a record only; use the buttons above to change anything.</p>
-        <div className="table-wrap">
-          <table>
-            <thead>
-              <tr><th>Job</th><th>Status</th><th>Last run</th><th>Result</th><th>Handoffs</th><th>Next run</th></tr>
-            </thead>
-            <tbody>
-              {list.map((job) => (
-                <tr key={job.type}>
-                  <td>{job.title}</td>
-                  <td>
-                    <span className={`badge badge-dot ${job.enabled ? 'badge-success' : 'badge-warning'}`}>
-                      {job.enabled ? 'Active' : 'Paused'}
-                    </span>
-                  </td>
-                  <td>{inZone(job.lastRunAt, job.timezone)}</td>
-                  <td>
-                    {job.lastStatus
-                      ? <span className={`badge ${STATUS_BADGE[job.lastStatus]}`}>{STATUS_LABEL[job.lastStatus]}</span>
-                      : <span className="muted">Not run yet</span>}
-                  </td>
-                  <td style={{ whiteSpace: 'normal', maxWidth: 260 }}>{job.lastHandoffs.length ? job.lastHandoffs.join(', ') : '—'}</td>
-                  <td>{job.enabled ? inZone(job.nextRunAt, job.timezone) : '—'}</td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
-        </div>
-      </div>
     </div>
   );
 }
@@ -253,5 +224,52 @@ function ScheduleEditor({ job, onSaved }: { job: Job; onSaved: () => void }) {
         <button className="btn btn-primary btn-sm" disabled={save.isPending}>{save.isPending ? 'Saving…' : 'Save schedule'}</button>
       </div>
     </form>
+  );
+}
+
+/**
+ * The latest run of each job, as a read-only table of its own (Account → Jobs Monitoring History). It reads the same list as
+ * the jobs page, so a run made there shows here. Only the latest result of each job is kept, so this is a record, not an archive.
+ */
+export function JobMonitoring() {
+  const jobs = useQuery({ queryKey: JOBS_KEY, queryFn: jobApi.list });
+  if (jobs.isLoading) return <Spinner />;
+  if (jobs.error) return <ErrorNotice error={jobs.error} />;
+  const list = jobs.data ?? [];
+
+  return (
+    <div className="card">
+      <h1 style={{ marginTop: 0 }}>Jobs Monitoring History</h1>
+      <p className="small muted">
+        The latest run of each job. This is a record only; change a job, or run it, under <Link to="/account/jobs">Jobs</Link>.
+      </p>
+      <div className="table-wrap">
+        <table>
+          <thead>
+            <tr><th>Job</th><th>Status</th><th>Last run</th><th>Result</th><th>Handoffs</th><th>Next run</th></tr>
+          </thead>
+          <tbody>
+            {list.map((job) => (
+              <tr key={job.type}>
+                <td>{job.title}</td>
+                <td>
+                  <span className={`badge badge-dot ${job.enabled ? 'badge-success' : 'badge-warning'}`}>
+                    {job.enabled ? 'Active' : 'Paused'}
+                  </span>
+                </td>
+                <td>{inZone(job.lastRunAt, job.timezone)}</td>
+                <td>
+                  {job.lastStatus
+                    ? <span className={`badge ${STATUS_BADGE[job.lastStatus]}`}>{STATUS_LABEL[job.lastStatus]}</span>
+                    : <span className="muted">Not run yet</span>}
+                </td>
+                <td style={{ whiteSpace: 'normal', maxWidth: 260 }}>{job.lastHandoffs.length ? job.lastHandoffs.join(', ') : '—'}</td>
+                <td>{job.enabled ? inZone(job.nextRunAt, job.timezone) : '—'}</td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </div>
+    </div>
   );
 }

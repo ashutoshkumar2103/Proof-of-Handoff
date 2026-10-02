@@ -29,7 +29,7 @@ import java.util.List;
 import java.util.Locale;
 
 /**
- * A customer's four jobs — return reminder, overdue reminder, missing-item reminder and weekly summary — their
+ * A customer's five jobs — return reminder, overdue reminder, missing-item reminder, weekly summary and recipient response reminder — their
  * schedules, running them on demand, and running the ones that are due. Everything is scoped to one customer: each
  * public method takes the customer's id, finds jobs only by that id, and builds its report from that customer's own
  * handoffs, so one customer's job can never read, change or run another's. A run sends ONE email (never one per
@@ -44,6 +44,8 @@ public class CustomerJobService {
     private static final int UPCOMING_RUNS = 3;
     private static final int DUE_SOON_DAYS = 2;
     private static final int SUMMARY_DAYS = 7;
+    /** How long a sent handoff may wait for its recipient before the response reminder mentions it. */
+    private static final Duration RESPONSE_WAIT = Duration.ofHours(24);
     private static final int DUE_BATCH = 200;
     private static final int MAX_REMEMBERED_REFS = 2000;   // the column is 2000 characters
     private static final Duration RUN_WINDOW = Duration.ofHours(1);
@@ -73,7 +75,7 @@ public class CustomerJobService {
 
     // ------------------------------------------------------------------ the customer's jobs
 
-    /** The customer's four jobs, set up with their defaults the first time they are looked at. */
+    /** The customer's jobs, set up with their defaults the first time they are looked at. */
     public List<JobResponse> list(Long userId) {
         ensureJobs(userId);
         Instant now = Instant.now();
@@ -111,7 +113,7 @@ public class CustomerJobService {
         return execute(userId, type, Instant.now());
     }
 
-    /** Runs all four of the customer's jobs now, once each; no schedule is touched and nobody else's job runs. */
+    /** Runs all of the customer's jobs now, once each; no schedule is touched and nobody else's job runs. */
     public List<JobRunResponse> runAllNow(Long userId) {
         ensureJobs(userId);
         return Arrays.stream(JobType.values()).map(type -> runNow(userId, type)).toList();
@@ -194,6 +196,7 @@ public class CustomerJobService {
                     "Missing Item Reminder", "These open handoffs still have items marked missing:",
                     "Ask the recipient to confirm the missing items, or close the handoff once they are accounted for.");
             case WEEKLY_SUMMARY -> weekly(userId, now);
+            case RECIPIENT_RESPONSE_REMINDER -> awaitingResponse(userId, now, zone);
         };
     }
 
@@ -204,6 +207,18 @@ public class CustomerJobService {
         List<String> lines = found.stream().map(l -> describe(l, zone)).toList();
         return new Report(new CustomerJobEmail(heading, intro, lines, footnote),
                 found.stream().map(ReminderLine::reference).toList());
+    }
+
+    private Report awaitingResponse(Long userId, Instant now, ZoneId zone) {
+        List<HandoffActivityService.AwaitingLine> found = activity.awaitingRecipient(userId, now, RESPONSE_WAIT);
+        if (found.isEmpty()) {
+            return new Report(null, List.of());
+        }
+        List<String> lines = found.stream().map(l -> describe(l, now, zone)).toList();
+        return new Report(new CustomerJobEmail("Recipient Response Reminder",
+                "These handoffs were sent to their recipients and are still waiting for a response — the recipient has neither accepted nor declined:", lines,
+                "Use Resend link on a handoff if its recipient needs the link again. A handoff drops out of this reminder as soon as its recipient responds."),
+                found.stream().map(HandoffActivityService.AwaitingLine::reference).toList());
     }
 
     private Report weekly(Long userId, Instant now) {
@@ -235,6 +250,12 @@ public class CustomerJobService {
             s.append(", ").append(qty(l.missing())).append(" marked missing");
         }
         return s.toString();
+    }
+
+    private static String describe(HandoffActivityService.AwaitingLine l, Instant now, ZoneId zone) {
+        long days = Duration.between(l.sentAt(), now).toDays();
+        return l.reference() + " — " + l.title() + " — " + l.recipientName() + " — sent " + DAY.format(l.sentAt().atZone(zone))
+                + " — waiting " + days + (days == 1 ? " day" : " days");
     }
 
     private static String refs(List<HandoffActivityService.Ref> list) {

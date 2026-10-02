@@ -10,17 +10,21 @@ interface Plan {
   plan: SubscriptionPlan;
   name: string;
   tagline: string;
+  /** Whether the plan includes HandoffCheck. Display only: mirrors SubscriptionPlan.includesHandoffCheck(), which the backend enforces. */
+  handoffCheck: boolean;
   highlight?: boolean;
 }
 
 // How each plan is presented. Prices and what a plan includes from support are deliberately NOT here: they
 // come from the backend (`SubscriptionPlan`, the one place both live), so this page always matches what
-// support sees and what the backend enforces.
+// support sees and what the backend enforces. The one exception is `handoffCheck`, which the public plan list
+// does not carry yet: it is shown from here, and if a plan's HandoffCheck inclusion ever changes in
+// `SubscriptionPlan` this has to change with it.
 const PLANS: Plan[] = [
-  { plan: 'MONTHLY', name: 'Monthly', tagline: 'Billed every month' },
-  { plan: 'QUARTERLY', name: 'Quarterly', tagline: 'Billed every 3 months' },
-  { plan: 'HALF_YEARLY', name: 'Half-yearly', tagline: 'Billed every 6 months' },
-  { plan: 'YEARLY', name: 'Yearly', tagline: 'Billed every year', highlight: true },
+  { plan: 'MONTHLY', name: 'Monthly', tagline: 'Billed every month', handoffCheck: false },
+  { plan: 'QUARTERLY', name: 'Quarterly', tagline: 'Billed every 3 months', handoffCheck: false },
+  { plan: 'HALF_YEARLY', name: 'Half-yearly', tagline: 'Billed every 6 months', handoffCheck: true },
+  { plan: 'YEARLY', name: 'Yearly', tagline: 'Billed every year', handoffCheck: true, highlight: true },
 ];
 
 const FEATURES = [
@@ -200,7 +204,9 @@ export function LandingPage() {
                     <li>Unlimited handoffs</li>
                     <li>Returns & missing tracking</li>
                     <li>Attachments & evidence</li>
-                    <li>HandoffCheck comparison</li>
+                    {p.handoffCheck
+                      ? <li>HandoffCheck comparison</li>
+                      : <li className="off">HandoffCheck comparison — not included</li>}
                     {supportHighlights(price.support).map((line) => <li key={line}>{line}</li>)}
                   </ul>
                   <Link to={`/checkout?plan=${p.plan}`} className={`btn btn-block ${p.highlight ? 'btn-primary' : ''}`}>

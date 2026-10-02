@@ -53,11 +53,12 @@ export function ErrorNotice({ error }: { error: unknown }) {
   return <div className="notice notice-error">{message}</div>;
 }
 
-export function EmptyState({ title, children }: { title: string; children?: ReactNode }) {
+export function EmptyState({ title, children, action }: { title: string; children?: ReactNode; action?: ReactNode }) {
   return (
     <div className="card center">
       <h3>{title}</h3>
       {children && <p className="muted">{children}</p>}
+      {action && <div className="mt-2">{action}</div>}
     </div>
   );
 }

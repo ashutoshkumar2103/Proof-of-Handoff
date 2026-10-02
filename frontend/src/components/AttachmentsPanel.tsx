@@ -1,4 +1,5 @@
 import { useRef, useState } from 'react';
+import type { ReactNode } from 'react';
 import { downloadBlob, saveBlob } from '../api/client';
 import { attachmentApi } from '../api/endpoints';
 import type { Attachment, AttachmentKind } from '../api/types';
@@ -6,11 +7,16 @@ import { errorMessage } from './ui';
 import { useConfirm } from './ConfirmDialog';
 import { formatBytes } from '../lib/format';
 
-export function AttachmentsPanel({ handoffId, attachments, canModify, onChanged }: {
+/**
+ * The handoff's documents: whatever the page passes as `children` (its Proof-of-Handoff PDF actions) above the attachments
+ * uploaded to it.
+ */
+export function AttachmentsPanel({ handoffId, attachments, canModify, onChanged, children }: {
   handoffId: number;
   attachments: Attachment[];
   canModify: boolean;
   onChanged: () => void;
+  children?: ReactNode;
 }) {
   const fileRef = useRef<HTMLInputElement>(null);
   const [kind, setKind] = useState<AttachmentKind>('EVIDENCE');
@@ -60,8 +66,10 @@ export function AttachmentsPanel({ handoffId, attachments, canModify, onChanged 
 
   return (
     <div className="card">
-      <div className="card-header">
-        <h2>Attachments & documents</h2>
+      <h2>Documents</h2>
+      {children && <div className="row doc-actions">{children}</div>}
+      <div className="card-header" style={{ marginTop: children ? '1.1rem' : '0.5rem' }}>
+        <h3 style={{ margin: 0 }}>Attachments</h3>
         {canModify && (
           <div className="row">
             <select value={kind} onChange={(e) => setKind(e.target.value as AttachmentKind)} style={{ width: 'auto' }}>
@@ -77,7 +85,9 @@ export function AttachmentsPanel({ handoffId, attachments, canModify, onChanged 
       </div>
       {error && <div className="notice notice-error mb-2">{error}</div>}
       {attachments.length === 0 ? (
-        <p className="muted">No attachments yet.</p>
+        <p className="muted">
+          {canModify ? 'No attachments yet. Upload evidence (photos, delivery notes) or a reference document.' : 'No attachments.'}
+        </p>
       ) : (
         <div className="stack">
           {attachments.map((a) => (

@@ -4,13 +4,15 @@ import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { isSubscriptionEnded, saveBlob } from '../api/client';
 import { handoffApi, returnApi } from '../api/endpoints';
 import type { CreateReturnInput, HandoffAction, HandoffDetail, ReturnPrefill } from '../api/types';
-import { StatusBadge } from '../components/StatusBadge';
+import { ActionMenu } from '../components/ActionMenu';
+import type { ActionMenuItem } from '../components/ActionMenu';
+import { LifecycleSteps, StatusBadge } from '../components/StatusBadge';
 import { ItemsTable } from '../components/ItemsTable';
 import { ReturnForm } from '../components/ReturnForm';
 import { AttachmentsPanel } from '../components/AttachmentsPanel';
 import { ErrorNotice, Spinner, errorMessage, useSubscriptionEndedModal, useTransient } from '../components/ui';
 import { useConfirm } from '../components/ConfirmDialog';
-import { CONDITION_LABELS, formatDateTime, isFinished, qty } from '../lib/format';
+import { CONDITION_LABELS, formatDate, formatDateTime, isFinished, qty } from '../lib/format';
 
 export function HandoffDetailPage() {
   const { id } = useParams();
@@ -217,19 +219,35 @@ export function HandoffDetailPage() {
     if (res.confirmed) action.mutate(() => handoffApi.close(handoffId, res.value));
   }
 
+  // The rarer and the destructive actions go under "More"; whether each exists is still decided by availableActions.
+  const moreActions: ActionMenuItem[] = [
+    ...(has('DISPUTE') ? [{ label: 'Mark disputed', onSelect: onDispute, disabled: action.isPending }] : []),
+    ...(has('CANCEL') ? [{ label: 'Cancel handoff', onSelect: onCancel, danger: true, disabled: action.isPending }] : []),
+    ...(has('DELETE') ? [{ label: 'Delete draft', onSelect: onDelete, danger: true }] : []),
+  ];
+
   return (
     <div className="stack">
-      <div className="spread">
-        <div>
-          <Link to="/dashboard" className="small muted">← Dashboard</Link>
-          <h1 style={{ marginTop: 4 }}>{h.title}</h1>
-          <div className="row">
-            <StatusBadge status={h.status} />
-            {h.overdue && <span className="badge badge-danger">Overdue</span>}
-            <span className="muted small">{h.publicCode}</span>
-            {h.category && <span className="badge">{h.category}</span>}
-          </div>
+      <Link to="/dashboard" className="small muted">← Dashboard</Link>
+
+      {/* What is this handoff, and where is it? */}
+      <div className="card handoff-head">
+        <div className="row">
+          <span className="handoff-ref">{h.publicCode}</span>
+          {h.category && <span className="badge">{h.category}</span>}
         </div>
+        <h1>{h.title}</h1>
+        {h.purpose && <p className="muted" style={{ margin: '0 0 0.6rem' }}>{h.purpose}</p>}
+        <div className="row">
+          <StatusBadge status={h.status} />
+          {h.overdue && <span className="badge badge-danger">Overdue</span>}
+        </div>
+        <dl className="handoff-meta">
+          <div><dt>Recipient</dt><dd>{h.recipientName}</dd></div>
+          {h.dueAt && <div><dt>Expected return</dt><dd className={h.overdue ? 'overdue' : undefined}>{formatDate(h.dueAt)}</dd></div>}
+          {h.outgoingAt && <div><dt>Sent</dt><dd>{formatDate(h.outgoingAt)}</dd></div>}
+        </dl>
+        <LifecycleSteps status={h.status} />
       </div>
 
       {actionError && <div className="notice notice-error">{actionError}</div>}
@@ -241,53 +259,13 @@ export function HandoffDetailPage() {
         </div>
       )}
 
-      {/* Actions */}
-      <div className="card">
-        <div className="row">
-          {has('EDIT') && <Link className="btn" to={`/handoffs/${handoffId}/edit`}>Edit draft</Link>}
-          {has('SUBMIT') && <button className="btn btn-primary" disabled={action.isPending}
-            onClick={() => action.mutate(() => handoffApi.submit(handoffId))}>Submit & send link</button>}
-          {has('RESEND_LINK') && <button className="btn" disabled={action.isPending}
-            onClick={() => action.mutate(() => handoffApi.resendLink(handoffId))}>Resend link</button>}
-          {has('RECORD_RETURN') && <button className="btn btn-primary" onClick={onRecordReturn}>
-            {showReturn ? 'Close return form' : 'Record return'}</button>}
-          {has('CLOSE') && <button className="btn btn-danger" disabled={action.isPending}
-            onClick={onClose}>Close handoff</button>}
-          {has('REQUEST_MISSING_CONFIRMATION') && <button className="btn btn-primary" disabled={action.isPending}
-            onClick={() => action.mutate(() => handoffApi.requestMissingConfirmation(handoffId))}>
-            {h.missingConfirmationRequestedAt ? 'Resend missing-confirmation link' : 'Request missing confirmation'}</button>}
-          {has('DISPUTE') && <button className="btn" disabled={action.isPending}
-            onClick={onDispute}>Mark disputed</button>}
-          {has('CANCEL') && <button className="btn btn-danger" disabled={action.isPending}
-            onClick={onCancel}>Cancel</button>}
-          {has('DELETE') && <button className="btn btn-danger" onClick={onDelete}>Delete draft</button>}
-          {/* Any handoff can be the starting point of a new one; it opens the ordinary New handoff form, prefilled. */}
-          <Link className="btn" to={`/handoffs/new?from=${handoffId}`}
-                title="Start a new draft from this handoff's items and details">Duplicate</Link>
-        </div>
-        {h.availableActions.length === 0 && <p className="muted small" style={{ margin: 0 }}>This handoff is closed and read-only.</p>}
-        {h.status !== 'DRAFT' && (
-          <div className="row" style={{ marginTop: '0.75rem', paddingTop: '0.75rem', borderTop: '1px solid var(--border)' }}>
-            <span className="muted small">Proof of Handoff</span>
-            <button className={`btn ${h.status === 'CLOSED' ? 'btn-primary' : ''}`} disabled={pdfBusy !== null}
-                    onClick={onDownloadPdf}>{pdfBusy === 'download' ? 'Generating PDF…' : 'Download PDF'}</button>
-            <button className="btn" disabled={pdfBusy !== null} onClick={onSharePdf}>
-              {pdfBusy === 'share' ? 'Preparing PDF…' : 'Share'}</button>
-            <button className="btn" disabled={pdfBusy !== null} onClick={onEmailPdf}>
-              {pdfBusy === 'email' ? 'Sending…' : 'Email PDF'}</button>
-          </div>
-        )}
+      {/* What has been given, what is back, and what is still out: the backend's totals, as they are */}
+      <div className="stat-grid">
+        <QuantityTile label="Given" value={qty(h.totalOutgoing)} />
+        <QuantityTile label="Returned" value={qty(h.totalReturned)} />
+        <QuantityTile label="Missing" value={qty(h.totalMissing)} tone={Number(h.totalMissing) > 0 ? 'danger' : undefined} />
+        <QuantityTile label="Remaining" value={qty(h.totalRemaining)} tone={Number(h.totalRemaining) > 0 ? 'open' : 'zero'} />
       </div>
-
-      {/* Record return form */}
-      {showReturn && has('RECORD_RETURN') && (
-        <div className="card">
-          <h2>Record a return</h2>
-          <ReturnForm items={h.items} prefill={prefill} busy={recordReturn.isPending}
-                      onSubmit={(input) => recordReturn.mutate(input)}
-                      onCancel={closeReturnForm} />
-        </div>
-      )}
 
       {/* Missing-items status. Once finished only the settled outcome is shown (the loss the recipient confirmed);
           the "waiting for / request confirmation" wording and the wait-for-return banner below are for open work only. */}
@@ -310,33 +288,74 @@ export function HandoffDetailPage() {
         </div>
       )}
 
-      {/* Totals + items */}
+      {/* What can I do next? The main step first, then the others, then "More". */}
+      <div className="card">
+        <h2 style={{ marginBottom: '0.75rem' }}>Next steps</h2>
+        <div className="row actions">
+          {has('SUBMIT') && <button className="btn btn-primary" disabled={action.isPending}
+            onClick={() => action.mutate(() => handoffApi.submit(handoffId))}>Submit & send link</button>}
+          {has('RECORD_RETURN') && <button className="btn btn-primary" onClick={onRecordReturn}>
+            {showReturn ? 'Close return form' : 'Record return'}</button>}
+          {has('REQUEST_MISSING_CONFIRMATION') && <button className="btn btn-primary" disabled={action.isPending}
+            onClick={() => action.mutate(() => handoffApi.requestMissingConfirmation(handoffId))}>
+            {h.missingConfirmationRequestedAt ? 'Resend missing-confirmation link' : 'Request missing confirmation'}</button>}
+          {has('EDIT') && <Link className="btn" to={`/handoffs/${handoffId}/edit`}>Edit draft</Link>}
+          {has('RESEND_LINK') && <button className="btn" disabled={action.isPending}
+            onClick={() => action.mutate(() => handoffApi.resendLink(handoffId))}>Resend link</button>}
+          {has('CLOSE') && <button className="btn btn-danger" disabled={action.isPending}
+            onClick={onClose}>Close handoff</button>}
+          {/* Any handoff can be the starting point of a new one; it opens the ordinary New handoff form, prefilled. */}
+          <Link className="btn" to={`/handoffs/new?from=${handoffId}`}
+                title="Start a new draft from this handoff's items and details">Duplicate</Link>
+          <ActionMenu items={moreActions} />
+        </div>
+        {h.availableActions.length === 0 && <p className="muted small" style={{ margin: '0.75rem 0 0' }}>This handoff is closed and read-only.</p>}
+      </div>
+
+      {/* Record return form */}
+      {showReturn && has('RECORD_RETURN') && (
+        <div className="card">
+          <h2>Record a return</h2>
+          <ReturnForm items={h.items} prefill={prefill} busy={recordReturn.isPending}
+                      onSubmit={(input) => recordReturn.mutate(input)}
+                      onCancel={closeReturnForm} />
+        </div>
+      )}
+
+      {/* Items */}
       <div className="card">
         <div className="card-header">
           <h2>Items</h2>
-          <div className="row small">
-            <span className="muted">Outgoing <strong>{qty(h.totalOutgoing)}</strong></span>
-            <span className="muted">Returned <strong>{qty(h.totalReturned)}</strong></span>
-            {Number(h.totalMissing) > 0 && <span className="badge badge-danger">Missing {qty(h.totalMissing)}</span>}
-            <span className={Number(h.totalRemaining) > 0 ? 'remaining-open' : 'remaining-zero'}>
-              Remaining <strong>{qty(h.totalRemaining)}</strong></span>
-          </div>
+          <span className="muted small">{h.items.length} {h.items.length === 1 ? 'item' : 'items'}</span>
         </div>
         <ItemsTable items={h.items} />
       </div>
 
-      {/* Return history */}
+      {/* Return history: every return is its own event on this handoff, oldest first */}
       <div className="card">
-        <h2>Return history</h2>
-        {h.returns.length === 0 ? <p className="muted">No returns recorded yet.</p> : (
+        <div className="card-header">
+          <h2>Return history</h2>
+          {h.returns.length > 0 && <span className="muted small">{h.returns.length} {h.returns.length === 1 ? 'return' : 'returns'}</span>}
+        </div>
+        {h.returns.length === 0 ? (
+          <div className="center" style={{ padding: '0.5rem 0' }}>
+            <p className="muted" style={{ margin: 0 }}>No returns recorded yet.</p>
+            {has('RECORD_RETURN') && (
+              <>
+                <p className="small muted">When items come back, record them here — partial and multiple returns are fine.</p>
+                {!showReturn && <button className="btn btn-primary btn-sm" onClick={onRecordReturn}>Record return</button>}
+              </>
+            )}
+          </div>
+        ) : (
           <div className="stack">
-            {h.returns.map((r) => (
+            {h.returns.map((r, i) => (
               <div key={r.id} className="card" style={{ background: 'var(--surface-2)' }}>
                 <div className="spread">
                   <div>
-                    <strong>{formatDateTime(r.occurredAt)}</strong>{' '}
+                    <strong>Return {i + 1}</strong>{' '}
                     <span className="muted small">
-                      by {r.enteredByType === 'RECIPIENT' ? 'recipient' : r.enteredByRef ?? 'owner'}
+                      · {formatDateTime(r.occurredAt)} · by {r.enteredByType === 'RECIPIENT' ? 'recipient' : r.enteredByRef ?? 'owner'}
                     </span>
                     {r.confirmed
                       ? <span className="badge badge-success" style={{ marginLeft: 6 }}>Confirmed</span>
@@ -348,20 +367,42 @@ export function HandoffDetailPage() {
                   )}
                 </div>
                 {r.note && <p className="small" style={{ margin: '0.4rem 0' }}>{r.note}</p>}
-                <ul className="small" style={{ margin: '0.4rem 0 0', paddingLeft: '1.1rem' }}>
-                  {r.lines.map((l) => (
-                    <li key={l.id}>
-                      {l.itemName}: <strong>{qty(l.quantity)}</strong>
-                      {' '}<span className="muted">({CONDITION_LABELS[l.condition] ?? l.condition})</span>
-                      {l.note && <span className="muted"> — {l.note}</span>}
-                    </li>
-                  ))}
-                </ul>
+                <div className="table-wrap" style={{ marginTop: '0.6rem', background: 'var(--surface)' }}>
+                  <table>
+                    <thead><tr><th>Item</th><th className="num">Quantity</th><th>Condition</th><th>Note</th></tr></thead>
+                    <tbody>
+                      {r.lines.map((l) => (
+                        <tr key={l.id}>
+                          <td><strong>{l.itemName}</strong></td>
+                          <td className="num">{qty(l.quantity)}</td>
+                          <td><span className={`badge ${conditionBadge(l.condition)}`}>{CONDITION_LABELS[l.condition] ?? l.condition}</span></td>
+                          <td className="small muted">{l.note || '—'}</td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
               </div>
             ))}
           </div>
         )}
       </div>
+
+      {/* Documents: the Proof-of-Handoff PDF (download / share / email) and the attachments */}
+      <AttachmentsPanel handoffId={handoffId} attachments={h.attachments}
+                        canModify={has('ADD_ATTACHMENT')} onChanged={refresh}>
+        {h.status !== 'DRAFT' && (
+          <>
+            <span className="muted small">Proof of Handoff</span>
+            <button className={`btn ${h.status === 'CLOSED' ? 'btn-primary' : ''}`} disabled={pdfBusy !== null}
+                    onClick={onDownloadPdf}>{pdfBusy === 'download' ? 'Generating PDF…' : 'Download PDF'}</button>
+            <button className="btn" disabled={pdfBusy !== null} onClick={onSharePdf}>
+              {pdfBusy === 'share' ? 'Preparing PDF…' : 'Share'}</button>
+            <button className="btn" disabled={pdfBusy !== null} onClick={onEmailPdf}>
+              {pdfBusy === 'email' ? 'Sending…' : 'Email PDF'}</button>
+          </>
+        )}
+      </AttachmentsPanel>
 
       {/* Details */}
       <div className="card">
@@ -382,10 +423,6 @@ export function HandoffDetailPage() {
         </dl>
       </div>
 
-      {/* Attachments */}
-      <AttachmentsPanel handoffId={handoffId} attachments={h.attachments}
-                        canModify={has('ADD_ATTACHMENT')} onChanged={refresh} />
-
       {/* Event history */}
       <div className="card">
         <h2>Event history</h2>
@@ -400,6 +437,20 @@ export function HandoffDetailPage() {
           ))}
         </ul>
       </div>
+    </div>
+  );
+}
+
+/** Missing and damaged lines stand out in a return's list; the rest are plain. */
+const conditionBadge = (condition: string) => (condition === 'MISSING' ? 'badge-danger' : condition === 'DAMAGED' ? 'badge-warning' : '');
+
+/** One of the handoff's totals, shown big. Not clickable (the Dashboard's StatCard is). */
+function QuantityTile({ label, value, tone }: { label: string; value: string; tone?: 'danger' | 'open' | 'zero' }) {
+  return (
+    <div className="stat static">
+      <div className={`n ${tone === 'open' ? 'remaining-open' : tone === 'zero' ? 'remaining-zero' : ''}`}
+           style={tone === 'danger' ? { color: 'var(--danger)' } : undefined}>{value}</div>
+      <div className="l">{label}</div>
     </div>
   );
 }

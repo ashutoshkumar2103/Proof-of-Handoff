@@ -2,15 +2,14 @@ import { useState } from 'react';
 import { Link } from 'react-router-dom';
 import { authApi } from '../api/endpoints';
 import { useAuth } from '../auth/AuthContext';
-import { JobsPanel } from '../components/JobsPanel';
-import { PasswordInput } from '../components/PasswordInput';
+import { JobMonitoring, JobsPanel } from '../components/JobsPanel';
 import { errorMessage } from '../components/ui';
 import { formatDate, lastDay, NO_ACTIVE_SUBSCRIPTION_MESSAGE, PLAN_LABELS, supportHighlights } from '../lib/format';
 
 /**
- * The customer's own account: their details (the Account ID is shown, never editable), what their plan
- * includes, and changing their password. Nothing here changes the plan or the handoff prefix — support and
- * payment do that.
+ * The customer's own account ("My Profile"): their details (the Account ID is shown, never editable) and what their plan
+ * includes. Changing the password is a dialog from the Account menu, and the jobs have their own page. Nothing here
+ * changes the plan or the handoff prefix — support and payment do that.
  */
 export function AccountPage() {
   const { user } = useAuth();
@@ -18,12 +17,28 @@ export function AccountPage() {
   return (
     <div className="stack page-narrow">
       <div>
-        <h1>Account</h1>
-        <p className="muted">Your details, your plan, your password and your automatic emails.</p>
+        <h1>My Profile</h1>
+        <p className="muted">Your details and your plan.</p>
       </div>
       <ProfileCard />
       <SubscriptionCard />
-      <PasswordCard />
+    </div>
+  );
+}
+
+/** The customer's latest job runs: the monitoring table, on a page of its own so it stays easy to find however many jobs there are. */
+export function JobsHistoryPage() {
+  return (
+    <div className="stack page-narrow">
+      <JobMonitoring />
+    </div>
+  );
+}
+
+/** The customer's automatic emails: the existing job scheduler, on a page of its own. */
+export function JobsPage() {
+  return (
+    <div className="stack page-narrow">
       <JobsPanel />
     </div>
   );
@@ -139,8 +154,9 @@ function SubscriptionCard() {
       </p>
       {lapsed && (
         <div className="notice notice-warning mb-2">
-          Your {PLAN_LABELS[sub.plan]} plan has ended, so its support features are paused. Your handoffs and everything
-          else in HandOffly keep working. <Link to={`/checkout?plan=${sub.plan}`}>Renew it</Link> to get them back.
+          Your {PLAN_LABELS[sub.plan]} plan has ended. Until you renew, you cannot start or duplicate a handoff, send a
+          draft, import from a file or use HandoffCheck, and its support features are paused. Your existing handoffs,
+          returns and PDFs stay available. <Link to={`/checkout?plan=${sub.plan}`}>Renew it</Link> to get everything back.
         </div>
       )}
       <ul className="price-features">
@@ -151,70 +167,5 @@ function SubscriptionCard() {
         the same on every plan; HandoffCheck comes with Half-Yearly and Yearly.
       </p>
     </div>
-  );
-}
-
-function PasswordCard() {
-  const { startSession } = useAuth();
-  const [form, setForm] = useState({ currentPassword: '', newPassword: '', confirmPassword: '' });
-  const [busy, setBusy] = useState(false);
-  const [error, setError] = useState<string | null>(null);
-  const [done, setDone] = useState(false);
-  const set = (k: keyof typeof form) => (e: React.ChangeEvent<HTMLInputElement>) => {
-    setDone(false);
-    setForm({ ...form, [k]: e.target.value });
-  };
-
-  async function onChange(e: React.FormEvent) {
-    e.preventDefault();
-    setError(null);
-    setDone(false);
-    if (form.newPassword !== form.confirmPassword) {
-      setError('The new password and its confirmation do not match.');
-      return;
-    }
-    setBusy(true);
-    try {
-      startSession(await authApi.changePassword(form));   // every other session has ended; this one carries on
-      setForm({ currentPassword: '', newPassword: '', confirmPassword: '' });
-      setDone(true);
-    } catch (err) {
-      setError(errorMessage(err));
-    } finally {
-      setBusy(false);
-    }
-  }
-
-  return (
-    <form className="card" onSubmit={onChange}>
-      <h2>Change password</h2>
-      {error && <div className="notice notice-error mb-2" role="alert">{error}</div>}
-      {done && (
-        <div className="notice notice-success mb-2" role="status">
-          Your password was changed. You were signed out of your other devices.
-        </div>
-      )}
-      <div className="field">
-        <label htmlFor="currentPassword">Current password</label>
-        <PasswordInput id="currentPassword" autoComplete="current-password"
-                       value={form.currentPassword} onChange={set('currentPassword')} required />
-      </div>
-      <div className="field-row">
-        <div className="field">
-          <label htmlFor="newPassword">New password <span className="muted">(min 8 characters)</span></label>
-          <PasswordInput id="newPassword" autoComplete="new-password" minLength={8}
-                         value={form.newPassword} onChange={set('newPassword')} required />
-        </div>
-        <div className="field">
-          <label htmlFor="confirmPassword">Confirm new password</label>
-          <PasswordInput id="confirmPassword" autoComplete="new-password" minLength={8}
-                         value={form.confirmPassword} onChange={set('confirmPassword')} required />
-        </div>
-      </div>
-      <button className="btn btn-primary" disabled={busy}>{busy ? 'Changing…' : 'Change password'}</button>
-      <p className="small muted mt-2">
-        Forgot your current password? Sign out and use <em>Forgot password?</em> on the sign-in page.
-      </p>
-    </form>
   );
 }
