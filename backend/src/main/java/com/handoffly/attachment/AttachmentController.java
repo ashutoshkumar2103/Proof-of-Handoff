@@ -65,13 +65,19 @@ public class AttachmentController {
 
     public static ResponseEntity<Resource> toDownloadResponse(AttachmentService.LoadedAttachment loaded) {
         Attachment meta = loaded.attachment();
+        return toDownloadResponse(meta.getOriginalFilename(), meta.getContentType(), meta.getSizeBytes(), loaded.resource());
+    }
+
+    /** The one way stored files are sent back: always as a download, with the stored type and exact length. */
+    public static ResponseEntity<Resource> toDownloadResponse(String filename, String contentType, long sizeBytes,
+                                                              Resource resource) {
         ContentDisposition disposition = ContentDisposition.attachment()
-                .filename(meta.getOriginalFilename())
+                .filename(filename)
                 .build();
         return ResponseEntity.ok()
                 .header(HttpHeaders.CONTENT_DISPOSITION, disposition.toString())
-                .contentType(MediaType.parseMediaType(meta.getContentType()))
-                .contentLength(meta.getSizeBytes())
-                .body(loaded.resource());
+                .contentType(MediaType.parseMediaType(contentType))
+                .contentLength(sizeBytes)
+                .body(resource);
     }
 }

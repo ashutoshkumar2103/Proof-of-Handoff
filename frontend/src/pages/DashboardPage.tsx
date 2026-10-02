@@ -2,6 +2,7 @@ import { useMemo, useState } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
 import { useQuery } from '@tanstack/react-query';
 import { handoffApi } from '../api/endpoints';
+import { useAuth } from '../auth/AuthContext';
 import type { HandoffStatus, HandoffSummary } from '../api/types';
 import { StatusBadge } from '../components/StatusBadge';
 import { ErrorNotice, Spinner } from '../components/ui';
@@ -20,6 +21,7 @@ const OVERDUE_STATUSES: HandoffStatus[] = ['ACTIVE_WITH_RECIPIENT', 'RETURN_PEND
 
 export function DashboardPage() {
   const navigate = useNavigate();
+  const { user } = useAuth();
   const [filter, setFilter] = useState<Filter>('ALL');
   const [q, setQ] = useState('');
   const [search, setSearch] = useState('');
@@ -62,9 +64,16 @@ export function DashboardPage() {
       <div className="spread">
         <div>
           <h1>Dashboard</h1>
-          <p className="muted">Track every handoff from give to full return.</p>
+          <p className="muted">
+            Track every handoff from give to full return.
+            {user && <span className="small"> · Account ID <strong>{user.accountCode}</strong></span>}
+          </p>
         </div>
-        <Link to="/handoffs/new" className="btn btn-primary">+ New handoff</Link>
+        <div className="row">
+          {/* Only offered when the plan includes it; the backend enforces the same rule. */}
+          {user?.support.contactSupport && <Link to="/support" className="btn">Contact Support</Link>}
+          <Link to="/handoffs/new" className="btn btn-primary">+ New handoff</Link>
+        </div>
       </div>
 
       {dashboard.isLoading ? <Spinner /> : dashboard.isError ? <ErrorNotice error={dashboard.error} /> : (

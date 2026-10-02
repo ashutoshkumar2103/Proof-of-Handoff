@@ -27,7 +27,12 @@ import java.util.List;
 @Table(name = "handoff")
 public class Handoff extends BaseEntity {
 
-    @Column(name = "public_code", nullable = false, unique = true, length = 20)
+    /**
+     * The customer-facing reference (e.g. AV-3). Unique per owning account — not globally — and
+     * immutable once issued, so PDFs, emails and audit history that quote it stay valid even if
+     * the account's prefix later changes.
+     */
+    @Column(name = "public_code", nullable = false, length = 20)
     private String publicCode;
 
     @ManyToOne(fetch = FetchType.LAZY, optional = false)
@@ -134,7 +139,6 @@ public class Handoff extends BaseEntity {
     }
 
     public String getPublicCode() { return publicCode; }
-    public void setPublicCode(String publicCode) { this.publicCode = publicCode; }
 
     public User getOwner() { return owner; }
 

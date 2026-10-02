@@ -21,6 +21,8 @@ code.
 - **Backend:** Java 25, Spring Boot 4.1, Spring Web/Security/Data JPA, Hibernate,
   Bean Validation, Flyway, MySQL 8.4 (H2 in MySQL-mode for tests). Stateless JWT auth.
 - **Frontend:** React 19, TypeScript, Vite, React Router, TanStack Query.
+- **Support portal:** a second, separate React 19 + TypeScript + Vite app for support staff,
+  on the same backend and database.
 - **Packaging:** Docker + docker-compose. Modular monolith (no microservices).
 
 See [`CLAUDE.md`](CLAUDE.md) for engineering rules, [`docs/IMPLEMENTATION_PLAN.md`](docs/IMPLEMENTATION_PLAN.md)
@@ -28,7 +30,16 @@ for the plan, and [`docs/DECISIONS.md`](docs/DECISIONS.md) for design decisions.
 
 ## Modules
 
-`auth · user · handoff · returns · recipient · attachment · audit · notification · documentcheck`
+`auth · user · handoff · returns · recipient · attachment · audit · notification · documentcheck · support`
+
+## Repository layout
+
+| Folder | What it is |
+|---|---|
+| `backend/` | The one Spring Boot application: every API, one MySQL database |
+| `frontend/` | The customer web app |
+| `support-portal/` | The support staff web app — its own UI and build, the same backend. Shares no code with `frontend/` |
+| `db/` · `docs/` | MySQL setup script · design notes |
 
 ## Running
 
@@ -161,6 +172,178 @@ any other status is labelled **INTERIM RECORD — NOT FINAL** with its current s
 in the PDF are UTC. **Share** uses the device's native share sheet where the browser supports
 sharing files, and otherwise downloads the PDF.
 
+## Accounts, plans and support
+
+**Account ID.** Every customer has a permanent Account ID such as `CUS-42`, shown on their
+dashboard; support finds customers by it. The internal numeric id is never shown.
+
+**Handoff references are numbered per customer.** Each customer's handoffs count up from 1 under
+their own prefix — `HO-1, HO-2, …` by default, `AV-1, AV-2, …` once support sets the prefix `AV`.
+Two customers can both have an `AV-1`; the internal database ids stay globally unique and are what
+the API addresses a handoff by. Numbers never restart: changing a prefix only affects *new* handoffs and
+carries on from the customer's current number, and numbers are issued under a row lock so concurrent
+creation can never repeat one. A prefix is 2–5 capital letters.
+
+**Plans.** Every customer is on a plan; new accounts start on `MONTHLY`. There is no public way to
+choose or change one. What a plan includes is derived from the plan alone — nobody edits
+entitlements separately, so changing the plan changes them automatically:
+
+| Plan | Contact Support in the app | Send a message | Support tickets (create, view, reply) | Phone support | Support priority |
+|---|---|---|---|---|---|
+| `MONTHLY` (default) | – | – | – | – | Normal |
+| `QUARTERLY` | ✓ | ✓ | – | – | Normal |
+| `HALF_YEARLY` | ✓ | ✓ | ✓ | – | Priority |
+| `YEARLY` | ✓ | ✓ | ✓ | ✓ | Highest |
+
+The core product — handoffs, returns, HandoffCheck, PDFs — is identical on every plan; plans differ only in support.
+A `QUARTERLY` customer's **Contact Support** page is a simple message form (subject, message, optional handoff
+reference and attachment): support receives it as a ticket and replies by email, but the customer has no ticket list
+and cannot reply in the app (the backend refuses the ticket endpoints for them). Priority is a ranking for the support
+desk, not a promised response time — HandOffly makes no SLA claim. The support phone number is configuration
+(`SUPPORT_PHONE`), is sent only to plans with phone support, and opens as a `tel:` link.
+
+**Prices.** The list prices (₹ per billing period) live in one place, the `SubscriptionPlan` enum, and are served
+by `GET /api/v1/public/plans`. The public pricing page and the support portal both read them from there — the
+portal shows the amount beside each plan, and the charge for the new plan when staff change a customer's plan —
+so they cannot disagree. To change a price, edit it in `SubscriptionPlan`.
+
+The customer app *hides* what a plan doesn't include and the backend refuses it regardless.
+Monthly customers still see the general contact address in the public site's footer. There are no
+payments yet, so **support staff change a plan by hand** from the support portal (an explicit,
+confirmed action, recorded in an audit trail). That a plan was changed does not prove a payment; a
+future payment integration can change the plan automatically instead.
+
+### Customers and support staff are separate identities
+
+| | Customer | Support staff |
+|---|---|---|
+| Stored in | `app_user` | `support_staff` |
+| ID | Account ID `CUS-01` | Staff ID `STAFF-01` |
+| Created by | public registration | controlled provisioning only (below) |
+| Signs in at | `POST /api/v1/auth/login` | `POST /api/v1/support/auth/login` |
+| Uses | the customer app, `/api/v1/**` | the support portal, `/api/v1/support/**` |
+| Roles | none | `ADMIN`, `MANAGER`, `TICKET_AGENT` |
+
+They share the backend and the MySQL database, but not credentials: a customer's token is refused by
+the support API, a staff token is refused by the customer API, and a customer's email and password
+do not sign in to the support portal (or the other way round). A customer can never become staff —
+there is no role on a customer account to turn on.
+
+### Support portal
+
+```bash
+cd support-portal
+npm install
+npm run dev        # http://localhost:5175 — proxies /api to http://localhost:8080
+```
+
+**The first administrator (bootstrap).** There is no sign-up and no built-in password. When the backend starts
+with an email and password in its configuration, it creates that staff member if none with that email exists
+yet — it never overwrites an existing account's password. Use this once, for the first **ADMIN**; the admin then
+creates everyone else in the portal (below). Add to your `.env.local` (or the environment), start the backend
+once, then **remove the password line**:
+
+```properties
+SUPPORT_STAFF_NAME=Asha Admin
+SUPPORT_STAFF_EMAIL=asha@yourcompany.com
+SUPPORT_STAFF_PASSWORD=a-long-passphrase-of-12-or-more-characters
+SUPPORT_STAFF_ROLE=ADMIN
+```
+
+`SUPPORT_STAFF_ROLE` must be `ADMIN`, `MANAGER` or `TICKET_AGENT` (the old `SUPPORT` role no longer exists). The
+backend log says `Support staff STAFF-01 (ADMIN) was created for …` (never the password). Passwords are stored
+only as BCrypt hashes. If you ever lose every admin, promote one account directly (there is deliberately no
+screen for it):
+
+```sql
+UPDATE support_staff SET role = 'ADMIN' WHERE staff_code = 'STAFF-01';
+```
+
+### Roles and permissions
+
+Support staff have exactly one of three roles (customers have none). Each role is a fixed set of permissions,
+defined in one place (`SupportRole`); every support endpoint asks for the permission it needs, so the backend
+enforces this on every request and the portal merely shows what the signed-in member may use.
+
+| | ADMIN | MANAGER | TICKET_AGENT |
+|---|:-:|:-:|:-:|
+| Dashboard | ✓ | ✓ | ✓ (ticket metrics only) |
+| Tickets: list, search, open, reply, change status | ✓ | ✓ | ✓ |
+| Customers: search, profile | ✓ | ✓ | – |
+| Change a customer's plan or handoff prefix | ✓ | ✓ | – |
+| Staff: list, create, deactivate, reactivate, change role | ✓ | – | – |
+| Full audit trail | ✓ | – | – |
+
+A ticket agent sees only what a ticket needs: the customer's Account ID, name, email, phone, plan and the
+handoff reference typed on the ticket — no customer records, no handoffs, no account administration, and no
+customer metrics on the dashboard. A manager also sees a customer's own change history on that customer's
+profile. Staff can never touch a customer's password or login, impersonate a customer, switch individual
+features on or off, or see or edit any handoff, return or attachment of a customer.
+
+### Staff management (admins only)
+
+Administrators get a **Staff** page in the portal (other roles never see it, and the API refuses them):
+
+- **List and search** the team by Staff ID, name, email, role and active/inactive — filtered in the database; no
+  password hash or credential is ever shown.
+- **Create staff** as `MANAGER` or `TICKET_AGENT` with a name, email, initial password (12+ characters, hashed
+  at once, never returned or logged) — admins are never created from here.
+- **Change role** (e.g. Manager → Ticket agent): you choose the new role and confirm; it applies immediately,
+  even to someone already signed in.
+- **Deactivate / reactivate**: a deactivated member is signed out at once and cannot sign in; records are never
+  deleted. Administrator accounts cannot be changed from this page (so an admin cannot lock the team out).
+
+Endpoints (all `ADMIN` only): `GET /api/v1/support/staff?q=&role=&active=`, `POST /support/staff`,
+`PUT /support/staff/{staffCode}/role`, `PUT /support/staff/{staffCode}/active`, `GET /support/audit`.
+
+Support sessions last 8 hours by default (`STAFF_JWT_EXPIRATION_MINUTES`). Every support request is checked
+against `support_staff` in the database — active, and the role read from there, not from the token.
+
+Every change support staff make is written to `support_audit_event`: **plan** and **handoff-prefix** changes
+(customer's Account ID) and **staff created / deactivated / reactivated / role changed** (Staff ID of the member
+concerned) — with the previous and new value, the Staff ID of the actor, the time and an optional reason. The
+records are append-only: the application offers no way to edit or delete them, and the portal only displays them.
+
+| Setting | Meaning |
+|---|---|
+| `SUPPORT_STAFF_NAME` / `_EMAIL` / `_PASSWORD` / `_ROLE` | Bootstraps a staff member (the first admin) at startup; blank = nothing is created |
+| `STAFF_JWT_EXPIRATION_MINUTES` | Length of a support session (default 480) |
+| `SUPPORT_MAILBOX` | Where new-ticket and customer-reply notices are emailed; also the public contact address |
+| `SUPPORT_PHONE` | The number shown to `YEARLY` customers (blank = no call option) |
+| `CORS_ALLOWED_ORIGINS` | Must include the portal's origin (`http://localhost:5175` in dev) when the portal calls the API directly |
+| `VITE_API_BASE_URL` (portal, `support-portal/.env.example`) | Backend address: the dev proxy target, or the API URL baked into a production build |
+
+For production: set `VITE_API_BASE_URL`, run `npm run build`, and serve the static `support-portal/dist/`
+from any web host.
+
+### Upgrading an existing database
+
+Migrations `V10` (account IDs, plans, per-customer numbering), `V11` (tickets), `V12` (support
+staff as their own identity, the audit trail) and `V13` (staff roles) are non-destructive for customers: existing handoffs
+keep their references (`HO-14` stays `HO-14`), recipient links, PDFs, audit events and attachments
+keep working, and every existing account gets an Account ID, the `MONTHLY` plan and the `HO` prefix.
+`V12` also returns any customer that an earlier version had given a staff role to being an ordinary
+customer (staff are never customers), and keeps existing ticket replies as they were.
+
+`V13` replaces the old generic `SUPPORT` staff role: **existing `SUPPORT` staff become `MANAGER`** (they could already
+change plans and prefixes and work tickets — exactly what a manager may do, so nobody loses a capability and nobody
+gains staff management); `ADMIN` is kept; Staff IDs, emails, passwords, active/inactive status and audit links are
+untouched. Because staff management is admin-only, **make sure at least one `ADMIN` exists** after upgrading — if the
+only staff account was a `SUPPORT` one it is now a manager, so promote it with the SQL above or bootstrap a new admin.
+
+`V14` shortens the public IDs by dropping their padding zeros: `CUS-000009` becomes `CUS-09`, `TKT-000001` becomes
+`TKT-01`, `STAFF-000001` becomes `STAFF-01`. Nothing is renumbered — each ID keeps its number, the counters carry on —
+so IDs stay unique and still point at the same account, ticket or staff member. Anything that saved an old-style ID
+(a note, a bookmark, an email already sent) shows the old form; search with the new one.
+
+Two things to expect on the first start of this version: **everyone signs in again once** (tokens are
+now bound to customers or staff, so sessions from before the upgrade stop working), and **a support
+admin must exist** — bootstrap one as described above if none does. As with any schema change, take a backup first:
+
+```bash
+mysqldump -u handoffly -p handoffly > handoffly-backup.sql
+```
+
 ## Testing
 
 ```bash
@@ -170,7 +353,15 @@ mvn test
 
 Covers the state machine, the full HTTP lifecycle (create → submit → accept →
 partial returns → full return → close), authorization, over-return guards, expired/
-invalid links, and document comparison — all on H2, no external services required.
+invalid links, and document comparison — plus account IDs, per-customer numbering
+(including concurrent creation), plan entitlements, the staff-only support API, the ticket
+system, customer isolation, and an upgrade of a legacy-shaped database — all on H2, no
+external services required.
+
+```bash
+cd frontend && npm run build          # customer app: type-check + build
+cd support-portal && npm run build    # support portal: type-check + build
+```
 
 ## Key API endpoints (v1)
 
@@ -186,10 +377,21 @@ invalid links, and document comparison — all on H2, no external services requi
 | PDF | `GET /handoffs/{id}/pdf` (`application/pdf`), `POST /handoffs/{id}/email-pdf` (`{ "to"? }`) |
 | Recipient (public) | `GET /api/v1/r/{token}`, `POST /r/{token}/accept` · `/reject` · `/returns` |
 | HandoffCheck | `POST /api/v1/handoff-check` |
+| Tickets (customer; plans with tickets only) | `GET/POST /api/v1/tickets`, `GET /tickets/{ticketId}`, `POST /tickets/{ticketId}/messages` · `/attachments`, `GET .../attachments/{aid}/content` |
+| Support sign-in | `POST /api/v1/support/auth/login` (staff only — not the customer login), `GET /support/auth/me` |
+| Support (staff token only) | `GET /api/v1/support/dashboard` · `/customers` · `/customers/{accountId}` · `/tickets` · `/tickets/{ticketId}`, `PUT /customers/{accountId}/plan` · `/prefix`, `PUT /tickets/{ticketId}/status`, `POST /tickets/{ticketId}/messages`, `GET /tickets/{ticketId}/attachments/{aid}/content` |
+| Public | `GET /api/v1/public/contact` (the general contact address), `GET /api/v1/public/plans` (plans and their list prices) |
 
 ## Security notes
 
 - Passwords are BCrypt-hashed; API auth is stateless JWT.
+- Customers and support staff are separate identities with separate logins and tokens (each token is
+  bound to its own audience). The support API has a security chain of its own: it accepts only a staff
+  token, and every call re-checks in `support_staff` that the member still exists and is active, taking
+  the role from there. Customer APIs accept only customer tokens. Customers can only reach their own
+  tickets (someone else's is simply "not found").
+- Staff passwords are BCrypt hashes (12+ characters at provisioning); staff accounts are created only by
+  controlled provisioning, never by registration; plan and prefix changes are audited, append-only.
 - Recipient links are opaque 256-bit tokens, **stored hashed**, expiring, and scoped to
   a single handoff.
 - Uploads are type- and size-validated; blobs live in file/object storage, never in the DB.

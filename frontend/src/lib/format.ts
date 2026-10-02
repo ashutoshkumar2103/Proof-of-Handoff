@@ -1,4 +1,21 @@
-import type { HandoffStatus } from '../api/types';
+import type { HandoffStatus, SupportEntitlements, TicketCategory, TicketStatus } from '../api/types';
+
+/**
+ * What a plan includes from support, in words, built only from the entitlements the backend reports —
+ * so the pricing page can never drift from what a plan really gets.
+ */
+export function supportHighlights(s: SupportEntitlements): string[] {
+  const lines: string[] = [];
+  if (!s.contactSupport) {
+    lines.push('Email support via the contact page');
+  } else {
+    lines.push(s.ticket ? 'Contact Support & support tickets in the app' : 'Contact Support in the app (send a message)');
+  }
+  if (s.call) lines.push('Direct phone support');
+  if (s.priority === 'PRIORITY') lines.push('Priority support');
+  if (s.priority === 'HIGHEST') lines.push('Highest-priority support');
+  return lines;
+}
 
 export function formatDateTime(iso?: string | null): string {
   if (!iso) return '—';
@@ -38,6 +55,11 @@ export function localPartsToIso(date: string, time: string): string | null {
   return Number.isNaN(d.getTime()) ? null : d.toISOString();
 }
 
+/** An amount in its currency, e.g. ₹1,999 (whole units, Indian digit grouping). */
+export function formatMoney(amount: number, currency: string): string {
+  return new Intl.NumberFormat('en-IN', { style: 'currency', currency, maximumFractionDigits: 0 }).format(amount);
+}
+
 export function formatBytes(bytes: number): string {
   if (bytes < 1024) return `${bytes} B`;
   if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(1)} KB`;
@@ -59,7 +81,7 @@ export const STATUS_LABELS: Record<HandoffStatus, string> = {
   OVERDUE: 'Overdue',
 };
 
-type BadgeTone = 'primary' | 'success' | 'warning' | 'danger' | 'neutral';
+export type BadgeTone = 'primary' | 'success' | 'warning' | 'danger' | 'neutral';
 
 export const STATUS_TONE: Record<HandoffStatus, BadgeTone> = {
   DRAFT: 'neutral',
@@ -82,6 +104,30 @@ export const STATUS_TONE: Record<HandoffStatus, BadgeTone> = {
  */
 const FINISHED_STATUSES: HandoffStatus[] = ['CLOSED', 'REJECTED', 'CANCELLED'];
 export const isFinished = (status: HandoffStatus) => FINISHED_STATUSES.includes(status);
+
+export const TICKET_STATUS_LABELS: Record<TicketStatus, string> = {
+  OPEN: 'Open',
+  IN_PROGRESS: 'In progress',
+  WAITING_FOR_CUSTOMER: 'Waiting for you',
+  RESOLVED: 'Resolved',
+  CLOSED: 'Closed',
+};
+
+export const TICKET_STATUS_TONE: Record<TicketStatus, BadgeTone> = {
+  OPEN: 'primary',
+  IN_PROGRESS: 'warning',
+  WAITING_FOR_CUSTOMER: 'danger',
+  RESOLVED: 'success',
+  CLOSED: 'neutral',
+};
+
+export const TICKET_CATEGORY_LABELS: Record<TicketCategory, string> = {
+  GENERAL: 'General question',
+  HANDOFF: 'A handoff or return',
+  ACCOUNT: 'My account',
+  BILLING: 'Plan or billing',
+  TECHNICAL: 'Something is not working',
+};
 
 export const CONDITION_LABELS: Record<string, string> = {
   GOOD: 'Good', DAMAGED: 'Damaged', MISSING: 'Missing', OTHER: 'Other', RECOVERED: 'Received (found)',

@@ -1,4 +1,4 @@
-package com.handoffly.support;
+package com.handoffly.testsupport;
 
 import com.handoffly.notification.EmailMessage;
 import com.handoffly.notification.EmailSender;
@@ -19,14 +19,23 @@ public class CapturingEmailSender implements EmailSender {
     private static final Pattern TOKEN_IN_LINK = Pattern.compile("/r/([A-Za-z0-9_-]+)");
 
     private volatile EmailMessage lastMessage;
+    private volatile boolean failing;
 
     @Override
     public void send(EmailMessage message) {
+        if (failing) {
+            throw new IllegalStateException("The mail server is unavailable.");
+        }
         this.lastMessage = message;
     }
 
     public EmailMessage getLastMessage() {
         return lastMessage;
+    }
+
+    /** While true, sending fails — to prove a mail outage never undoes saved work. */
+    public void setFailing(boolean failing) {
+        this.failing = failing;
     }
 
     /** Extracts the recipient token from the most recent email's review link. */

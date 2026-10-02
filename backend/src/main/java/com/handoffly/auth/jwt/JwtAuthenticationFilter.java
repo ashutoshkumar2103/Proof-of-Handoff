@@ -18,14 +18,15 @@ import java.io.IOException;
 import java.util.List;
 
 /**
- * Extracts and validates the Bearer JWT on each request, populating the security
- * context with a {@link UserPrincipal}. Invalid/absent tokens leave the request
- * anonymous — access rules then decide whether that is allowed.
+ * Extracts and validates the Bearer JWT on each customer-API request, populating the security
+ * context with a {@link UserPrincipal}. Only CUSTOMER tokens are accepted: invalid, absent or
+ * support-staff tokens leave the request anonymous — access rules then decide whether that is allowed.
  */
 @Component
 public class JwtAuthenticationFilter extends OncePerRequestFilter {
 
     private static final String BEARER_PREFIX = "Bearer ";
+    private static final String CUSTOMER_AUTHORITY = "ROLE_CUSTOMER";
 
     private final JwtService jwtService;
 
@@ -44,10 +45,10 @@ public class JwtAuthenticationFilter extends OncePerRequestFilter {
                 && SecurityContextHolder.getContext().getAuthentication() == null) {
 
             String token = header.substring(BEARER_PREFIX.length());
-            JwtService.ParsedToken parsed = jwtService.parse(token);
+            JwtService.ParsedToken parsed = jwtService.parseCustomer(token);
             if (parsed != null) {
-                UserPrincipal principal = new UserPrincipal(parsed.userId(), parsed.email(), parsed.role());
-                var authorities = List.of(new SimpleGrantedAuthority("ROLE_" + parsed.role().name()));
+                UserPrincipal principal = new UserPrincipal(parsed.id(), parsed.email());
+                var authorities = List.of(new SimpleGrantedAuthority(CUSTOMER_AUTHORITY));
                 var authentication = new UsernamePasswordAuthenticationToken(principal, null, authorities);
                 authentication.setDetails(new WebAuthenticationDetailsSource().buildDetails(request));
                 SecurityContextHolder.getContext().setAuthentication(authentication);

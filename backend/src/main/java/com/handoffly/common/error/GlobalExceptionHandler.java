@@ -3,16 +3,21 @@ package com.handoffly.common.error;
 import jakarta.servlet.http.HttpServletRequest;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+import org.springframework.dao.OptimisticLockingFailureException;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ProblemDetail;
+import org.springframework.http.converter.HttpMessageNotReadableException;
 import org.springframework.security.access.AccessDeniedException;
 import org.springframework.security.core.AuthenticationException;
 import org.springframework.validation.FieldError;
 import org.springframework.web.HttpRequestMethodNotSupportedException;
 import org.springframework.web.bind.MethodArgumentNotValidException;
+import org.springframework.web.bind.MissingServletRequestParameterException;
 import org.springframework.web.bind.annotation.ExceptionHandler;
 import org.springframework.web.bind.annotation.RestControllerAdvice;
+import org.springframework.web.method.annotation.MethodArgumentTypeMismatchException;
 import org.springframework.web.multipart.MaxUploadSizeExceededException;
+import org.springframework.web.multipart.support.MissingServletRequestPartException;
 import org.springframework.web.servlet.resource.NoResourceFoundException;
 
 import java.net.URI;
@@ -44,6 +49,28 @@ public class GlobalExceptionHandler {
                 "One or more fields are invalid.", req, null);
         pd.setProperty("errors", violations);
         return pd;
+    }
+
+    /** A body that is not valid JSON, or holds a value that does not fit (e.g. an unknown enum constant). */
+    @ExceptionHandler(HttpMessageNotReadableException.class)
+    public ProblemDetail handleUnreadableBody(HttpMessageNotReadableException ex, HttpServletRequest req) {
+        return problem(HttpStatus.BAD_REQUEST, "malformed_request",
+                "The request body is missing or malformed.", req, null);
+    }
+
+    /** A query/path parameter or multipart part that is missing or of the wrong type. */
+    @ExceptionHandler({MethodArgumentTypeMismatchException.class, MissingServletRequestParameterException.class,
+            MissingServletRequestPartException.class})
+    public ProblemDetail handleBadParameter(Exception ex, HttpServletRequest req) {
+        return problem(HttpStatus.BAD_REQUEST, "invalid_parameter",
+                "A request parameter is missing or invalid.", req, null);
+    }
+
+    /** Two people changed the same record at once (e.g. two agents on one ticket): the later save loses, cleanly. */
+    @ExceptionHandler(OptimisticLockingFailureException.class)
+    public ProblemDetail handleConcurrentUpdate(OptimisticLockingFailureException ex, HttpServletRequest req) {
+        return problem(HttpStatus.CONFLICT, "concurrent_update",
+                "This record was just changed by someone else. Reload and try again.", req, null);
     }
 
     @ExceptionHandler(MaxUploadSizeExceededException.class)

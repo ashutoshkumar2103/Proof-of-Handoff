@@ -10,7 +10,6 @@ import com.handoffly.common.error.BadRequestException;
 import com.handoffly.common.error.ConflictException;
 import com.handoffly.common.error.ForbiddenException;
 import com.handoffly.common.error.NotFoundException;
-import com.handoffly.common.util.PublicCode;
 import com.handoffly.common.web.PageResponse;
 import com.handoffly.handoff.dto.CreateHandoffRequest;
 import com.handoffly.handoff.dto.DashboardResponse;
@@ -88,10 +87,10 @@ public class HandoffService {
 
     @Transactional
     public HandoffDetailResponse create(Long userId, CreateHandoffRequest request) {
-        User owner = userService.getById(userId);
-        // A temporary unique code satisfies the NOT NULL/unique constraint on first insert;
-        // it is immediately replaced with a readable, sequential HO-<id> once the id is known.
-        Handoff handoff = new Handoff(PublicCode.temporary(), owner, request.title().trim());
+        // The owner row stays locked until this transaction ends, so concurrent creations by the
+        // same customer take the next number one at a time: AV-1, AV-2, AV-3 … with no duplicates.
+        User owner = userService.getByIdForUpdate(userId);
+        Handoff handoff = new Handoff(owner.nextHandoffReference(), owner, request.title().trim());
         applyHeader(handoff, request.purpose(), request.category(), request.senderName(),
                 request.senderOrganization(), request.recipientName(), request.recipientEmail(),
                 request.recipientPhone(), request.dueAt());
@@ -101,7 +100,6 @@ public class HandoffService {
             }
         }
         handoff = handoffRepository.save(handoff);
-        handoff.setPublicCode(PublicCode.forId(handoff.getId())); // HO-1, HO-2, ...
         auditService.record(handoff.getId(), AuditEventType.HANDOFF_CREATED, ActorType.USER,
                 owner.getEmail(), "Handoff created as draft.");
         return toDetail(handoff);

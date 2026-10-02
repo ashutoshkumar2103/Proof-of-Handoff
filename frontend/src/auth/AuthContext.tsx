@@ -2,13 +2,13 @@ import { createContext, useCallback, useContext, useEffect, useMemo, useState } 
 import type { ReactNode } from 'react';
 import { getToken, setToken } from '../api/client';
 import { authApi } from '../api/endpoints';
-import type { User } from '../api/types';
+import type { RegisterInput, User } from '../api/types';
 
 interface AuthState {
   user: User | null;
   loading: boolean;
   login: (email: string, password: string) => Promise<void>;
-  register: (input: { email: string; password: string; displayName: string; organization?: string }) => Promise<void>;
+  register: (input: RegisterInput) => Promise<void>;
   logout: () => void;
 }
 
@@ -37,7 +37,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     setUser(res.user);
   }, []);
 
-  const register = useCallback(async (input: { email: string; password: string; displayName: string; organization?: string }) => {
+  const register = useCallback(async (input: RegisterInput) => {
     const res = await authApi.register(input);
     setToken(res.token);
     setUser(res.user);

@@ -8,7 +8,7 @@ import { AuthShell } from '../components/AuthShell';
 export function RegisterPage() {
   const { register } = useAuth();
   const navigate = useNavigate();
-  const [form, setForm] = useState({ displayName: '', organization: '', email: '', password: '' });
+  const [form, setForm] = useState({ displayName: '', organization: '', phone: '', email: '', password: '' });
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
 
@@ -23,6 +23,7 @@ export function RegisterPage() {
       await register({
         email: form.email, password: form.password,
         displayName: form.displayName, organization: form.organization || undefined,
+        phone: form.phone || undefined,
       });
       navigate('/dashboard');
     } catch (err) {
@@ -45,6 +46,10 @@ export function RegisterPage() {
         <div className="field">
           <label htmlFor="organization">Organization <span className="muted">(optional)</span></label>
           <input id="organization" value={form.organization} onChange={set('organization')} />
+        </div>
+        <div className="field">
+          <label htmlFor="phone">Phone <span className="muted">(optional)</span></label>
+          <input id="phone" type="tel" autoComplete="tel" maxLength={40} value={form.phone} onChange={set('phone')} />
         </div>
         <div className="field">
           <label htmlFor="email">Email</label>

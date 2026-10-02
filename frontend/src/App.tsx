@@ -12,11 +12,21 @@ import { EditHandoffPage } from './pages/EditHandoffPage';
 import { HandoffDetailPage } from './pages/HandoffDetailPage';
 import { RecipientPage } from './pages/RecipientPage';
 import { HandoffCheckPage } from './pages/HandoffCheckPage';
+import { SupportPage } from './pages/SupportPage';
+import { NewTicketPage } from './pages/NewTicketPage';
+import { TicketDetailPage } from './pages/TicketDetailPage';
 
 function RequireAuth({ children }: { children: ReactElement }) {
   const { user, loading } = useAuth();
   if (loading) return <Spinner />;
   if (!user) return <Navigate to="/login" replace />;
+  return children;
+}
+
+/** Hides support pages the plan does not include (the backend refuses them too). */
+function RequireSupport({ need, children }: { need: 'contactSupport' | 'message' | 'ticket'; children: ReactElement }) {
+  const { user } = useAuth();
+  if (!user?.support[need]) return <Navigate to="/dashboard" replace />;
   return children;
 }
 
@@ -43,6 +53,10 @@ export function App() {
         <Route path="/handoffs/:id" element={<HandoffDetailPage />} />
         <Route path="/handoffs/:id/edit" element={<EditHandoffPage />} />
         <Route path="/handoff-check" element={<HandoffCheckPage />} />
+        <Route path="/support" element={<RequireSupport need="contactSupport"><SupportPage /></RequireSupport>} />
+        <Route path="/support/new" element={<RequireSupport need="ticket"><NewTicketPage /></RequireSupport>} />
+        <Route path="/support/message" element={<RequireSupport need="message"><NewTicketPage mode="message" /></RequireSupport>} />
+        <Route path="/support/tickets/:code" element={<RequireSupport need="ticket"><TicketDetailPage /></RequireSupport>} />
       </Route>
 
       <Route path="*" element={<Navigate to="/" replace />} />

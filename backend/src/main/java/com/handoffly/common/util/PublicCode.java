@@ -1,36 +1,41 @@
 package com.handoffly.common.util;
 
-import java.security.SecureRandom;
-
 /**
- * Human-friendly public codes for handoffs. The code shown to users is a readable,
- * sequential {@code HO-<id>} (e.g. {@code HO-1}, {@code HO-2}), derived from the record's
- * own id. A short random {@link #temporary()} value is used only to satisfy the unique
- * NOT NULL constraint on the very first insert, before the id is known; it is immediately
- * replaced with the sequential code.
- *
- * <p>The public code is a display reference only — it never grants access. Recipient
- * access is controlled by opaque, hashed, single-handoff tokens, so a guessable code
- * exposes no data.
+ * The human-friendly references people see: customer account IDs, support staff IDs, support ticket IDs
+ * and handoff references. They are display identifiers only — they never grant access (recipient access uses
+ * opaque hashed tokens; every API checks ownership) — so being readable and sequential is safe.
+ * The numbers come from {@code SequenceService} (global) or the owning account's own counter.
  */
 public final class PublicCode {
 
-    private static final char[] ALPHABET = "0123456789ABCDEFGHJKMNPQRSTVWXYZ".toCharArray();
-    private static final SecureRandom RANDOM = new SecureRandom();
+    private static final String ACCOUNT_PREFIX = "CUS";
+    private static final String TICKET_PREFIX = "TKT";
+    private static final String STAFF_PREFIX = "STAFF";
 
     private PublicCode() {}
 
-    /** The readable, sequential code for a persisted handoff. */
-    public static String forId(long id) {
-        return "HO-" + id;
+    /** e.g. {@code CUS-09}, {@code CUS-42}, {@code CUS-1234} */
+    public static String account(long number) {
+        return ACCOUNT_PREFIX + "-" + padded(number);
     }
 
-    /** A unique placeholder used only until the id is assigned (never shown long-term). */
-    public static String temporary() {
-        StringBuilder sb = new StringBuilder("TMP-");
-        for (int i = 0; i < 10; i++) {
-            sb.append(ALPHABET[RANDOM.nextInt(ALPHABET.length)]);
-        }
-        return sb.toString();
+    /** e.g. {@code TKT-01}, {@code TKT-24} */
+    public static String ticket(long number) {
+        return TICKET_PREFIX + "-" + padded(number);
+    }
+
+    /** e.g. {@code STAFF-01}, {@code STAFF-12} */
+    public static String staff(long number) {
+        return STAFF_PREFIX + "-" + padded(number);
+    }
+
+    /** An account-scoped handoff reference, e.g. {@code AV-3}. The prefix belongs to the account. */
+    public static String handoff(String accountPrefix, long number) {
+        return accountPrefix + "-" + number;
+    }
+
+    /** Two digits at least (01, 09, 10, 123): short, but still tidy in lists. */
+    private static String padded(long number) {
+        return String.format("%02d", number);
     }
 }

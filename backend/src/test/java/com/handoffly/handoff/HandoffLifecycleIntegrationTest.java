@@ -1,6 +1,6 @@
 package com.handoffly.handoff;
 
-import com.handoffly.support.CapturingEmailSender;
+import com.handoffly.testsupport.CapturingEmailSender;
 import com.jayway.jsonpath.JsonPath;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;

@@ -1,13 +1,14 @@
-import { api, downloadFile, upload } from './client';
+import { api, downloadBlob, downloadFile, upload } from './client';
 import type {
-  AuthResponse, CompareInput, CompareResult, CreateHandoffInput, CreateReturnInput, DocLineInput,
-  DashboardResponse, HandoffDetail, HandoffStatus, HandoffSummary, Page, RecipientView,
-  ReturnEvent, ReturnImportResult, User, Attachment, AttachmentKind,
+  AuthResponse, CompareInput, CompareResult, CreateHandoffInput, CreateReturnInput, CreateTicketInput, DocLineInput,
+  DashboardResponse, HandoffDetail, HandoffStatus, HandoffSummary, Page, RecipientView, RegisterInput,
+  PlanPrice, ReturnEvent, ReturnImportResult, SupportMessageInput, TicketAttachment, TicketDetail, TicketSummary, User,
+  Attachment, AttachmentKind,
 } from './types';
 
 // --- Auth ---
 export const authApi = {
-  register: (body: { email: string; password: string; displayName: string; organization?: string }) =>
+  register: (body: RegisterInput) =>
     api<AuthResponse>('/auth/register', { method: 'POST', body, auth: false }),
   login: (body: { email: string; password: string }) =>
     api<AuthResponse>('/auth/login', { method: 'POST', body, auth: false }),
@@ -87,6 +88,43 @@ export const recipientApi = {
   requestReturnWait: (token: string, acknowledgementName: string, reason: string) =>
     api<RecipientView>(`/r/${token}/request-return-wait`,
       { method: 'POST', auth: false, body: { acknowledgementName, reason } }),
+};
+
+// --- Support tickets (customer side; the backend only allows plans that include tickets) ---
+export const ticketApi = {
+  list: (page = 0, size = 10) => api<Page<TicketSummary>>(`/tickets?page=${page}&size=${size}`),
+  get: (code: string) => api<TicketDetail>(`/tickets/${code}`),
+  create: (body: CreateTicketInput) => api<TicketDetail>('/tickets', { method: 'POST', body }),
+  reply: (code: string, body: string) =>
+    api<TicketDetail>(`/tickets/${code}/messages`, { method: 'POST', body: { body } }),
+  upload: (code: string, file: File) => {
+    const form = new FormData();
+    form.append('file', file);
+    return upload<TicketAttachment>(`/tickets/${code}/attachments`, form);
+  },
+  download: (code: string, attachmentId: number) =>
+    downloadBlob(`/tickets/${code}/attachments/${attachmentId}/content`),
+};
+
+// --- Support messages (customer side; any plan with Contact Support) ---
+export const supportMessageApi = {
+  /** Sends a message (and an optional file) in one request; resolves to the reference to quote. */
+  send: (input: SupportMessageInput) => {
+    const form = new FormData();
+    form.append('subject', input.subject);
+    form.append('message', input.message);
+    if (input.handoffReference) form.append('handoffReference', input.handoffReference);
+    if (input.file) form.append('file', input.file);
+    return upload<{ reference: string }>('/support-messages', form);
+  },
+};
+
+// --- Public (no sign-in) ---
+export const publicApi = {
+  /** The general contact address shown on the public site. */
+  contact: () => api<{ email: string }>('/public/contact', { auth: false }),
+  /** The plans' list prices — the one place prices live; the pricing page only displays them. */
+  plans: () => api<PlanPrice[]>('/public/plans', { auth: false }),
 };
 
 // --- HandoffCheck ---

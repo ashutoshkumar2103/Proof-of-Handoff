@@ -1,7 +1,6 @@
 package com.handoffly.auth.jwt;
 
 import com.handoffly.common.config.HandOfflyProperties;
-import com.handoffly.user.Role;
 import com.handoffly.user.User;
 import io.jsonwebtoken.Claims;
 import io.jsonwebtoken.Jwts;
@@ -15,17 +14,21 @@ import java.time.temporal.ChronoUnit;
 import java.util.Date;
 
 /**
- * Issues and validates HS256 JWTs. Claims carry the user id, email and role so
- * requests authenticate without a database round-trip.
+ * Issues and validates HS256 JWTs for the two separate identities: customers and support staff.
+ * Every token is bound to its audience, and each {@code parse…} method accepts only its own, so a
+ * customer token is worthless on the support API and a staff token is worthless on the customer API.
+ * Claims carry only the subject id and email; what a caller may do is decided server-side.
  */
 @Service
 public class JwtService {
 
     private static final String CLAIM_EMAIL = "email";
-    private static final String CLAIM_ROLE = "role";
+    private static final String CUSTOMER_AUDIENCE = "handoffly-customers";
+    private static final String STAFF_AUDIENCE = "handoffly-support";
 
     private final SecretKey key;
-    private final long expirationMinutes;
+    private final long customerExpirationMinutes;
+    private final long staffExpirationMinutes;
     private final String issuer;
 
     public JwtService(HandOfflyProperties properties) {
@@ -35,18 +38,37 @@ public class JwtService {
                     "handoffly.jwt.secret must be at least 32 bytes for HS256; set a strong JWT_SECRET.");
         }
         this.key = Keys.hmacShaKeyFor(secretBytes);
-        this.expirationMinutes = properties.getJwt().getExpirationMinutes();
+        this.customerExpirationMinutes = properties.getJwt().getExpirationMinutes();
+        this.staffExpirationMinutes = properties.getJwt().getStaffExpirationMinutes();
         this.issuer = properties.getJwt().getIssuer();
     }
 
-    public IssuedToken issue(User user) {
+    public IssuedToken issueForCustomer(User user) {
+        return issue(CUSTOMER_AUDIENCE, user.getId(), user.getEmail(), customerExpirationMinutes);
+    }
+
+    public IssuedToken issueForStaff(Long staffId, String email) {
+        return issue(STAFF_AUDIENCE, staffId, email, staffExpirationMinutes);
+    }
+
+    /** @return the customer the token was issued to, or {@code null} for anything that is not a valid customer token. */
+    public ParsedToken parseCustomer(String token) {
+        return parse(token, CUSTOMER_AUDIENCE);
+    }
+
+    /** @return the staff member the token was issued to, or {@code null} for anything that is not a valid staff token. */
+    public ParsedToken parseStaff(String token) {
+        return parse(token, STAFF_AUDIENCE);
+    }
+
+    private IssuedToken issue(String audience, Long subjectId, String email, long expirationMinutes) {
         Instant now = Instant.now();
         Instant expiry = now.plus(expirationMinutes, ChronoUnit.MINUTES);
         String token = Jwts.builder()
                 .issuer(issuer)
-                .subject(String.valueOf(user.getId()))
-                .claim(CLAIM_EMAIL, user.getEmail())
-                .claim(CLAIM_ROLE, user.getRole().name())
+                .audience().add(audience).and()
+                .subject(String.valueOf(subjectId))
+                .claim(CLAIM_EMAIL, email)
                 .issuedAt(Date.from(now))
                 .expiration(Date.from(expiry))
                 .signWith(key)
@@ -54,22 +76,16 @@ public class JwtService {
         return new IssuedToken(token, expiry);
     }
 
-    /**
-     * @return parsed principal claims, or {@code null} if the token is missing,
-     * malformed, expired or has an invalid signature.
-     */
-    public ParsedToken parse(String token) {
+    private ParsedToken parse(String token, String audience) {
         try {
             Claims claims = Jwts.parser()
                     .verifyWith(key)
                     .requireIssuer(issuer)
+                    .requireAudience(audience)
                     .build()
                     .parseSignedClaims(token)
                     .getPayload();
-            return new ParsedToken(
-                    Long.valueOf(claims.getSubject()),
-                    claims.get(CLAIM_EMAIL, String.class),
-                    Role.valueOf(claims.get(CLAIM_ROLE, String.class)));
+            return new ParsedToken(Long.valueOf(claims.getSubject()), claims.get(CLAIM_EMAIL, String.class));
         } catch (Exception e) {
             // Invalid tokens are simply unauthenticated; never log the token itself.
             return null;
@@ -78,5 +94,5 @@ public class JwtService {
 
     public record IssuedToken(String token, Instant expiresAt) {}
 
-    public record ParsedToken(Long userId, String email, Role role) {}
+    public record ParsedToken(Long id, String email) {}
 }

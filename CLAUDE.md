@@ -18,7 +18,7 @@ differences are handled with **categories/templates**, never with per-industry c
 - **Modular monolith.** One Spring Boot app, package-by-module. Never microservices.
 - Backend modules (Java packages under `com.handoffly`):
   `common`, `auth`, `user`, `handoff`, `returns`, `recipient`, `attachment`,
-  `audit`, `notification`, `documentcheck`.
+  `audit`, `notification`, `documentcheck`, `support`.
 - Keep module boundaries clean: a module exposes services; other modules depend on
   those services, not on each other's internals.
 - **Backend is the single authoritative source of business rules.** The frontend may
@@ -28,7 +28,8 @@ differences are handled with **categories/templates**, never with per-industry c
 
 - Java 25 LTS, Spring Boot 4.1.x, Spring Web / Security / Data JPA, Hibernate,
   Bean Validation, Maven, Flyway, MySQL 8.4 LTS.
-- Frontend: React 19, TypeScript, Vite, React Router, TanStack Query.
+- Frontend: React 19, TypeScript, Vite, React Router, TanStack Query. Two separate apps on the
+  one backend: `frontend/` (customers) and `support-portal/` (support staff). They share no code.
 - No Lombok (JDK-lag risk on Java 25) — use Java records for DTOs and plain
   entities. This is a deliberate, documented decision (see `docs/DECISIONS.md`).
 

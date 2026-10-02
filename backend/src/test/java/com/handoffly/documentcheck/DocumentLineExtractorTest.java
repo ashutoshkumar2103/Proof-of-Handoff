@@ -7,10 +7,10 @@ import org.junit.jupiter.api.Test;
 
 import java.util.List;
 
-import static com.handoffly.support.TestDocuments.csv;
-import static com.handoffly.support.TestDocuments.file;
-import static com.handoffly.support.TestDocuments.pdf;
-import static com.handoffly.support.TestDocuments.xlsx;
+import static com.handoffly.testsupport.TestDocuments.csv;
+import static com.handoffly.testsupport.TestDocuments.file;
+import static com.handoffly.testsupport.TestDocuments.pdf;
+import static com.handoffly.testsupport.TestDocuments.xlsx;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 

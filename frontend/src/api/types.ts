@@ -1,6 +1,15 @@
 // Types mirroring the backend API DTOs. Kept in one place as the frontend's contract.
 
-export type Role = 'USER' | 'ADMIN';
+export type SubscriptionPlan = 'MONTHLY' | 'QUARTERLY' | 'HALF_YEARLY' | 'YEARLY';
+
+/** A plan's list price (public): one payment of `amount` covers `months` months, with what it includes from support. */
+export interface PlanPrice {
+  plan: SubscriptionPlan;
+  months: number;
+  amount: number;
+  currency: string;
+  support: SupportEntitlements;
+}
 
 export type HandoffStatus =
   | 'DRAFT'
@@ -24,12 +33,38 @@ export type HandoffAction =
   | 'RECORD_RETURN' | 'CONFIRM_RETURN' | 'REQUEST_MISSING_CONFIRMATION'
   | 'DISPUTE' | 'CLOSE' | 'ADD_ATTACHMENT';
 
+/** What the customer's plan includes in the support area. The backend decides and enforces it; the UI only follows. */
+export type SupportPriority = 'NORMAL' | 'PRIORITY' | 'HIGHEST';
+
+export interface SupportEntitlements {
+  contactSupport: boolean;
+  /** Send support a message from the app (without the ticket workflow). */
+  message: boolean;
+  ticket: boolean;
+  call: boolean;
+  priority: SupportPriority;
+  /** Present only when the plan includes calls and a number is configured. */
+  supportPhone?: string | null;
+}
+
 export interface User {
   id: number;
+  /** The customer-facing Account ID, e.g. CUS-42. */
+  accountCode: string;
   email: string;
   displayName: string;
   organization?: string | null;
-  role: Role;
+  phone?: string | null;
+  plan: SubscriptionPlan;
+  support: SupportEntitlements;
+}
+
+export interface RegisterInput {
+  email: string;
+  password: string;
+  displayName: string;
+  organization?: string;
+  phone?: string;
 }
 
 export interface AuthResponse {
@@ -293,6 +328,66 @@ export interface ReturnImportResult {
 }
 /** Return quantities (by handoff item id) carried from HandoffCheck to the return form. */
 export type ReturnPrefill = Record<number, string>;
+
+// Support tickets (customer side)
+export type TicketStatus = 'OPEN' | 'IN_PROGRESS' | 'WAITING_FOR_CUSTOMER' | 'RESOLVED' | 'CLOSED';
+export type TicketCategory = 'GENERAL' | 'HANDOFF' | 'ACCOUNT' | 'BILLING' | 'TECHNICAL';
+
+export interface TicketSummary {
+  ticketCode: string;
+  accountCode: string;
+  customerName: string;
+  customerEmail: string;
+  customerPhone?: string | null;
+  plan: SubscriptionPlan;
+  priority: SupportPriority;
+  contactMethod: 'TICKET' | 'MESSAGE';
+  category: TicketCategory;
+  subject: string;
+  handoffReference?: string | null;
+  status: TicketStatus;
+  messageCount: number;
+  createdAt: string;
+  updatedAt: string;
+}
+
+export interface TicketMessage {
+  id: number;
+  author: 'CUSTOMER' | 'SUPPORT';
+  authorName: string;
+  body: string;
+  createdAt: string;
+}
+
+export interface TicketAttachment {
+  id: number;
+  originalFilename: string;
+  contentType: string;
+  sizeBytes: number;
+  createdAt: string;
+}
+
+export interface TicketDetail {
+  ticket: TicketSummary;
+  description: string;
+  messages: TicketMessage[];
+  attachments: TicketAttachment[];
+}
+
+export interface CreateTicketInput {
+  subject: string;
+  category: TicketCategory;
+  description: string;
+  handoffReference?: string;
+  phone?: string;
+}
+
+export interface SupportMessageInput {
+  subject: string;
+  message: string;
+  handoffReference?: string;
+  file?: File | null;
+}
 
 export interface ApiError {
   status: number;

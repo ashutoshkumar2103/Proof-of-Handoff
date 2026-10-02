@@ -1,10 +1,8 @@
 package com.handoffly.auth;
 
-import com.handoffly.user.Role;
-
 /**
- * Lightweight authenticated principal derived from the JWT — no per-request DB hit.
- * Exposed to controllers via {@code @AuthenticationPrincipal}.
+ * The signed-in CUSTOMER, derived from the JWT — no per-request DB hit. Exposed to controllers via
+ * {@code @AuthenticationPrincipal}. Support staff are a different identity ({@code StaffPrincipal}).
  */
-public record UserPrincipal(Long id, String email, Role role) {
+public record UserPrincipal(Long id, String email) {
 }

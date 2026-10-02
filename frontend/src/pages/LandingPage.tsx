@@ -1,24 +1,26 @@
 import { Link } from 'react-router-dom';
+import { useQuery } from '@tanstack/react-query';
+import { publicApi } from '../api/endpoints';
+import type { SubscriptionPlan } from '../api/types';
 import { useAuth } from '../auth/AuthContext';
 import { ThemeToggle } from '../components/ThemeToggle';
-
-const MONTHLY = 199;
+import { formatMoney, supportHighlights } from '../lib/format';
 
 interface Plan {
-  key: string;
+  plan: SubscriptionPlan;
   name: string;
-  months: number;
-  price: number;
   tagline: string;
   highlight?: boolean;
 }
 
-// To change prices, edit the numbers below (this is the only place prices live).
+// How each plan is presented. Prices and what a plan includes from support are deliberately NOT here: they
+// come from the backend (`SubscriptionPlan`, the one place both live), so this page always matches what
+// support sees and what the backend enforces.
 const PLANS: Plan[] = [
-  { key: 'monthly', name: 'Monthly', months: 1, price: 199, tagline: 'Billed every month' },
-  { key: 'quarterly', name: 'Quarterly', months: 3, price: 549, tagline: 'Billed every 3 months' },
-  { key: 'half', name: 'Half-yearly', months: 6, price: 999, tagline: 'Billed every 6 months' },
-  { key: 'yearly', name: 'Yearly', months: 12, price: 1999, tagline: 'Billed every year', highlight: true },
+  { plan: 'MONTHLY', name: 'Monthly', tagline: 'Billed every month' },
+  { plan: 'QUARTERLY', name: 'Quarterly', tagline: 'Billed every 3 months' },
+  { plan: 'HALF_YEARLY', name: 'Half-yearly', tagline: 'Billed every 6 months' },
+  { plan: 'YEARLY', name: 'Yearly', tagline: 'Billed every year', highlight: true },
 ];
 
 const FEATURES = [
@@ -39,12 +41,13 @@ const STEPS = [
 
 const LIFECYCLE = ['Give', 'Acknowledge', 'Active with recipient', 'Return pending', 'Partial return', 'Full return', 'Closed'];
 
-function money(n: number) {
-  return `₹${n.toLocaleString('en-IN')}`;
-}
-
 export function LandingPage() {
   const { user } = useAuth();
+  // General contact address for everyone, whatever their plan; hidden if it cannot be loaded.
+  const contact = useQuery({ queryKey: ['public-contact'], queryFn: publicApi.contact, retry: false });
+  const prices = useQuery({ queryKey: ['public-plans'], queryFn: publicApi.plans, retry: false });
+  const priceOf = (plan: SubscriptionPlan) => prices.data?.find((p) => p.plan === plan);
+  const monthly = priceOf('MONTHLY');
 
   return (
     <div className="landing">
@@ -159,45 +162,55 @@ export function LandingPage() {
       <section id="pricing" className="landing-section">
         <div className="section-head">
           <h2>Simple pricing</h2>
-          <p className="muted">Pay less when you commit longer. Compared to {money(MONTHLY)}/month.</p>
+          <p className="muted">
+            Pay less when you commit longer.
+            {monthly && <> Compared to {formatMoney(monthly.amount, monthly.currency)}/month.</>}
+          </p>
         </div>
-        <div className="pricing-grid">
-          {PLANS.map((p) => {
-            const regular = MONTHLY * p.months;
-            const save = regular - p.price;
-            const pct = Math.round((save / regular) * 100);
-            const perMonth = Math.round(p.price / p.months);
-            return (
-              <div key={p.key} className={`card price-card ${p.highlight ? 'featured' : ''}`}>
-                {p.highlight && <div className="price-ribbon">Best value</div>}
-                <h3>{p.name}</h3>
-                <div className="price">
-                  {money(p.price)}
-                  <span className="price-period"> /{p.months === 1 ? 'mo' : p.months === 12 ? 'yr' : `${p.months} mo`}</span>
-                </div>
-                <div className="price-permonth muted small">≈ {money(perMonth)}/month · {p.tagline}</div>
-                {save > 0 ? (
-                  <div className="price-save">
-                    <span className="price-regular">{money(regular)}</span>
-                    <span className="badge badge-success">Save {money(save)} ({pct}%)</span>
+        {prices.isLoading ? <p className="muted center">Loading prices…</p> : !monthly ? (
+          <p className="muted center">Prices are unavailable right now. Please try again shortly.</p>
+        ) : (
+          <div className="pricing-grid">
+            {PLANS.map((p) => {
+              const price = priceOf(p.plan);
+              if (!price) return null;
+              const money = (n: number) => formatMoney(n, price.currency);
+              const regular = monthly.amount * price.months;
+              const save = regular - price.amount;
+              const pct = Math.round((save / regular) * 100);
+              const perMonth = Math.round(price.amount / price.months);
+              return (
+                <div key={p.plan} className={`card price-card ${p.highlight ? 'featured' : ''}`}>
+                  {p.highlight && <div className="price-ribbon">Best value</div>}
+                  <h3>{p.name}</h3>
+                  <div className="price">
+                    {money(price.amount)}
+                    <span className="price-period"> /{price.months === 1 ? 'mo' : price.months === 12 ? 'yr' : `${price.months} mo`}</span>
                   </div>
-                ) : (
-                  <div className="price-save"><span className="muted small">Pay monthly · cancel anytime</span></div>
-                )}
-                <ul className="price-features">
-                  <li>Unlimited handoffs</li>
-                  <li>Returns & missing tracking</li>
-                  <li>Attachments & evidence</li>
-                  <li>HandoffCheck comparison</li>
-                  {p.months >= 6 && <li>Priority support</li>}
-                </ul>
-                <Link to="/register" className={`btn btn-block ${p.highlight ? 'btn-primary' : ''}`}>
-                  Choose {p.name}
-                </Link>
-              </div>
-            );
-          })}
-        </div>
+                  <div className="price-permonth muted small">≈ {money(perMonth)}/month · {p.tagline}</div>
+                  {save > 0 ? (
+                    <div className="price-save">
+                      <span className="price-regular">{money(regular)}</span>
+                      <span className="badge badge-success">Save {money(save)} ({pct}%)</span>
+                    </div>
+                  ) : (
+                    <div className="price-save"><span className="muted small">Pay monthly · cancel anytime</span></div>
+                  )}
+                  <ul className="price-features">
+                    <li>Unlimited handoffs</li>
+                    <li>Returns & missing tracking</li>
+                    <li>Attachments & evidence</li>
+                    <li>HandoffCheck comparison</li>
+                    {supportHighlights(price.support).map((line) => <li key={line}>{line}</li>)}
+                  </ul>
+                  <Link to="/register" className={`btn btn-block ${p.highlight ? 'btn-primary' : ''}`}>
+                    Choose {p.name}
+                  </Link>
+                </div>
+              );
+            })}
+          </div>
+        )}
       </section>
 
       {/* CTA */}
@@ -230,6 +243,12 @@ export function LandingPage() {
               <Link to="/login">Sign in</Link>
               <Link to="/register">Sign up</Link>
             </div>
+            {contact.data?.email && (
+              <div>
+                <h4>Contact</h4>
+                <a href={`mailto:${contact.data.email}`}>{contact.data.email}</a>
+              </div>
+            )}
             <div>
               <h4>Legal</h4>
               <a href="#">Terms</a>

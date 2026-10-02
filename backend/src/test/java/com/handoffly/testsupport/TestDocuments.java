@@ -1,4 +1,4 @@
-package com.handoffly.support;
+package com.handoffly.testsupport;
 
 import org.apache.pdfbox.pdmodel.PDDocument;
 import org.apache.pdfbox.pdmodel.PDPage;

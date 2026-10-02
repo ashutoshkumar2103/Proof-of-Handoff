@@ -49,6 +49,8 @@ public class SecurityConfig {
                         .requestMatchers("/api/v1/auth/register", "/api/v1/auth/login").permitAll()
                         // Recipient flow is public but scoped by an unguessable token.
                         .requestMatchers("/api/v1/r/**").permitAll()
+                        // General contact address and plan prices for the public site (the support API itself is not public).
+                        .requestMatchers(HttpMethod.GET, "/api/v1/public/contact", "/api/v1/public/plans").permitAll()
                         .requestMatchers("/actuator/health", "/actuator/info").permitAll()
                         .requestMatchers(HttpMethod.OPTIONS, "/**").permitAll()
                         .anyRequest().authenticated())

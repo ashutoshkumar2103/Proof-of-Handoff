@@ -70,6 +70,8 @@ handoffly:
     # 256-bit+ secret. MUST be overridden via env in any real deployment.
     secret: ${JWT_SECRET:change-me-in-production-this-is-a-dev-only-secret-please-rotate-32b+}
     expiration-minutes: ${JWT_EXPIRATION_MINUTES:720}
+    # Support staff sessions (a separate identity from customers) are shorter.
+    staff-expiration-minutes: ${STAFF_JWT_EXPIRATION_MINUTES:480}
     issuer: handoffly
   recipient:
     # Base URL of the frontend recipient review page; {token} is appended.
@@ -91,5 +93,17 @@ handoffly:
       application/vnd.openxmlformats-officedocument.wordprocessingml.document,
       application/vnd.ms-excel,
       application/vnd.openxmlformats-officedocument.spreadsheetml.sheet
+  support:
+    # New-ticket notices go here; also the general contact address on the public site.
+    mailbox: ${SUPPORT_MAILBOX:support@handoffly.local}
+    # Shown only to customers whose plan includes direct calls. Blank = no call option is shown.
+    phone: ${SUPPORT_PHONE:}
+    # Controlled provisioning of a support staff account (see README). Blank = nothing is created.
+    provision:
+      name: ${SUPPORT_STAFF_NAME:}
+      email: ${SUPPORT_STAFF_EMAIL:}
+      password: ${SUPPORT_STAFF_PASSWORD:}
+      role: ${SUPPORT_STAFF_ROLE:ADMIN}
   cors:
-    allowed-origins: ${CORS_ALLOWED_ORIGINS:http://localhost:5173}
+    # Customer app (5173) and support portal (5175) in development; list real origins in production.
+    allowed-origins: ${CORS_ALLOWED_ORIGINS:http://localhost:5173,http://localhost:5175}

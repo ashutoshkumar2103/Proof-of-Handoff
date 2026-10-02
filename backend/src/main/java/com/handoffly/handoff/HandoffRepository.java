@@ -14,13 +14,11 @@ import java.util.Optional;
 public interface HandoffRepository
         extends JpaRepository<Handoff, Long>, JpaSpecificationExecutor<Handoff> {
 
-    Optional<Handoff> findByPublicCode(String publicCode);
-
     @EntityGraph(attributePaths = "items")
     Optional<Handoff> findWithItemsById(Long id);
 
-    @EntityGraph(attributePaths = "items")
-    Optional<Handoff> findWithItemsByPublicCode(String publicCode);
+    /** A customer's own handoff by its reference (references are unique per account, not globally). */
+    Optional<Handoff> findByOwnerIdAndPublicCodeIgnoreCase(Long ownerId, String publicCode);
 
     /** Dashboard status tallies for a given owner. */
     @Query("select h.status as status, count(h) as count from Handoff h "

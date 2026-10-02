@@ -258,6 +258,16 @@ th.sortable:hover { color: var(--text); }
 .auth-card .brand { font-size: 1.5rem; font-weight: 700; text-align: center; margin-bottom: 0.25rem; }
 .auth-card .brand span { color: var(--primary); }
 
+/* Support ticket conversation */
+.thread { display: flex; flex-direction: column; gap: 0.75rem; }
+.msg {
+  max-width: 85%; padding: 0.65rem 0.85rem; border: 1px solid var(--border); border-radius: var(--radius);
+  background: var(--surface-2); white-space: pre-wrap; overflow-wrap: anywhere;
+}
+.msg.mine { align-self: flex-end; background: var(--primary-soft); border-color: transparent; }
+.msg-meta { font-size: 0.78rem; color: var(--text-muted); margin-bottom: 0.25rem; }
+.readonly-field { background: var(--surface-2); color: var(--text-muted); }
+
 /* Utilities */
 .center { text-align: center; }
 .mt-1 { margin-top: 0.5rem; } .mt-2 { margin-top: 1rem; } .mt-3 { margin-top: 1.5rem; }

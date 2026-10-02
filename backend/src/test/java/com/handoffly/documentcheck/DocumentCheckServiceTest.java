@@ -6,15 +6,15 @@ import com.handoffly.documentcheck.dto.CompareRequest;
 import com.handoffly.documentcheck.dto.CompareResult;
 import com.handoffly.documentcheck.dto.DocumentField;
 import com.handoffly.documentcheck.dto.DocumentLine;
-import com.handoffly.support.TestDocuments;
+import com.handoffly.testsupport.TestDocuments;
 import org.junit.jupiter.api.Test;
 
 import java.math.BigDecimal;
 import java.util.List;
 
-import static com.handoffly.support.TestDocuments.csv;
-import static com.handoffly.support.TestDocuments.pdf;
-import static com.handoffly.support.TestDocuments.xlsx;
+import static com.handoffly.testsupport.TestDocuments.csv;
+import static com.handoffly.testsupport.TestDocuments.pdf;
+import static com.handoffly.testsupport.TestDocuments.xlsx;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 

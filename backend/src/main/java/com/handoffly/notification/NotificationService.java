@@ -93,6 +93,65 @@ public class NotificationService {
         return emailSender.deliversMail();
     }
 
+    /** Tells the support mailbox that a customer opened a ticket or sent a support message. */
+    public void sendTicketCreated(String supportMailbox, TicketNotice ticket, String description) {
+        String body = """
+                A customer contacted support.
+
+                Ticket:    %s
+                Via:       %s
+                Category:  %s
+                Customer:  %s (%s)
+                Email:     %s
+                Phone:     %s
+                Plan:      %s (%s priority)
+                Handoff:   %s
+
+                %s
+
+                Open the ticket in the HandOffly support portal to reply.
+                """.formatted(
+                ticket.ticketCode(), ticket.contactMethod(), ticket.category(), ticket.customerName(),
+                ticket.accountCode(), ticket.customerEmail(), orDash(ticket.customerPhone()), ticket.plan(),
+                ticket.priority(), orDash(ticket.handoffReference()), description);
+        emailSender.send(new EmailMessage(supportMailbox, ticketSubject(ticket, "New ticket"), body, null));
+    }
+
+    /** Tells the support mailbox that the customer replied on a ticket. */
+    public void sendTicketCustomerReply(String supportMailbox, TicketNotice ticket, String reply) {
+        String body = """
+                %s (%s) replied on ticket %s:
+
+                %s
+
+                Open the ticket in the HandOffly support portal to respond.
+                """.formatted(ticket.customerName(), ticket.accountCode(), ticket.ticketCode(), reply);
+        emailSender.send(new EmailMessage(supportMailbox, ticketSubject(ticket, "Customer reply"), body, null));
+    }
+
+    /** Tells the customer that support replied on their ticket (or to their message). */
+    public void sendTicketSupportReply(TicketNotice ticket, String reply) {
+        String followUp = ticket.customerCanReply()
+                ? "To answer, sign in to HandOffly, open Contact Support and choose this ticket."
+                : "To follow up, sign in to HandOffly, open Contact Support and send us another message.";
+        String body = """
+                Hello %s,
+
+                Our support team replied to your request %s:
+
+                %s
+
+                %s
+
+                — HandOffly Support
+                """.formatted(safe(ticket.customerName()), ticket.ticketCode(), reply, followUp);
+        emailSender.send(new EmailMessage(ticket.customerEmail(), ticketSubject(ticket, "Reply from support"), body, null));
+    }
+
+    private static String ticketSubject(TicketNotice ticket, String what) {
+        return "[" + ticket.ticketCode() + "] " + what + ": " + ticket.subject();
+    }
+
     /** The configured template file if there is one (read fresh each time, so edits apply at once), else the built-in. */
     private EmailTemplate pdfTemplate() {
         if (!pdfTemplateFile.isBlank()) {
@@ -120,6 +179,10 @@ public class NotificationService {
 
     private static String safe(String s) {
         return (s == null || s.isBlank()) ? "there" : s;
+    }
+
+    private static String orDash(String s) {
+        return (s == null || s.isBlank()) ? "—" : s;
     }
 
     private static String stripTrailingSlash(String url) {

@@ -30,5 +30,8 @@ handoffly:
     local-dir: ./target/test-storage
     max-file-size-bytes: 5242880
     allowed-content-types: image/png,image/jpeg,application/pdf,text/plain,text/csv
+  support:
+    mailbox: support-desk@handoffly.test
+    phone: "+1 555 0100"
   cors:
     allowed-origins: http://localhost:5173
