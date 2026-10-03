@@ -138,4 +138,4 @@ handoffly:
     redeem-ttl-hours: ${PAYMENT_REDEEM_TTL_HOURS:24}
   cors:
     # Customer app (5173) and support portal (5175) in development; list real origins in production.
-    allowed-origins: ${CORS_ALLOWED_ORIGINS:http://localhost:5173,http://localhost:5175}
+    allowed-origins: ${CORS_ALLOWED_ORIGINS:http://localhost:5173,http://localhost:5175,https://resource-unlatch-oval.ngrok-free.dev}

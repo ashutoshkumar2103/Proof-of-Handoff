@@ -104,7 +104,11 @@ h3 { font-size: 1.05rem; }
 .topbar .brand { display: flex; align-items: center; gap: 0.0rem; font-weight: 700; font-size: 1.15rem; color: var(--text); }
 .topbar .brand span { color: var(--primary); }
 .topbar .brand:hover { text-decoration: none; }
+.site-menu { display: flex; align-items: center; gap: 0.4rem; margin-left: auto; }   /* the page links and the account actions, together at the right */
 .topbar nav { display: flex; align-items: center; gap: 0.4rem; }
+.nav-actions { display: flex; align-items: center; gap: 0.4rem; margin-left: 0.4rem; }   /* Account, Sign out; the theme icon follows as the last item of the bar */
+.topbar > .theme-icon { margin-left: 0.4rem; }
+.topbar .nav-toggle, .account-inline { display: none; }   /* narrow screens only (below); .topbar makes it outrank .btn, which sets a display of its own */
 .topbar nav a {
   color: var(--text-muted); font-weight: 500; padding: 0.4rem 0.65rem;
   border-radius: var(--radius-sm); transition: background 0.12s, color 0.12s;
@@ -194,7 +198,7 @@ input.input-error, textarea.input-error, select.input-error {
 }
 
 /* Compact one-row-per-item editor */
-.item { padding: 0.6rem; border: 1px solid var(--border); border-radius: var(--radius-sm); background: var(--surface-2); }
+.item { position: relative; padding: 0.6rem; border: 1px solid var(--border); border-radius: var(--radius-sm); background: var(--surface-2); }
 .item + .item { margin-top: 0.5rem; }
 .item-grid, .item-head {
   display: grid;
@@ -210,6 +214,9 @@ input.input-error, textarea.input-error, select.input-error {
   .item-grid { grid-template-columns: 1fr 1fr; }
   .item-grid > input[aria-label="Item name"],
   .item-grid > input[aria-label="Notes"] { grid-column: 1 / -1; }
+  /* The remove button sits in the card's top-right corner instead of taking a row; the name field leaves room for it. */
+  .item-grid > .icon-btn { position: absolute; top: 0.6rem; right: 0.6rem; width: 2.5rem; height: 2.5rem; padding: 0; }
+  .item-grid > input[aria-label="Item name"] { width: calc(100% - 3rem); }
 }
 
 /* Tables */
@@ -363,8 +370,6 @@ th.sortable:hover { color: var(--text); }
   .detail-row { grid-template-columns: 1fr; }
   .kv { grid-template-columns: 1fr; gap: 0.1rem 0; }
   .kv dd { margin-bottom: 0.5rem; }
-  .topbar nav { gap: 0.3rem; font-size: 0.9rem; flex-wrap: wrap; }
-  .topbar { flex-wrap: wrap; gap: 0.4rem 0.75rem; }   /* so Account and Sign out stay reachable on a phone */
   .search-bar { width: 100%; }
   .search-bar input { flex: 1; min-width: 0; }
 }
@@ -558,11 +563,42 @@ th.sortable:hover { color: var(--text); }
 }
 
 /* Account menu in the top bar (an ActionMenu styled as a nav link), and the Dashboard's welcome line */
-.topbar nav .nav-menu-trigger {
+.topbar .nav-menu-trigger {
   background: transparent; border: 0; font: inherit; cursor: pointer; color: var(--text-muted); font-weight: 500;
   padding: 0.4rem 0.65rem; border-radius: var(--radius-sm); transition: background 0.12s, color 0.12s;
 }
-.topbar nav .nav-menu-trigger:hover, .topbar nav .menu:focus-within .nav-menu-trigger { background: var(--surface-2); color: var(--text); }
-.topbar nav .nav-menu-trigger.active { color: var(--primary); background: var(--primary-soft); font-weight: 600; }
+.topbar .nav-menu-trigger:hover, .topbar .menu:focus-within .nav-menu-trigger { background: var(--surface-2); color: var(--text); }
+.topbar .nav-menu-trigger.active { color: var(--primary); background: var(--primary-soft); font-weight: 600; }
 .menu-hover .menu-panel { top: 100%; }   /* no gap between the button and the list, so moving the pointer down does not close it */
-.welcome { margin: 0.1rem 0 0.2rem; font-weight: 600; }
+.welcome { margin: 0.1rem 0 0.2rem; font-size: 1rem; font-weight: 600; }
+
+.theme-icon { width: 2.25rem; padding-left: 0; padding-right: 0; line-height: 1; }
+.menu-hover .menu-panel { min-width: 12.5rem; }
+.menu-hover .menu-item { white-space: nowrap; }
+
+/* Narrow screens (phones and small tablets): the bar is the brand, the theme icon and a menu button; the page links, the account list and
+   Sign out sit in a menu that opens below the bar, full width, so nothing can run off the screen. */
+@media (max-width: 860px) {
+  .topbar { flex-wrap: wrap; gap: 0.25rem 0.5rem; padding: 0.6rem 1rem; }
+  .topbar .brand { order: 1; margin-right: auto; }
+  .topbar > .theme-icon { order: 2; margin-left: 0; }
+  .topbar .nav-toggle { order: 3; display: inline-flex; align-items: center; justify-content: center; width: 2.5rem; padding-left: 0; padding-right: 0; }
+  .theme-icon, .nav-toggle { min-height: 2.5rem; font-size: 1.05rem; }
+  .site-menu {
+    display: none; order: 4; flex-basis: 100%; flex-direction: column; align-items: stretch; gap: 0.6rem; margin: 0.5rem 0 0; padding-top: 0.5rem;
+    border-top: 1px solid var(--border); max-height: calc(100vh - 5rem); overflow-y: auto;
+  }
+  .site-menu.open { display: flex; }
+  .topbar nav { flex-direction: column; align-items: stretch; gap: 0.15rem; }
+  .topbar nav a { padding: 0.7rem 0.75rem; font-size: 1rem; }
+  .nav-actions { flex-direction: column; align-items: stretch; gap: 0.6rem; margin-left: 0; }
+  .account-desktop { display: none; }
+  .account-inline { display: flex; flex-direction: column; gap: 0.15rem; border-top: 1px solid var(--border); padding-top: 0.6rem; }
+  .account-inline-label { padding: 0 0.75rem 0.25rem; font-size: 0.75rem; font-weight: 700; letter-spacing: 0.04em; text-transform: uppercase; color: var(--text-muted); }
+  .account-inline-item {
+    min-height: 2.75rem; padding: 0.6rem 0.75rem; text-align: left; background: transparent; border: 0; border-radius: var(--radius-sm);
+    color: var(--text); font: inherit; cursor: pointer;
+  }
+  .account-inline-item:hover, .account-inline-item:active { background: var(--surface-2); }
+  .nav-actions .btn { min-height: 2.75rem; }
+}
