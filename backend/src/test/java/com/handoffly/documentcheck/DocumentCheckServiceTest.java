@@ -6,6 +6,7 @@ import com.handoffly.documentcheck.dto.CompareRequest;
 import com.handoffly.documentcheck.dto.CompareResult;
 import com.handoffly.documentcheck.dto.DocumentField;
 import com.handoffly.documentcheck.dto.DocumentLine;
+import com.handoffly.documentcheck.dto.NameMatch;
 import com.handoffly.testsupport.TestDocuments;
 import org.junit.jupiter.api.Test;
 
@@ -44,7 +45,7 @@ class DocumentCheckServiceTest {
                         new DocumentLine("Bedsheets", new BigDecimal("200")),
                         new DocumentLine("Chairs", new BigDecimal("500")),
                         new DocumentLine("Tables", new BigDecimal("70"))),
-                List.of(new DocumentField("Delivery date", "2025-09-30")));
+                List.of(new DocumentField("Delivery date", "2025-09-30")), null);
 
         CompareResult result = service.compare(null, request);
 
@@ -71,7 +72,7 @@ class DocumentCheckServiceTest {
                 List.of(), null, "B",
                 List.of(new DocumentLine("Joker  Dress", new BigDecimal("2")),
                         new DocumentLine("Tables", new BigDecimal("1"))),
-                List.of());
+                List.of(), null);
 
         CompareResult result = service.compare(null, request);
 
@@ -84,7 +85,7 @@ class DocumentCheckServiceTest {
     void detectsMissingAndExtraLines() {
         CompareRequest request = new CompareRequest(
                 "A", List.of(new DocumentLine("Only in ref", new BigDecimal("1"))), List.of(),
-                null, "B", List.of(new DocumentLine("Only in target", new BigDecimal("2"))), List.of());
+                null, "B", List.of(new DocumentLine("Only in target", new BigDecimal("2"))), List.of(), null);
 
         CompareResult result = service.compare(null, request);
 
@@ -194,11 +195,128 @@ class DocumentCheckServiceTest {
         List<DocumentLine> b = new java.util.ArrayList<>(
                 filesService.extractLines(csv("b.csv", "Item,Qty\nTable,95\nChair,200")));
         assertThat(filesService.compare(null, new CompareRequest("File A", a, List.of(), null,
-                "File B", b, List.of())).summary().allMatch()).isFalse();
+                "File B", b, List.of(), null)).summary().allMatch()).isFalse();
 
         b.set(0, new DocumentLine("Table", new BigDecimal("100")));   // user corrects 95 -> 100
         CompareResult corrected = filesService.compare(null, new CompareRequest("File A", a, List.of(), null,
-                "File B", b, List.of()));
+                "File B", b, List.of(), null));
         assertThat(corrected.summary().allMatch()).isTrue();
+    }
+
+    // ------------------------------------------------ Accepted spelling matches: one row per logical item
+
+    /** The example of the task: File A and File B list the same things, three of them spelled differently in File B. */
+    private static List<DocumentLine> fileA() {
+        return List.of(line("10th History Book", "6"), line("Exam Pad", "6"), line("10th Science Book", "5"), line("Pen", "6"));
+    }
+
+    private static List<DocumentLine> fileB() {
+        return List.of(line("10th History Books", "4"), line("Exam Ped", "2"), line("10th Senence Book", "3"));
+    }
+
+    private static DocumentLine line(String name, String quantity) {
+        return new DocumentLine(name, new BigDecimal(quantity));
+    }
+
+    private CompareResult compareWith(List<DocumentLine> a, List<DocumentLine> b, NameMatch... accepted) {
+        return service.compare(null, new CompareRequest("File A", a, List.of(), null, "File B", b, List.of(),
+                accepted.length == 0 ? null : List.of(accepted)));
+    }
+
+    private static CompareResult.LineComparison row(CompareResult result, String name) {
+        return result.lines().stream().filter(l -> l.name().equals(name)).findFirst().orElseThrow();
+    }
+
+    @Test
+    void withoutAcceptedMatchesSpellingVariationsAreDifferentItemsAsBefore() {
+        CompareResult result = compareWith(fileA(), fileB());
+
+        assertThat(result.lines()).hasSize(7);   // 4 from File A (all missing), 3 from File B (all extra)
+        assertThat(result.summary().missingInTarget()).isEqualTo(4);
+        assertThat(result.summary().extraInTarget()).isEqualTo(3);
+        assertThat(result.lines()).allSatisfy(l -> assertThat(l.referenceName()).isNull());
+    }
+
+    @Test
+    void anAcceptedMatchMakesTwoSpellingsOneRowWithBothQuantitiesSideBySide() {
+        CompareResult result = compareWith(fileA(), fileB(), new NameMatch("Exam Ped", "Exam Pad"));
+
+        CompareResult.LineComparison exam = row(result, "Exam Pad");
+        assertThat(exam.status()).isEqualTo(CompareResult.MatchStatus.MISMATCH);
+        assertThat(exam.referenceQuantity()).isEqualByComparingTo("6");
+        assertThat(exam.targetQuantity()).isEqualByComparingTo("2");
+        assertThat(exam.difference()).isEqualByComparingTo("-4");
+        assertThat(exam.targetName()).isEqualTo("Exam Ped");   // what File B actually said is kept
+        assertThat(exam.referenceName()).isNull();             // File A wrote it the same way
+        assertThat(result.lines().stream().filter(l -> l.name().toLowerCase().contains("exam"))).hasSize(1);   // never a Missing and an Extra
+    }
+
+    @Test
+    void theExampleIsOneRowPerLogicalItemAndOnlyTrulyMissingItemsAreMissing() {
+        CompareResult result = compareWith(fileA(), fileB(),
+                new NameMatch("10th History Books", "10th History Book"), new NameMatch("Exam Ped", "Exam Pad"),
+                new NameMatch("10th Senence Book", "10th Science Book"));
+
+        assertThat(result.lines()).hasSize(4);
+        assertThat(row(result, "10th History Book").difference()).isEqualByComparingTo("-2");
+        assertThat(row(result, "10th History Book").status()).isEqualTo(CompareResult.MatchStatus.MISMATCH);
+        assertThat(row(result, "Exam Pad").difference()).isEqualByComparingTo("-4");
+        assertThat(row(result, "10th Science Book").difference()).isEqualByComparingTo("-2");
+        assertThat(row(result, "10th Science Book").targetName()).isEqualTo("10th Senence Book");
+        CompareResult.LineComparison pen = row(result, "Pen");
+        assertThat(pen.status()).isEqualTo(CompareResult.MatchStatus.MISSING_IN_TARGET);   // a genuine Missing
+        assertThat(pen.targetQuantity()).isNull();
+        assertThat(result.summary().mismatched()).isEqualTo(3);
+        assertThat(result.summary().missingInTarget()).isEqualTo(1);
+        assertThat(result.summary().extraInTarget()).isZero();
+    }
+
+    @Test
+    void aMatchedItemWithEqualQuantitiesIsOneMatchRow() {
+        CompareResult result = compareWith(List.of(line("Exam Pad", "6")), List.of(line("Exam Ped", "6")), new NameMatch("Exam Ped", "Exam Pad"));
+
+        assertThat(result.lines()).hasSize(1);
+        assertThat(result.lines().getFirst().status()).isEqualTo(CompareResult.MatchStatus.MATCH);
+        assertThat(result.lines().getFirst().difference()).isEqualByComparingTo("0");
+        assertThat(result.summary().allMatch()).isTrue();
+    }
+
+    @Test
+    void aGenuineExtraItemStaysExtraAndAMatchChangesNothingElse() {
+        CompareResult result = compareWith(List.of(line("Exam Pad", "6")),
+                List.of(line("Exam Ped", "6"), line("Stapler", "2")), new NameMatch("Exam Ped", "Exam Pad"));
+
+        assertThat(result.lines()).hasSize(2);
+        assertThat(row(result, "Stapler").status()).isEqualTo(CompareResult.MatchStatus.EXTRA_IN_TARGET);
+        assertThat(row(result, "Exam Pad").status()).isEqualTo(CompareResult.MatchStatus.MATCH);
+    }
+
+    @Test
+    void differentItemsStayDifferentEvenWhenOnlyOneOfThemIsMatched() {
+        CompareResult result = compareWith(List.of(line("10th Science Book", "5"), line("10th History Book", "6")),
+                List.of(line("10th Senence Book", "5")), new NameMatch("10th Senence Book", "10th Science Book"));
+
+        assertThat(row(result, "10th Science Book").status()).isEqualTo(CompareResult.MatchStatus.MATCH);
+        assertThat(row(result, "10th History Book").status()).isEqualTo(CompareResult.MatchStatus.MISSING_IN_TARGET);   // not merged into Science
+    }
+
+    @Test
+    void aMatchAppliesToEitherFileAndRepeatedSpellingsAddUp() {
+        // File A wrote the variation, and wrote it twice; the canonical name is File B's.
+        CompareResult result = compareWith(List.of(line("Exam Ped", "3"), line("exam  ped", "1")), List.of(line("Exam Pad", "4")),
+                new NameMatch("Exam Ped", "Exam Pad"));
+
+        assertThat(result.lines()).hasSize(1);
+        CompareResult.LineComparison exam = result.lines().getFirst();
+        assertThat(exam.referenceQuantity()).isEqualByComparingTo("4");
+        assertThat(exam.status()).isEqualTo(CompareResult.MatchStatus.MATCH);
+        assertThat(exam.referenceName()).isEqualTo("Exam Ped / exam  ped");
+    }
+
+    @Test
+    void aMatchNobodyUsesChangesNothing() {
+        CompareResult unused = compareWith(List.of(line("Chair", "1")), List.of(line("Chair", "1")), new NameMatch("Table", "Desk"));
+        assertThat(unused.summary().allMatch()).isTrue();
+        assertThat(unused.lines().getFirst().referenceName()).isNull();
     }
 }

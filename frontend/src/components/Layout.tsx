@@ -7,6 +7,27 @@ import type { ActionMenuItem } from './ActionMenu';
 import { ChangePasswordModal } from './ChangePasswordModal';
 import { ThemeToggle } from './ThemeToggle';
 
+/**
+ * One entry of the bar that opens a list of pages or actions. Wide screens show it as a dropdown (ActionMenu), narrow ones as a list inside the
+ * menu that opens below the bar, both from the one list of items.
+ */
+function NavMenu({ label, items, active, onChoose }: { label: string; items: ActionMenuItem[]; active: boolean; onChoose: () => void }) {
+  return (
+    <>
+      <div className="nav-menu-desktop">
+        <ActionMenu label={label} openOnHover triggerClassName={`nav-menu-trigger${active ? ' active' : ''}`} items={items} />
+      </div>
+      <div className="nav-menu-inline" role="group" aria-label={label}>
+        <div className="nav-menu-inline-label">{label}</div>
+        {items.map((item) => (
+          <button key={item.label} type="button" className={`nav-menu-inline-item${item.current ? ' current' : ''}`}
+                  aria-current={item.current ? 'page' : undefined} onClick={() => { onChoose(); item.onSelect(); }}>{item.label}</button>
+        ))}
+      </div>
+    </>
+  );
+}
+
 export function Layout() {
   const { user, logout } = useAuth();
   // Locked only when the backend says so (the same test the HandoffCheck page uses), never because it said nothing.
@@ -26,12 +47,16 @@ export function Layout() {
   }, [menuOpen]);
 
   // One entry for everything about the customer's own account; each item is the page or dialog that already existed.
-  // Wide screens show it as a dropdown (ActionMenu), narrow ones as a list inside the menu, both from this one list.
   const accountItems: ActionMenuItem[] = [
-    { label: 'My Profile', onSelect: () => navigate('/account') },
-    { label: 'Change Password', onSelect: () => setChangingPassword(true) },
-    { label: 'Jobs', onSelect: () => navigate('/account/jobs') },
-    { label: 'Jobs Monitoring History', onSelect: () => navigate('/account/jobs/history') },
+    { label: 'My Profile', onSelect: () => navigate('/account'), current: pathname === '/account' },
+    { label: 'Change Password', onSelect: () => setChangingPassword(true) },   // a dialog over the page you are on, not a page of its own
+    { label: 'Jobs', onSelect: () => navigate('/account/jobs'), current: pathname === '/account/jobs' },
+    { label: 'Jobs Monitoring History', onSelect: () => navigate('/account/jobs/history'), current: pathname === '/account/jobs/history' },
+  ];
+  // The two views of the report: the handoffs themselves, and their totals.
+  const reportItems: ActionMenuItem[] = [
+    { label: 'Quotation List', onSelect: () => navigate('/reports'), current: pathname === '/reports' },
+    { label: 'Summary Report', onSelect: () => navigate('/reports/summary'), current: pathname === '/reports/summary' },
   ];
 
   return (
@@ -51,19 +76,10 @@ export function Layout() {
                      title={handoffCheckLocked ? HANDOFFCHECK_PLAN_MESSAGE : undefined}>
               HandoffCheck{handoffCheckLocked && <span aria-hidden="true"> 🔒</span>}
             </NavLink>
-            <NavLink to="/reports">Reports</NavLink>
+            <NavMenu label="Reports" items={reportItems} active={pathname.startsWith('/reports')} onChoose={() => setMenuOpen(false)} />
           </nav>
           <div className="nav-actions">
-            <div className="account-desktop">
-              <ActionMenu label="Account" openOnHover triggerClassName={`nav-menu-trigger${onAccountPages ? ' active' : ''}`} items={accountItems} />
-            </div>
-            <div className="account-inline" role="group" aria-label="Account">
-              <div className="account-inline-label">Account</div>
-              {accountItems.map((item) => (
-                <button key={item.label} type="button" className="account-inline-item"
-                        onClick={() => { setMenuOpen(false); item.onSelect(); }}>{item.label}</button>
-              ))}
-            </div>
+            <NavMenu label="Account" items={accountItems} active={onAccountPages} onChoose={() => setMenuOpen(false)} />
             {user && <button className="btn btn-sm" onClick={logout}>Sign out</button>}
           </div>
         </div>

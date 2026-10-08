@@ -1,14 +1,14 @@
 import { useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { useAuth } from '../auth/AuthContext';
-import { errorMessage } from '../components/ui';
+import { errorMessage, useTransient } from '../components/ui';
 
 export function LoginPage() {
   const { login } = useAuth();
   const navigate = useNavigate();
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
-  const [error, setError] = useState<string | null>(null);
+  const [error, setError] = useTransient<string>();
   const [busy, setBusy] = useState(false);
 
   async function onSubmit(e: React.FormEvent) {

@@ -23,6 +23,7 @@ import java.nio.charset.StandardCharsets;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Locale;
+import java.util.Optional;
 import java.util.Set;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
@@ -52,8 +53,15 @@ public class DocumentLineExtractor {
     private static final Pattern NUMBER = Pattern.compile("\\d+(?:[.,]\\d+)?");
     private static final Pattern THOUSANDS = Pattern.compile("\\d{1,3}(?:,\\d{3})+(?:\\.\\d+)?");
     private static final Pattern CELL_GAP = Pattern.compile("\\t| {2,}");
+    /** A name, then a figure set apart from it by a space, a colon or a sign ("Chairs 5", "Chairs: 5", "Chairs x 5") — not a code like "HO-1". */
     private static final Pattern NAME_THEN_QTY = Pattern.compile(
-            "^(.*?\\S)\\s*[:xX×\\-–]?\\s*(\\d+(?:[.,]\\d+)?)\\s*(?:pcs|nos|units?)?$", Pattern.CASE_INSENSITIVE);
+            "^(.*?\\S)(?:\\s+[:xX×\\-–]?\\s*|\\s*:\\s*)(\\d+(?:[.,]\\d+)?)\\s*(?:pcs|nos|units?)?$", Pattern.CASE_INSENSITIVE);
+    private static final Pattern PAGE_MARKER = Pattern.compile("\\bpage\\s+\\d+(?:\\s+of\\s+\\d+)?\\b", Pattern.CASE_INSENSITIVE);
+    private static final Pattern DATE = Pattern.compile(
+            "\\b\\d{1,2}\\s+(?:jan|feb|mar|apr|may|jun|jul|aug|sep|oct|nov|dec)[a-z]*\\.?,?\\s+\\d{2,4}\\b|\\b\\d{1,4}[/.-]\\d{1,2}[/.-]\\d{2,4}\\b",
+            Pattern.CASE_INSENSITIVE);
+    /** "Label: something with letters" — a field of the document. A colon followed only by a figure is an item ("Chairs: 5"). */
+    private static final Pattern LABELLED_FIELD = Pattern.compile("^[\\p{L}][\\p{L} ]{0,30}:\\s+\\S*\\p{L}");
 
     private final long maxFileSizeBytes;
 
@@ -78,6 +86,48 @@ public class DocumentLineExtractor {
      * here — {@link #extract} makes it one, and an importer can say something more helpful.
      */
     public Extraction extractReport(MultipartFile file, Set<String> allowedTypes) {
+        return linesFrom(readRows(file, allowedTypes), null);
+    }
+
+    /**
+     * Columns chosen by a person (0-based; {@code headerRow} is the row of headings, -1 for none): the item name column and the
+     * quantity column. Used instead of finding the columns by their headings — everything else about reading a row is unchanged.
+     */
+    public record ColumnMapping(int itemColumn, int quantityColumn, int headerRow) {
+        private static final int MAX_COLUMN = 200;
+        private static final int MAX_HEADER_ROW = 1000;
+
+        public ColumnMapping {
+            if (itemColumn < 0 || quantityColumn < 0 || itemColumn >= MAX_COLUMN || quantityColumn >= MAX_COLUMN
+                    || headerRow < -1 || headerRow >= MAX_HEADER_ROW) {
+                throw new BadRequestException("The chosen columns are not valid.");
+            }
+            if (itemColumn == quantityColumn) {
+                throw new BadRequestException("The item and the quantity must be in different columns.");
+            }
+        }
+    }
+
+    /** Reads a spreadsheet using the columns a person chose; the same rules as {@link #extract}, with no heading search. */
+    public List<DocumentLine> extract(MultipartFile file, ColumnMapping mapping) {
+        Extraction found = linesFrom(readRows(file, SPREADSHEET_TYPES), mapping);
+        if (found.lines().isEmpty()) {
+            throw new BadRequestException("No item and quantity rows could be found in those columns.");
+        }
+        return found.lines();
+    }
+
+    /** What reading {@code rows} with these columns would give — the same routine as a real read, for checking a suggestion. */
+    public Extraction linesFrom(List<List<String>> rows, ColumnMapping mapping) {
+        Extraction found = toLines(rows, mapping);
+        if (found.lines().size() > MAX_LINES) {
+            throw new BadRequestException("The file has too many rows (maximum " + MAX_LINES + ").");
+        }
+        return found;
+    }
+
+    /** The table a file holds, as rows of cell texts: checks the size and type, then reads (no meaning is read into the cells). */
+    public List<List<String>> readRows(MultipartFile file, Set<String> allowedTypes) {
         if (file == null || file.isEmpty()) {
             throw new BadRequestException("No file was provided.");
         }
@@ -102,11 +152,7 @@ public class DocumentLineExtractor {
             throw new BadRequestException("The file could not be read as a valid ." + extension + " document.");
         }
 
-        Extraction found = toLines(rows);
-        if (found.lines().size() > MAX_LINES) {
-            throw new BadRequestException("The file has too many rows (maximum " + MAX_LINES + ").");
-        }
-        return found;
+        return rows;
     }
 
     /** ".csv, .xlsx or .pdf" for the types in {@code allowed}. */
@@ -182,6 +228,12 @@ public class DocumentLineExtractor {
     private static List<List<String>> pdfRows(byte[] data) throws IOException {
         String text;
         try (PDDocument document = Loader.loadPDF(data)) {
+            // HandOffly's own Proof of Handoff has a header, parties, a summary and a footer around its item table: only the table is read
+            // (and nothing at all, rather than a guess, if it cannot be read for sure). Any other PDF is read line by line, below.
+            Optional<List<List<String>>> proof = ProofOfHandoffPdf.itemRows(document);
+            if (proof.isPresent()) {
+                return proof.get();
+            }
             PDFTextStripper stripper = new PDFTextStripper();
             stripper.setSortByPosition(true);
             text = stripper.getText(document);
@@ -192,15 +244,31 @@ public class DocumentLineExtractor {
         }
         List<List<String>> rows = new ArrayList<>();
         for (String line : text.lines().map(String::trim).filter(l -> !l.isEmpty()).toList()) {
+            if (isDocumentText(line)) {
+                continue;
+            }
             String[] cells = CELL_GAP.split(line);
             if (cells.length >= 2) {
                 rows.add(List.of(cells));
                 continue;
             }
             Matcher m = NAME_THEN_QTY.matcher(line);
-            rows.add(m.matches() ? List.of(m.group(1).trim(), m.group(2)) : List.of(line));
+            rows.add(m.matches() && hasLetter(m.group(1)) ? List.of(m.group(1).trim(), m.group(2)) : List.of(line));
         }
         return rows;
+    }
+
+    /**
+     * Text in a PDF that is about the document and not one of its items: a page marker ("Page 1 of 3"), a date, a footer with its dots,
+     * or a labelled field ("Reference: HO-1", "Recipient: Event Client"). A line like that never becomes an item, even though it may end in
+     * a number — "Chairs: 5" (a name, then a figure) is not one of these.
+     */
+    private static boolean isDocumentText(String line) {
+        return PAGE_MARKER.matcher(line).find() || DATE.matcher(line).find() || line.contains(" · ") || LABELLED_FIELD.matcher(line).find();
+    }
+
+    private static boolean hasLetter(String s) {
+        return s.chars().anyMatch(Character::isLetter);
     }
 
     // ----------------------------------------------------- Shared rows -> lines
@@ -208,11 +276,16 @@ public class DocumentLineExtractor {
     /**
      * Uses a header row (name + quantity columns) when one is found near the top; otherwise
      * takes the first non-numeric cell as the name and the first number after it as the
-     * quantity. Rows without both are skipped.
+     * quantity. Rows without both are skipped. With a {@code mapping} the columns (and the first data row) are the ones given.
      */
-    private static Extraction toLines(List<List<String>> rows) {
+    private static Extraction toLines(List<List<String>> rows, ColumnMapping mapping) {
         int nameCol = -1, qtyCol = -1, firstData = 0;
-        for (int r = 0; r < Math.min(rows.size(), HEADER_SCAN_ROWS) && nameCol < 0; r++) {
+        if (mapping != null) {
+            nameCol = mapping.itemColumn();
+            qtyCol = mapping.quantityColumn();
+            firstData = mapping.headerRow() + 1;
+        }
+        for (int r = 0; mapping == null && r < Math.min(rows.size(), HEADER_SCAN_ROWS) && nameCol < 0; r++) {
             List<String> cells = rows.get(r);
             int n = -1, q = -1;
             for (int c = 0; c < cells.size(); c++) {

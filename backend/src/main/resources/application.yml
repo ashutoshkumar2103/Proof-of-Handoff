@@ -125,6 +125,7 @@ handoffly:
     recipient-per-ip: ${RATE_LIMIT_RECIPIENT_PER_IP:120}
     payment-per-ip: ${RATE_LIMIT_PAYMENT_PER_IP:30}
     job-runs-per-user: ${RATE_LIMIT_JOB_RUNS_PER_USER:20}
+    ai-assist-per-user: ${RATE_LIMIT_AI_ASSIST_PER_USER:30}
   jobs:
     # Customer reminders and the weekly summary. Turn the scheduler off on instances that should not run them.
     scheduler-enabled: ${JOBS_SCHEDULER_ENABLED:true}
@@ -132,6 +133,11 @@ handoffly:
     min-interval-minutes: ${JOBS_MIN_INTERVAL_MINUTES:60}
     default-timezone: ${JOBS_DEFAULT_TIMEZONE:Asia/Kolkata}
     expiry-window-days: ${JOBS_EXPIRY_WINDOW_DAYS:7}
+  ai:
+    # Optional AI Assist for HandoffCheck. The key comes from the environment (.env.local) only; blank turns the feature off.
+    gemini-api-key: ${GEMINI_API_KEY:}
+    gemini-model: ${GEMINI_MODEL:gemini-3.1-flash-lite}
+    timeout-seconds: ${GEMINI_TIMEOUT_SECONDS:30}
   payment:
     # DEMO provider: anyone can "pay" for a plan without real money. Development/testing only — keep false in production.
     demo-enabled: ${PAYMENT_DEMO_ENABLED:false}

@@ -84,7 +84,7 @@ public class SupportCustomerService {
         if (request.validUntil() != null && request.validUntil().isBefore(LocalDate.now(ZoneOffset.UTC))) {
             throw new BadRequestException("The last day of the plan cannot be in the past.");
         }
-        String reason = request.reason() == null || request.reason().isBlank() ? null : request.reason().trim();
+        String reason = request.reason().trim();   // required and not blank: the request is validated before it gets here
         Instant validUntil = endOfDay(request.validUntil());
         UserService.PlanChange change = userService.changeSubscriptionPlan(
                 accountCode, request.fromPlan(), request.toPlan(), validUntil, staffId, reason);

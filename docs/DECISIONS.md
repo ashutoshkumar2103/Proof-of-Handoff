@@ -380,3 +380,151 @@ project brief. Each can be revisited.
     it was sent and how many days it has waited. It carries no recipient link: a link is only ever stored hashed, and issuing a new
     one would be a change to the handoff, which a job never makes — the note says to use Resend link. *Consequence to know:* Run All
     Now now costs five of the hourly run allowance instead of four.
+
+36. **One run = one history row, which keeps what was sent and what was not; the email carries only what was sent.**
+    *Storage.* Until now `customer_job` held only the latest result and overwrote it, so there was nothing to append to: the one new
+    table is `customer_job_run` (migration V21, additive; append-only entity with no setters, nothing updates or deletes a row). `customer_job`
+    keeps its `last_*` columns because the Jobs page reads them; each run writes both in one transaction. V21 copies every existing latest run
+    in as that job's first history row (trigger NULL, as it was never recorded). *One run:* `CustomerJobService.execute` is the only place a run
+    happens, for Run Now, Run All Now (each of its five jobs is its own run, trigger `RUN_ALL_NOW`) and the scheduler. *Per handoff:* the
+    eligible handoffs are found exactly as before (`HandoffActivityService`, untouched); then each one is turned into its line of the email
+    on its own, so one that cannot be prepared is set aside without stopping the others. Only the preparation of the line is isolated: a
+    failure inside the activity queries (database access) cannot be caught per handoff, because it would mark the surrounding read
+    transaction rollback-only. Today no real handoff data makes preparation fail, so the safeguard is exercised by tests that make one line
+    unpreparable; the seam is `CustomerJobService.reminder`. *Outcomes:* SENT (all included), PARTIAL (email sent, some handoffs left out),
+    NOTHING_TO_REPORT, FAILED. If the one email cannot be sent, nothing was delivered, so the run is FAILED and none of its handoffs counts
+    as sent — never PARTIAL; FAILED also covers "eligible handoffs existed but none could be prepared", with nothing sent. The enum value SENT
+    keeps its stored name (existing rows hold it); only the wording says "Successfully sent". *Safe reasons:* the stored and returned reason is
+    one of two fixed sentences, never an exception message; what really failed goes to the log only. *Retry:* the follow-up to a PARTIAL run is
+    derived from the history, scoped to customer + job type + handoff, with no field on the handoff and no change to any handoff: the next run
+    of that job leaves out the handoffs the PARTIAL run already sent (the failed ones, and anything newly eligible, are included), and after
+    that one run the job's ordinary rules apply again. It is deliberately one run, not "until everything succeeds": a handoff that can never be
+    prepared would otherwise silence the reminders about every other handoff for ever. The weekly summary lists no handoffs to leave out and
+    is exempt. *UI:* Jobs Monitoring History is one table of runs (Job, Run time, Trigger, Result) with the backend-written summary line as the
+    Result and a View details row with the lists; on a phone each run is a card (`table-cards`) so the Result never needs a sideways scroll.
+
+37. **AI Assist for HandoffCheck is an optional suggestion step in its own small `ai` module; the deterministic code stays the authority.**
+    *What it does:* on the review step of a CSV/Excel file, the customer can click **AI Assist** to be shown which columns look like the item
+    and the quantity. It is never automatic (no call on upload, nothing in the background). *Where it lives:* `com.handoffly.ai` (an
+    isolated, removable module, as the engineering rules ask): `StructuredAiModel` is the one door to a model (tests replace it with a
+    stand-in, so no test touches the network), `GeminiStructuredModel` is the only class that uses the Google GenAI SDK (`google-genai`
+    1.76.0) or sees the key, and `ColumnMappingAssistant` owns the prompt, the JSON schema, the per-customer limit and the validation.
+    The comparison engine is untouched: `documentcheck.AiMappingService` is a separate service beside it, so `DocumentCheckService`
+    keeps its constructor and its tests. *Structured output:* the model is asked for JSON that follows a schema (no free text is
+    parsed) and the answer is then treated as untrusted: every field is type- and range-checked, an answer with any bad part is refused
+    whole, the same field repeated keeps the most confident, anything under 50% confidence is dropped, one column cannot be both
+    fields, and the reason is cut to plain short text. The suggestion is also tried with the ordinary reader on the real file and is refused if it
+    finds no items — the AI is never taken at its word. *Accepting:* the existing `/handoff-check/extract` takes optional explicit
+    columns and feeds them into the same line-building routine, so the AI changes only which column is read, never how. A person
+    could send those parameters without any AI, so they are validated like any input. *Failure:* every failure (no key, network, timeout,
+    quota, refused key, malformed answer) is one of a few categories turned into a fixed friendly message in an ordinary 200 answer;
+    provider messages are never kept or shown, only a status code is logged. *Privacy:* only the first 8 rows, 12 columns, 40
+    characters per cell, with email- and phone-like cells hidden; no file name, account or handoff data. *Access:* the endpoint is under
+    `/handoff-check`, so the one existing gate (`requireAccess`: active subscription, then the HandoffCheck plan) covers it with no new
+    entitlement; it is also limited per customer per hour because the free quota is small. *Model:* `gemini-2.5-flash-lite` was the first
+    choice, but Google now answers 404 "no longer available to new users" for it (although it is still listed), so the default is
+    `gemini-3.5-flash-lite`, the non-preview model Google names as its replacement; `GEMINI_MODEL` changes it without code. *Not done on
+    purpose:* an "ID" column (HandoffCheck compares an item and a quantity, nothing else), AI on PDFs (they have no columns), AI in the
+    New handoff or Returns imports, and a manual column picker.
+
+38. **"Return pending" is no longer shown anywhere; the backend status stays.** The dashboard had a Return pending tile that always read 0, and the
+    progress bar had a step no handoff ever reached. The status means *a return waiting for confirmation*, and the only way a return is created
+    (`ReturnService.createByOwner`) confirms it on the spot, so the `anyPending` branch of `recomputeReturnStatus` never fires. It was taken out
+    of the dashboard tiles, the progress bar (`LIFECYCLE_ORDER`), the Reports status filter, the landing page and the README lifecycle line. The
+    dashboard now shows what the progress bar shows: Awaiting recipient, Draft, Active, Partially returned, Fully returned, Closed, plus **Overdue**,
+    which is a flag on an open handoff (past its return date), not a status. *Not removed:* `RETURN_PENDING` in the enum, state machine, mapper and
+    service. A status value may already be stored on a handoff, history is never rewritten and migrations are immutable, so dropping it needs
+    its own migration and a decision about the (unused) return-confirmation endpoint; a handoff that did hold it would still show, as its own badge
+    after the progress bar, and still counts under All and Overdue.
+
+39. **HandoffCheck reads a PDF's item table, not its text; AI Assist was measured against the real provider and corrected.**
+    *PDF.* The extractor turned any "words, then a number" line of a PDF into an item. HandOffly's own Proof-of-Handoff PDF has a header, parties,
+    dates, a summary and a footer, and each item is a cell several lines tall, so "Reference: HO-1", the date line, the summary figures and the
+    footer all became items and the real ones were wrong or missing (a returned figure for the given one). `ProofOfHandoffPdf`, used only by
+    `DocumentLineExtractor`, recognises that document (its title and its ITEM / GIVEN / RETURNED / MISSING / CONDITION / NOTE headings) and reads the
+    table by where each word sits: the bold name in the Item column and the figure under Given (what the handoff handed over). It gives rows only
+    when the names and the figures pair up one to one, otherwise none, so the customer enters the rows by hand rather than getting guesses.
+    Every other PDF goes the old way, now with a rule that a date, a page marker, a footer with dots or a labelled field is document text, and
+    that a figure must be set apart from its name ("HO-1" is a code, "Chairs 5" and "Chairs: 5" are items). No second parser; the one extractor
+    chooses. *AI Assist, measured.* Against Google's real API the earlier default (`gemini-3.5-flash-lite`) took 35 s for a trivial request and
+    then answered 503 "high demand", so the suggestion never appeared inside the timeout. The default is now `gemini-3.1-flash-lite` with thinking
+    switched off (a classification of two columns needs none), a 14 s limit per attempt with one retry for a timeout or a 503 (a stalled request
+    rarely recovers; a fresh one usually answers; refusals are never retried), a reason of at most twelve words, a **Try again** button after a slow
+    or unusable answer (`canRetry`, decided by the backend), and a log line with the reason category whenever there is no suggestion, so a missing
+    key, a slow provider and an answer that did not hold up can be told apart. Still CSV/Excel only: a PDF has no columns to map, and the PDF fix
+    above makes the AI unnecessary for HandOffly's own PDF.
+
+40. **The Report Assistant: the AI interprets the question, the report answers it.** Customers ask about their handoffs in their own words, from either view of Reports.
+    Gemini is used for one narrow thing: `ai.IntentClassifier` is shown the question text only (never a row, a number, a name or an account) and,
+    for each part of a request, the names it may choose from, is asked for JSON that follows a schema, and each part of its answer is accepted only
+    if it is exactly one of the names offered for it. The request is a `ReportQuestion`: a metric (handoffs, items given, returned, missing, still
+    out), an operation (total, list, top), a condition (any, overdue, open, closed, active, has missing, has still out, cancelled, rejected), a
+    grouping (none, per handoff, per recipient), a limit and, if the question names one, a period (a first and a last day). The backend refuses any request that is not one of these, or is a combination that
+    means nothing, and there is no query language, so nothing in a question can become SQL. Everything else is deterministic:
+    `ReportAssistantService` reads the rows through `HandoffReportService.rows` (the same rows the table and the CSV are made of: the customer's
+    own handoffs, in the period the question names or else all of them), takes each handoff's figure from the same
+    `itemsGiven / itemsReturned / itemsMissing / itemsStillOut` that `summarise` adds up for the summary cards (so a total over the whole view equals the
+    card, and no second calculation exists), and builds the sentence from a fixed template that also shows the handoffs it was added up from.
+    There is no second AI call to "phrase" the answer: it would cost a second wait on a slow free endpoint and would be the one place a model could
+    change a figure, and a template says the same thing. So no wording from the model ever reaches the answer. *First version.* The assistant began
+    as twelve fixed intents; that made the visible questions the limit of what could be asked (a total of overdue items was declined), so the
+    intents were replaced by this request, and the ready-made questions (`ReportIntent`) became ready-made requests, answered by the same code with
+    the AI step skipped. *"Overdue items".* Two ways to ask for one thing are "overdue items" and "the quantity in overdue handoffs", yet a handoff
+    that is part-returned has a different figure for each; "overdue items" is the items not yet returned (what is overdue), "the quantity in overdue
+    handoffs" is what was handed over, and an answer about either also gives the other in brackets, so neither reading is hidden. *Period and filters.*
+    The first version answered for the period and status filter selected on the page, which made the page a limit on what could be asked. The
+    assistant now answers about all of the customer's handoffs, and the page behind it narrows nothing; the customer narrows it in the question
+    ("missing items between 1 Oct and 10 Oct", "this month", "since March"), and that period is matched against when handoffs were created, the
+    same date the report's own period uses. The AI gives only two days (or none); it is told today's date and the days of this and last week,
+    month and year, worked out in `ReportAssistantService.calendar` so that it does no date arithmetic, and a day it returns must be a real date
+    in YYYY-MM-DD (anything else is an unusable answer) with a first day not after the last and both within the dates a report accepts. The answer
+    says which handoffs it covers ("Overall, ...", "Between Oct 1, 2026 and Oct 10, 2026, ...") and the response's `basis` repeats it. Status is
+    narrowed by the question's condition, not by a filter. A customer with more handoffs than one report reads (10,000) is asked to name a
+    shorter period, as the report itself asks. A question that fits no request, or a name the model made up, gets a safe refusal or "AI unavailable"; nothing is ever written (tested by comparing every table
+    before and after). *Reuse.* The Gemini client, key, retry, timeout, structured output and the "unavailable"
+    handling are the HandoffCheck AI Assist's; the per-customer hourly allowance moved out of `ColumnMappingAssistant` into `AiAllowance` so both
+    features spend from the one limiter and the one setting (default raised from 10 to 30 an hour, since a person exploring a report asks more than a
+    person mapping columns). *Access.* `UserService.requireAiAssistantPlan` asks the existing `includesHandoffCheck` plan rule with wording of its
+    own: no new entitlement or column. Reports stay on every plan; only the assistant is gated, and the page shows a locked card from
+    `User.handoffCheck`. *Measured limits.* Google's free endpoint answered in 2 to 25 seconds depending on load, so each attempt may take 30 s (one
+    retry) and the page says it can take a few seconds. A failure is a message that clears itself after 5 seconds.
+
+41. **HandoffCheck AI Assist also suggests item-name matches; the comparison stays deterministic, and the customer decides.** The comparison pairs
+    items by their name with case and punctuation ignored, on purpose not fuzzy, so a typo or a plural was a Missing plus an Extra for one item. The
+    fix keeps that rule and adds what the customer has *accepted*. *Suggest:* `POST /handoff-check/ai/item-matching` (same gate as every HandoffCheck
+    endpoint) takes the item names of both files. *The application finds the pairs, the model judges them* (first version: the model was asked to find
+    the pairs itself; measured against the real model it left a pair out in one run and not in another, so a plain typo like "Senence" was
+    sometimes never offered): every name of File A with every name of File B that `ItemNameVariation` allows as a variation is a candidate, and one
+    request (`ColumnMappingAssistant.suggestNameMatches`; the same model, key, retry, allowance and "unavailable" handling as the column suggestion,
+    which the class also serves) asks the model, for every candidate, whether the differing word is a mistyped or plural form of the other
+    (same item) or a different word (not), and which file spelled it right. An answer that leaves a candidate out is unusable (shown as "AI unavailable", with
+    Try again) rather than a shorter list; an id that was not asked is ignored; a chain (A to B and B to C) is dropped; below 0.5 confidence nothing is
+    shown; with no candidate there is no request at all. *Over-matching:* `ItemNameVariation` does not look for matches, it limits them to a typing
+    variation — one word differing, by a plural, or by one or two letters keeping the first letter, no digits in it, words of three letters or more; a
+    difference in spacing; never a different word or number — so neither the model nor a prompt can widen "same item" to "similar item" ("Science Book" /
+    "History Book", "Chair" / "Table", "Table" / "Cable", "Laptop" / "Laptop Bag", "Pen" / "Pencil" are never even put to the model). *Finding it:* the
+    item-name card on the review step is the first thing on that step, with its own primary button, separate from the per-file "choose columns" button
+    (two buttons both called "AI Assist" had been mistaken for one, so the column suggestion was taken for the whole feature); and when a comparison
+    shows Missing and Extra rows and no match has been accepted, the result offers "AI Assist: match item names", which goes back to the review step and asks.
+    *Accept:* the client keeps the accepted pairs and sends them as `nameMatches` with the ordinary compare request (and so with the export, which re-runs the
+    comparison); the rows are never changed. `DocumentCheckService.compareLines` maps both files' names through them before pairing, so two spellings
+    are one row with both quantities, and Match / Mismatch / Missing / Extra and the difference are the existing deterministic arithmetic; each file's own
+    spelling is kept (`referenceName`, `targetName`) and shown. A pair is followed one step only; the client can only ask for names to be treated as one,
+    which is also what editing a row by hand does. *Less sure:* at 0.85 and above a suggestion is ticked for the customer, below that it is labelled
+    *Possible match* and left unticked; nothing is applied without Accept. *No new migration, no new plan rule, no per-row requests, no background calls.*
+
+42. **Every new customer gets a prefix of their own, chosen by one rule under one lock.** New accounts used to start with HO, so references from different
+    customers read alike. Now registration gives each customer a prefix made from the organization, or else the name (`HandoffPrefixes`, a pure function:
+    initials of the first two words for Siam Traders, ST; the first two letters for a single name, Ram, RA), and no two customers may have the same *current*
+    prefix, whatever its case. *The rule:* when the preferred prefix is in use the next choice of a fixed order is tried (for Siam Technologies: ST, SI, SE, SS …,
+    then every other pair of its letters), then every other two-letter prefix alphabetically, then three letters made from the name, then any three, up
+    to the five letters a prefix may have: deterministic, never random, and always one is found, so registration cannot fail for want of a prefix. Words that
+    only say what kind of business it is (Pvt, Ltd, Inc, The …) are ignored when something else is left. `UserService.reserveDefaultHandoffPrefix` is the one place
+    that applies it, and support's `changeHandoffPrefix` checks the same set. *Concurrency:* the prefixes in use cannot be made unique by the database
+    (the accounts from before the rule all have HO, so a unique index would fail), so the choice is made under the lock registration already takes: the row of the
+    `ACCOUNT` counter (`SequenceService.lock`), held until the transaction commits by every registration and every support prefix change. It is taken
+    as the first thing in the transaction, so that what is read after it includes what the previous holder committed even under MySQL's repeatable-read
+    isolation (a read made before the lock could be a snapshot from before it). Tested with simultaneous registrations, and a registration against six support changes,
+    on H2 and with 24 simultaneous registrations on MySQL. *Existing accounts:* nothing is rewritten — they keep their prefix (HO) and every reference already issued
+    — so they may share a prefix, which is the one case the rule cannot undo: asking for their own prefix again is not an error, and HO is not given to a new customer while
+    any account has it. A support change to a prefix another customer has is refused (409). No migration was needed: the counter row, the column and its length already existed.

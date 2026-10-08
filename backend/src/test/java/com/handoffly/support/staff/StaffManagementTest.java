@@ -300,7 +300,7 @@ class StaffManagementTest extends ApiTestBase {
         Account customer = register();
         changeRole(admin, target.getStaffCode(), "MANAGER", "TICKET_AGENT", "Desk move").andExpect(status().isOk());
         mvc.perform(as(admin, put("/api/v1/support/customers/" + customer.accountCode() + "/plan").contentType(MediaType.APPLICATION_JSON)
-                .content("{\"fromPlan\":\"MONTHLY\",\"toPlan\":\"QUARTERLY\"}"))).andExpect(status().isOk());
+                .content("{\"reason\":\"Testing\",\"fromPlan\":\"MONTHLY\",\"toPlan\":\"QUARTERLY\"}"))).andExpect(status().isOk());
 
         mvc.perform(as(admin, get("/api/v1/support/audit")))
                 .andExpect(status().isOk())

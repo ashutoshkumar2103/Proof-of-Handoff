@@ -50,7 +50,7 @@ class SupportCustomersTest extends ApiTestBase {
                 .andExpect(jsonPath("$.content[0].email").value(target.email()))
                 .andExpect(jsonPath("$.content[0].phone").value(CUSTOMER_PHONE))
                 .andExpect(jsonPath("$.content[0].plan").value("HALF_YEARLY"))
-                .andExpect(jsonPath("$.content[0].handoffPrefix").value("HO"))
+                .andExpect(jsonPath("$.content[0].handoffPrefix").value(prefixOf(target)))
                 .andExpect(jsonPath("$.content[0].createdAt").exists());
         search(staff, target.accountCode().toLowerCase()).andExpect(jsonPath("$.totalElements").value(1));
         search(staff, "zEbUlOn quux " + suffix).andExpect(jsonPath("$.totalElements").value(1));
@@ -108,14 +108,14 @@ class SupportCustomersTest extends ApiTestBase {
                 .andExpect(jsonPath("$.customer.email").value(customer.email()))
                 .andExpect(jsonPath("$.customer.phone").value(CUSTOMER_PHONE))
                 .andExpect(jsonPath("$.customer.plan").value("YEARLY"))
-                .andExpect(jsonPath("$.customer.handoffPrefix").value("HO"))
+                .andExpect(jsonPath("$.customer.handoffPrefix").value(prefixOf(customer)))
                 .andExpect(jsonPath("$.customer.createdAt").exists())
                 // Entitlements are shown, derived from the plan. The support phone is the customer's to see, not this page's.
                 .andExpect(jsonPath("$.entitlements.contactSupport").value(true))
                 .andExpect(jsonPath("$.entitlements.ticket").value(true))
                 .andExpect(jsonPath("$.entitlements.call").value(true))
                 .andExpect(jsonPath("$.entitlements.supportPhone").doesNotExist())
-                .andExpect(jsonPath("$.nextHandoffReference").value("HO-2"))
+                .andExpect(jsonPath("$.nextHandoffReference").value(prefixOf(customer) + "-2"))
                 .andExpect(jsonPath("$.openTickets").value(0))
                 .andExpect(jsonPath("$.recentTickets.length()").value(0))
                 .andReturn().getResponse().getContentAsString();
@@ -154,27 +154,31 @@ class SupportCustomersTest extends ApiTestBase {
     void supportSetsAValidPrefixAndOnlyNewHandoffsUseIt() throws Exception {
         StaffAccount staff = registerStaff(SupportRole.ADMIN);
         Account customer = register();
+        String original = prefixOf(customer);
         String existing = createHandoff(customer);
+        String av = uniquePrefix();
+        String longest = uniquePrefix() + "X";
 
-        putPrefix(staff, customer.accountCode(), "{\"prefix\":\"AV\"}")
+        putPrefix(staff, customer.accountCode(), "{\"prefix\":\"" + av + "\"}")
                 .andExpect(status().isOk())
-                .andExpect(jsonPath("$.customer.handoffPrefix").value("AV"))
-                .andExpect(jsonPath("$.nextHandoffReference").value("AV-2"));
+                .andExpect(jsonPath("$.customer.handoffPrefix").value(av))
+                .andExpect(jsonPath("$.nextHandoffReference").value(av + "-2"));
         // Setting it again to the same value is harmless.
-        putPrefix(staff, customer.accountCode(), "{\"prefix\":\"AV\"}").andExpect(status().isOk());
+        putPrefix(staff, customer.accountCode(), "{\"prefix\":\"" + av + "\"}").andExpect(status().isOk());
         // The longest allowed.
-        putPrefix(staff, customer.accountCode(), "{\"prefix\":\"ABCDE\"}")
-                .andExpect(status().isOk()).andExpect(jsonPath("$.customer.handoffPrefix").value("ABCDE"));
+        putPrefix(staff, customer.accountCode(), "{\"prefix\":\"" + longest + "\"}")
+                .andExpect(status().isOk()).andExpect(jsonPath("$.customer.handoffPrefix").value(longest));
 
         long existingId = ((Number) JsonPath.read(existing, "$.id")).longValue();
         mvc.perform(as(customer, get("/api/v1/handoffs/" + existingId)))
-                .andExpect(jsonPath("$.publicCode").value("HO-1"));
+                .andExpect(jsonPath("$.publicCode").value(original + "-1"));   // issued under the prefix it had: never rewritten
     }
 
     @Test
     void invalidPrefixesAreRefusedAndChangeNothing() throws Exception {
         StaffAccount staff = registerStaff(SupportRole.MANAGER);
         Account customer = register();
+        String original = prefixOf(customer);
 
         for (String invalid : List.of("", " ", "A", "ABCDEF", "av", "Av", "A1", "12", "A-B", "A_B", "A B", " AV", "AV ",
                 "AV\\n", "ÄÖ", "<b>", "../")) {
@@ -190,16 +194,17 @@ class SupportCustomersTest extends ApiTestBase {
         putPrefix(staff, customer.accountCode(), "").andExpect(status().isBadRequest());
 
         mvc.perform(as(staff, get("/api/v1/support/customers/" + customer.accountCode())))
-                .andExpect(jsonPath("$.customer.handoffPrefix").value("HO"));
+                .andExpect(jsonPath("$.customer.handoffPrefix").value(original));
         putPrefix(staff, "CUS-999999", "{\"prefix\":\"AV\"}").andExpect(status().isNotFound());
     }
 
     @Test
     void customersCannotSetTheirOwnPrefix() throws Exception {
         Account customer = register();
+        String original = prefixOf(customer);
         // A customer token is not a support credential at all.
         putPrefix(customer, customer.accountCode(), "{\"prefix\":\"AV\"}").andExpect(status().isUnauthorized());
-        assertThat(users.findById(customer.id()).orElseThrow().getHandoffPrefix()).isEqualTo("HO");
+        assertThat(users.findById(customer.id()).orElseThrow().getHandoffPrefix()).isEqualTo(original);
     }
 
     @Test
@@ -209,7 +214,7 @@ class SupportCustomersTest extends ApiTestBase {
         String code = customer.accountCode();
 
         // Extra fields on the prefix request are simply ignored: it cannot be used to change anything else.
-        putPrefix(staff, code, "{\"prefix\":\"AV\",\"plan\":\"YEARLY\",\"subscriptionPlan\":\"YEARLY\",\"role\":\"ADMIN\","
+        putPrefix(staff, code, "{\"prefix\":\"" + uniquePrefix() + "\",\"plan\":\"YEARLY\",\"subscriptionPlan\":\"YEARLY\",\"role\":\"ADMIN\","
                 + "\"password\":\"hacked-123\",\"enabled\":false,\"email\":\"takeover@example.test\"}")
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.customer.plan").value("MONTHLY"));

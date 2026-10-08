@@ -30,8 +30,8 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
 class SupportPlanChangeTest extends ApiTestBase {
 
     private ResultActions changePlan(Bearer who, Account customer, String from, String to, String reason) throws Exception {
-        String reasonJson = reason == null ? "" : ",\"reason\":\"" + reason + "\"";
-        return changePlanRaw(who, customer, "{\"fromPlan\":\"" + from + "\",\"toPlan\":\"" + to + "\"" + reasonJson + "}");
+        String reasonJson = ",\"reason\":\"" + (reason == null ? "Test change" : reason) + "\"";   // a reason is required
+        return changePlanRaw(who, customer, "{\"reason\":\"Testing\",\"fromPlan\":\"" + from + "\",\"toPlan\":\"" + to + "\"" + reasonJson + "}");
     }
 
     private ResultActions changePlanRaw(Bearer who, Account customer, String json) throws Exception {
@@ -121,7 +121,7 @@ class SupportPlanChangeTest extends ApiTestBase {
         Account customer = register();
 
         changePlan(first, customer, "MONTHLY", "YEARLY", "Customer upgraded after payment.").andExpect(status().isOk());
-        changePlan(second, customer, "YEARLY", "HALF_YEARLY", "  ").andExpect(status().isOk());   // a blank reason is no reason
+        changePlan(second, customer, "YEARLY", "HALF_YEARLY", "Moved down at the customer's request.").andExpect(status().isOk());
 
         profile(second, customer).andExpect(status().isOk())
                 .andExpect(jsonPath("$.recentChanges.length()").value(2))
@@ -130,7 +130,7 @@ class SupportPlanChangeTest extends ApiTestBase {
                 .andExpect(jsonPath("$.recentChanges[0].previousValue").value("YEARLY"))
                 .andExpect(jsonPath("$.recentChanges[0].newValue").value("HALF_YEARLY"))
                 .andExpect(jsonPath("$.recentChanges[0].staffCode").value(second.staffCode()))
-                .andExpect(jsonPath("$.recentChanges[0].reason").doesNotExist())
+                .andExpect(jsonPath("$.recentChanges[0].reason").value("Moved down at the customer's request."))
                 .andExpect(jsonPath("$.recentChanges[1].type").value("PLAN_CHANGED"))
                 .andExpect(jsonPath("$.recentChanges[1].previousValue").value("MONTHLY"))
                 .andExpect(jsonPath("$.recentChanges[1].newValue").value("YEARLY"))
@@ -158,23 +158,46 @@ class SupportPlanChangeTest extends ApiTestBase {
     }
 
     @Test
+    void aPlanChangeCannotBeMadeWithoutAReason() throws Exception {
+        StaffAccount staff = registerStaff(SupportRole.MANAGER);
+        Account customer = register();
+
+        for (String body : new String[]{
+                "{\"fromPlan\":\"MONTHLY\",\"toPlan\":\"YEARLY\"}",                         // none
+                "{\"fromPlan\":\"MONTHLY\",\"toPlan\":\"YEARLY\",\"reason\":null}",
+                "{\"fromPlan\":\"MONTHLY\",\"toPlan\":\"YEARLY\",\"reason\":\"\"}",
+                "{\"fromPlan\":\"MONTHLY\",\"toPlan\":\"YEARLY\",\"reason\":\"   \"}"}) {   // only spaces
+            changePlanRaw(staff, customer, body).andExpect(status().isBadRequest())
+                    .andExpect(jsonPath("$.errors[0].message").value("Give a reason for the plan change."));
+        }
+        // The same holds for changing only how long the current plan is paid for.
+        changePlanRaw(staff, customer, "{\"fromPlan\":\"MONTHLY\",\"toPlan\":\"MONTHLY\",\"validUntil\":\"" + java.time.LocalDate.now(java.time.ZoneOffset.UTC).plusDays(10) + "\"}")
+                .andExpect(status().isBadRequest());
+
+        assertThat(users.findById(customer.id()).orElseThrow().getSubscriptionPlan()).isEqualTo(SubscriptionPlan.MONTHLY);
+        assertThat(auditCount(customer)).isZero();
+        changePlan(staff, customer, "MONTHLY", "YEARLY", "  Paid by bank transfer  ").andExpect(status().isOk());   // trimmed when kept
+        profile(staff, customer).andExpect(jsonPath("$.recentChanges[0].reason").value("Paid by bank transfer"));
+    }
+
+    @Test
     void malformedPlanChangesAreRefused() throws Exception {
         StaffAccount staff = registerStaff(SupportRole.MANAGER);
         Account customer = register();
 
         changePlanRaw(staff, customer, "{}").andExpect(status().isBadRequest());
-        changePlanRaw(staff, customer, "{\"toPlan\":\"YEARLY\"}").andExpect(status().isConflict());   // naming no plan says it has none, which is not so
-        changePlanRaw(staff, customer, "{\"fromPlan\":\"MONTHLY\"}").andExpect(status().isBadRequest());
-        changePlanRaw(staff, customer, "{\"fromPlan\":\"MONTHLY\",\"toPlan\":\"WEEKLY\"}").andExpect(status().isBadRequest());
-        changePlanRaw(staff, customer, "{\"fromPlan\":\"MONTHLY\",\"toPlan\":\"YEARLY\",\"reason\":\"" + "r".repeat(501) + "\"}")
+        changePlanRaw(staff, customer, "{\"reason\":\"Testing\",\"toPlan\":\"YEARLY\"}").andExpect(status().isConflict());   // naming no plan says it has none, which is not so
+        changePlanRaw(staff, customer, "{\"reason\":\"Testing\",\"fromPlan\":\"MONTHLY\"}").andExpect(status().isBadRequest());
+        changePlanRaw(staff, customer, "{\"reason\":\"Testing\",\"fromPlan\":\"MONTHLY\",\"toPlan\":\"WEEKLY\"}").andExpect(status().isBadRequest());
+        changePlanRaw(staff, customer, "{\"reason\":\"Testing\",\"fromPlan\":\"MONTHLY\",\"toPlan\":\"YEARLY\",\"reason\":\"" + "r".repeat(501) + "\"}")
                 .andExpect(status().isBadRequest());
         changePlanRaw(staff, customer, "not json").andExpect(status().isBadRequest());
         // Entitlements cannot be set individually — such fields are ignored and nothing changes.
-        changePlanRaw(staff, customer, "{\"fromPlan\":\"MONTHLY\",\"toPlan\":\"MONTHLY\",\"ticket\":true,\"call\":true}")
+        changePlanRaw(staff, customer, "{\"reason\":\"Testing\",\"fromPlan\":\"MONTHLY\",\"toPlan\":\"MONTHLY\",\"ticket\":true,\"call\":true}")
                 .andExpect(status().isConflict());
 
         mvc.perform(as(staff, put("/api/v1/support/customers/CUS-999999/plan").contentType(MediaType.APPLICATION_JSON)
-                .content("{\"fromPlan\":\"MONTHLY\",\"toPlan\":\"YEARLY\"}"))).andExpect(status().isNotFound());
+                .content("{\"reason\":\"Testing\",\"fromPlan\":\"MONTHLY\",\"toPlan\":\"YEARLY\"}"))).andExpect(status().isNotFound());
         assertThat(users.findById(customer.id()).orElseThrow().getSubscriptionPlan()).isEqualTo(SubscriptionPlan.MONTHLY);
         assertThat(auditCount(customer)).isZero();
     }
@@ -183,18 +206,21 @@ class SupportPlanChangeTest extends ApiTestBase {
     void prefixChangesAreRecordedToo_andSayingTheSamePrefixAgainIsNotAChange() throws Exception {
         StaffAccount staff = registerStaff(SupportRole.MANAGER);
         Account customer = register();
+        String original = prefixOf(customer);
+        String av = uniquePrefix();
+        String rk = uniquePrefix();
 
-        setPrefix(staff, customer, "AV");
-        setPrefix(staff, customer, "AV");   // no change, no record
-        setPrefix(staff, customer, "RK");
+        setPrefix(staff, customer, av);
+        setPrefix(staff, customer, av);   // no change, no record
+        setPrefix(staff, customer, rk);
 
         profile(staff, customer).andExpect(status().isOk())
                 .andExpect(jsonPath("$.recentChanges.length()").value(2))
                 .andExpect(jsonPath("$.recentChanges[0].type").value("HANDOFF_PREFIX_CHANGED"))
-                .andExpect(jsonPath("$.recentChanges[0].previousValue").value("AV"))
-                .andExpect(jsonPath("$.recentChanges[0].newValue").value("RK"))
-                .andExpect(jsonPath("$.recentChanges[1].previousValue").value("HO"))
-                .andExpect(jsonPath("$.recentChanges[1].newValue").value("AV"))
+                .andExpect(jsonPath("$.recentChanges[0].previousValue").value(av))
+                .andExpect(jsonPath("$.recentChanges[0].newValue").value(rk))
+                .andExpect(jsonPath("$.recentChanges[1].previousValue").value(original))
+                .andExpect(jsonPath("$.recentChanges[1].newValue").value(av))
                 .andExpect(jsonPath("$.recentChanges[1].staffCode").value(staff.staffCode()));
     }
 
@@ -239,16 +265,17 @@ class SupportPlanChangeTest extends ApiTestBase {
     void aPlanChangeLeavesTheCustomersHandoffsAndNumberingAlone() throws Exception {
         StaffAccount staff = registerStaff(SupportRole.MANAGER);
         Account customer = register();
+        String own = prefixOf(customer);
         String before = createHandoff(customer);
         long handoffId = ((Number) JsonPath.read(before, "$.id")).longValue();
 
         changePlan(staff, customer, "MONTHLY", "YEARLY", null).andExpect(status().isOk())
-                .andExpect(jsonPath("$.nextHandoffReference").value("HO-2"))
-                .andExpect(jsonPath("$.customer.handoffPrefix").value("HO"));
+                .andExpect(jsonPath("$.nextHandoffReference").value(own + "-2"))
+                .andExpect(jsonPath("$.customer.handoffPrefix").value(own));
 
         mvc.perform(as(customer, get("/api/v1/handoffs/" + handoffId)))
-                .andExpect(status().isOk()).andExpect(jsonPath("$.publicCode").value("HO-1")).andExpect(jsonPath("$.status").value("DRAFT"));
-        assertThat(JsonPath.<String>read(createHandoff(customer), "$.publicCode")).isEqualTo("HO-2");
+                .andExpect(status().isOk()).andExpect(jsonPath("$.publicCode").value(own + "-1")).andExpect(jsonPath("$.status").value("DRAFT"));
+        assertThat(JsonPath.<String>read(createHandoff(customer), "$.publicCode")).isEqualTo(own + "-2");
     }
 
     @Test

@@ -90,7 +90,7 @@ function ProfileCard() {
         </div>
       </div>
       <p className="small muted" style={{ marginTop: '-0.4rem' }}>
-        Quote your Account ID when you contact support. The prefix is set by support: your handoffs are numbered
+        Quote your Account ID when you contact support. Your prefix was chosen for you when you registered, and only support can change it: your handoffs are numbered
         {' '}{user!.handoffPrefix}-1, {user!.handoffPrefix}-2 …
       </p>
       <div className="field-row">

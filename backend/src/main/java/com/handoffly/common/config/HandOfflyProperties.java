@@ -21,10 +21,12 @@ public class HandOfflyProperties {
     private final Auth auth = new Auth();
     private final RateLimit rateLimit = new RateLimit();
     private final Jobs jobs = new Jobs();
+    private final Ai ai = new Ai();
 
     public Auth getAuth() { return auth; }
     public RateLimit getRateLimit() { return rateLimit; }
     public Jobs getJobs() { return jobs; }
+    public Ai getAi() { return ai; }
     public Payment getPayment() { return payment; }
     public Jwt getJwt() { return jwt; }
     public Recipient getRecipient() { return recipient; }
@@ -176,6 +178,8 @@ public class HandOfflyProperties {
         private int paymentPerIp = 30;
         /** Customer job runs started by hand ("Run now") per customer, per hour — each one sends an email. */
         private int jobRunsPerUser = 20;
+        /** AI requests per customer, per hour, across every AI feature (HandoffCheck's AI Assist, the Report Assistant) — each one is a call to the provider's (free-tier) quota. */
+        private int aiAssistPerUser = 30;
 
         public boolean isEnabled() { return enabled; }
         public void setEnabled(boolean enabled) { this.enabled = enabled; }
@@ -201,6 +205,26 @@ public class HandOfflyProperties {
         public void setPaymentPerIp(int v) { this.paymentPerIp = v; }
         public int getJobRunsPerUser() { return jobRunsPerUser; }
         public void setJobRunsPerUser(int v) { this.jobRunsPerUser = v; }
+        public int getAiAssistPerUser() { return aiAssistPerUser; }
+        public void setAiAssistPerUser(int v) { this.aiAssistPerUser = v; }
+    }
+
+    /** Optional AI assistance (HandoffCheck column mapping). Off while no API key is set; the key never leaves the backend. */
+    public static class Ai {
+        /** The Gemini API key, from the environment only. Blank = AI Assist is unavailable. Never logged or returned. */
+        private String geminiApiKey = "";
+        /** A stable Gemini model for light classification. */
+        private String geminiModel = "gemini-3.1-flash-lite";
+        /** How long one attempt may take before it is given up on; a timeout or an overload is tried once more, so an answer can take up to twice this. */
+        private int timeoutSeconds = 30;
+
+        public String getGeminiApiKey() { return geminiApiKey; }
+        public void setGeminiApiKey(String geminiApiKey) { this.geminiApiKey = geminiApiKey; }
+        public String getGeminiModel() { return geminiModel; }
+        public void setGeminiModel(String geminiModel) { this.geminiModel = geminiModel; }
+        public int getTimeoutSeconds() { return timeoutSeconds; }
+        public void setTimeoutSeconds(int timeoutSeconds) { this.timeoutSeconds = timeoutSeconds; }
+        public boolean isConfigured() { return geminiApiKey != null && !geminiApiKey.isBlank(); }
     }
 
     /** Customer jobs (reminders and the weekly summary) and the scheduler that runs them. */

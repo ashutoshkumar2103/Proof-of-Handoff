@@ -17,6 +17,7 @@ import com.handoffly.common.util.PublicCode;
 import com.handoffly.common.web.RateLimiter;
 import com.handoffly.user.User;
 import com.handoffly.user.UserRepository;
+import com.handoffly.user.UserService;
 import org.springframework.security.crypto.password.PasswordEncoder;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
@@ -41,16 +42,18 @@ public class AuthService {
     private final PasswordEncoder passwordEncoder;
     private final JwtService jwtService;
     private final SequenceService sequenceService;
+    private final UserService userService;
     private final String supportPhone;
     private final RateLimiter limiter;
     private final HandOfflyProperties.RateLimit limits;
 
     public AuthService(UserRepository userRepository, PasswordEncoder passwordEncoder, JwtService jwtService,
-                       SequenceService sequenceService, HandOfflyProperties properties, RateLimiter limiter) {
+                       SequenceService sequenceService, UserService userService, HandOfflyProperties properties, RateLimiter limiter) {
         this.userRepository = userRepository;
         this.passwordEncoder = passwordEncoder;
         this.jwtService = jwtService;
         this.sequenceService = sequenceService;
+        this.userService = userService;
         this.supportPhone = properties.getSupport().getPhone();
         this.limiter = limiter;
         this.limits = properties.getRateLimit();
@@ -59,19 +62,25 @@ public class AuthService {
 
     @Transactional
     public AuthResponse register(RegisterRequest request) {
+        // The first thing: the account counter's lock, which one registration (or support prefix change) at a time holds until it commits,
+        // so everything read after it — the email, the prefixes in use — is what the one before left.
+        long accountNumber = sequenceService.next(SequenceService.ACCOUNT);
         String email = request.email().trim();
         if (userRepository.existsByEmailIgnoreCase(email)) {
             throw new ConflictException("An account with this email already exists.");
         }
+        String displayName = request.displayName().trim();
+        String organization = blankToNull(request.organization());
         // Public registration only ever creates a customer, on the default plan. Support staff are a
         // separate identity and can never be created here.
         User user = new User(
-                PublicCode.account(sequenceService.next(SequenceService.ACCOUNT)),
+                PublicCode.account(accountNumber),
                 email,
                 passwordEncoder.encode(request.password()),
-                request.displayName().trim(),
-                blankToNull(request.organization()),
+                displayName,
+                organization,
                 blankToNull(request.phone()));
+        user.changeHandoffPrefix(userService.reserveDefaultHandoffPrefix(organization, displayName));   // theirs alone: not HO, which belongs to the accounts that had it first
         user = userRepository.save(user);
         return toAuthResponse(user);
     }

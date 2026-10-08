@@ -1,9 +1,10 @@
+import { ZONE } from '../lib/format';
 import { api, downloadBlob, downloadFile, postForFile, upload } from './client';
 import type {
   AuthResponse, CompareInput, CompareResult, CreateHandoffInput, CreateReturnInput, CreateTicketInput, DocLineInput,
   DashboardResponse, HandoffDetail, HandoffReport, HandoffStatus, HandoffSummary, Page, RecipientView, RegisterInput, ReportQuery,
-  ChangePasswordInput, HandoffTemplate, ItemImportPreview, PaymentReceipt, PlanPrice, ProfileInput, ResetPasswordInput, ReturnEvent, ReturnImportResult, SubscriptionPlan, SupportMessageInput, TicketAttachment,
-  TicketDetail, TicketSummary, UpgradeOption, User, Attachment, AttachmentKind, Job, JobRun, JobType,
+  AiItemMatches, AiMapping, ColumnChoice, ReportAssistantAnswer, ReportAssistantSuggestion, ChangePasswordInput, HandoffTemplate, ItemImportPreview, PaymentReceipt, PlanPrice, ProfileInput, ResetPasswordInput, ReturnEvent, ReturnImportResult, SubscriptionPlan, SupportMessageInput, TicketAttachment,
+  TicketDetail, TicketSummary, UpgradeOption, User, Attachment, AttachmentKind, Job, JobHistoryEntry, JobRun, JobType,
 } from './types';
 
 // --- Auth ---
@@ -37,6 +38,8 @@ export const jobApi = {
   run: (type: JobType) => api<JobRun>(`/account/jobs/${type}/run`, { method: 'POST' }),
   /** Runs all of the customer's jobs once, now. */
   runAll: () => api<JobRun[]>('/account/jobs/run-all', { method: 'POST' }),
+  /** The Job History: every run of every job, newest first. */
+  history: (page: number) => api<Page<JobHistoryEntry>>(`/account/jobs/history?page=${page}`),
 };
 
 // --- Handoffs (owner) ---
@@ -75,6 +78,11 @@ export const handoffApi = {
     const { blob, filename } = await downloadFile(`/handoffs/${id}/pdf`);
     return { blob, filename: filename ?? 'Proof-of-Handoff.pdf' };
   },
+  /** The same record as an Excel workbook (any status). */
+  downloadExcel: async (id: number) => {
+    const { blob, filename } = await downloadFile(`/handoffs/${id}/excel`);
+    return { blob, filename: filename ?? 'Proof-of-Handoff.xlsx' };
+  },
   /** Emails the PDF; an empty `to` means the handoff's own recipient. */
   emailPdf: (id: number, to?: string) =>
     api<{ sentTo: string; delivered: boolean }>(`/handoffs/${id}/email-pdf`, { method: 'POST', body: { to } }),
@@ -102,6 +110,14 @@ export const reportApi = {
     const { blob, filename } = await downloadFile(`/reports/handoffs/export?${reportParams(q).toString()}`);
     return { blob, filename: filename ?? 'handoff-report.csv' };
   },
+  /** The Report Assistant's ready-made questions (plans that include HandoffCheck). No AI is used. */
+  assistantSuggestions: () => api<ReportAssistantSuggestion[]>('/reports/assistant/suggestions'),
+  /**
+   * A question about the customer's handoffs: all of them, unless the question itself names a period ("between 1 Oct and 10 Oct"). Either the
+   * customer's own words or one of the ready-made suggestions (which needs no AI). The answer is the report's figures; read-only.
+   */
+  ask: (what: { question?: string; suggestion?: string }) =>
+    api<ReportAssistantAnswer>('/reports/assistant/ask', { method: 'POST', body: { timezone: ZONE, ...what } }),
 };
 
 // --- Returns (owner) ---
@@ -213,12 +229,29 @@ export const documentCheckApi = {
     form.append('file', file);
     return upload<ItemImportPreview>('/handoff-check/import-items', form);
   },
-  /** Standalone mode: read one file into editable item/quantity lines (nothing is stored). */
-  extract: (file: File) => {
+  /**
+   * Standalone mode: read one file into editable item/quantity lines (nothing is stored). With `columns` the file is read using the
+   * columns the customer chose (for example by accepting an AI Assist suggestion); without them, exactly as before.
+   */
+  extract: (file: File, columns?: ColumnChoice) => {
     const form = new FormData();
     form.append('file', file);
+    if (columns) {
+      form.append('itemColumn', String(columns.itemColumn));
+      form.append('quantityColumn', String(columns.quantityColumn));
+      form.append('headerRow', String(columns.headerRow));
+    }
     return upload<DocLineInput[]>('/handoff-check/extract', form);
   },
+  /** AI Assist (optional, only when the customer asks): which columns of a spreadsheet look like the item and the quantity. */
+  suggestColumns: (file: File) => {
+    const form = new FormData();
+    form.append('file', file);
+    return upload<AiMapping>('/handoff-check/ai/column-mapping', form);
+  },
+  /** AI Assist (optional, only when the customer asks): which item names of the two files look like the same item spelled differently. One request, names only. */
+  suggestItemMatches: (fileA: string[], fileB: string[]) =>
+    api<AiItemMatches>('/handoff-check/ai/item-matching', { method: 'POST', body: { fileA, fileB } }),
   returnImport: (handoffId: number, file: File) => {
     const form = new FormData();
     form.append('handoffId', String(handoffId));

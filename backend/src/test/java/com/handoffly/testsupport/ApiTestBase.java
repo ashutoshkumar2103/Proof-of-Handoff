@@ -150,6 +150,32 @@ public abstract class ApiTestBase {
         return request.header(HttpHeaders.AUTHORIZATION, "Bearer " + who.token());
     }
 
+    private static final java.util.concurrent.atomic.AtomicInteger PREFIXES = new java.util.concurrent.atomic.AtomicInteger();
+
+    /**
+     * A handoff prefix no customer of this test database has: four letters, so it can never be one a registration chose (those are two
+     * letters), and a different one each time. Prefixes are unique across customers, so tests that set one use this rather than a fixed one.
+     */
+    protected static String uniquePrefix() {
+        int n = PREFIXES.getAndIncrement();
+        return "T" + (char) ('A' + n / 676 % 26) + (char) ('A' + n / 26 % 26) + (char) ('A' + n % 26);
+    }
+
+    /**
+     * Gives these customers one shared prefix by writing it straight to the database, as every account that existed before prefixes were
+     * unique has (they all have HO): not something registration or support can do any more.
+     */
+    protected void shareLegacyPrefix(String prefix, Account... customers) {
+        for (Account customer : customers) {
+            jdbc.update("UPDATE app_user SET handoff_prefix = ? WHERE id = ?", prefix, customer.id());
+        }
+    }
+
+    /** The handoff prefix the customer has now (a registration gives each customer their own). */
+    protected String prefixOf(Account customer) {
+        return users.findById(customer.id()).orElseThrow().getHandoffPrefix();
+    }
+
     /** Support sets the prefix that a customer's new handoffs get. */
     protected void setPrefix(StaffAccount staff, Account customer, String prefix) throws Exception {
         mvc.perform(as(staff, put("/api/v1/support/customers/" + customer.accountCode() + "/prefix")

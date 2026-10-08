@@ -6,6 +6,7 @@ import com.handoffly.documentcheck.dto.CompareRequest;
 import com.handoffly.documentcheck.dto.CompareResult;
 import com.handoffly.documentcheck.dto.DocumentField;
 import com.handoffly.documentcheck.dto.DocumentLine;
+import com.handoffly.documentcheck.dto.NameMatch;
 import com.handoffly.documentcheck.dto.ItemImportPreview;
 import com.handoffly.documentcheck.dto.ReturnImportResult;
 import com.handoffly.handoff.Handoff;
@@ -22,6 +23,7 @@ import java.math.BigDecimal;
 import java.text.Normalizer;
 import java.util.ArrayList;
 import java.util.HashSet;
+import java.util.LinkedHashSet;
 import java.util.LinkedHashMap;
 import java.util.Set;
 import java.util.List;
@@ -116,14 +118,14 @@ public class DocumentCheckService {
                 request.referenceLabel() != null ? request.referenceLabel() : "Reference",
                 request.referenceLines(),
                 request.referenceFields() != null ? request.referenceFields() : List.of(),
-                targetLabel, targetLines, targetFields);
+                targetLabel, targetLines, targetFields, request.nameMatches());
     }
 
     /** Standalone HandoffCheck: extracts both uploaded files and compares them. Stateless. */
     public CompareResult compareFiles(MultipartFile fileA, MultipartFile fileB) {
         return compareDocuments(
                 FILE_A_LABEL, extractLabelled(FILE_A_LABEL, fileA), List.of(),
-                FILE_B_LABEL, extractLabelled(FILE_B_LABEL, fileB), List.of());
+                FILE_B_LABEL, extractLabelled(FILE_B_LABEL, fileB), List.of(), null);
     }
 
     /**
@@ -165,12 +167,29 @@ public class DocumentCheckService {
         return extractor.extract(file);
     }
 
+    /**
+     * The same, with the columns the customer chose (for example by accepting an AI suggestion). Either no column is given — the
+     * ordinary reading — or both the item column and the quantity column are, and the rows are then read by the ordinary routine
+     * with those columns. Nothing the AI said is used except through this.
+     */
+    public List<DocumentLine> extractLines(MultipartFile file, Integer itemColumn, Integer quantityColumn, Integer headerRow) {
+        if (itemColumn == null && quantityColumn == null && headerRow == null) {
+            return extractLines(file);
+        }
+        if (itemColumn == null || quantityColumn == null) {
+            throw new BadRequestException("Give both the item column and the quantity column.");
+        }
+        return extractor.extract(file, new DocumentLineExtractor.ColumnMapping(itemColumn, quantityColumn,
+                headerRow == null ? -1 : headerRow));
+    }
+
     /** The one comparison routine: every mode (inline, handoff target, files) ends up here. */
     private CompareResult compareDocuments(String referenceLabel,
                                            List<DocumentLine> referenceLines, List<DocumentField> referenceFields,
                                            String targetLabel,
-                                           List<DocumentLine> targetLines, List<DocumentField> targetFields) {
-        List<CompareResult.LineComparison> lineResults = compareLines(referenceLines, targetLines);
+                                           List<DocumentLine> targetLines, List<DocumentField> targetFields,
+                                           List<NameMatch> nameMatches) {
+        List<CompareResult.LineComparison> lineResults = compareLines(referenceLines, targetLines, nameMatches);
         List<CompareResult.FieldComparison> fieldResults = compareFields(referenceFields, targetFields);
         return new CompareResult(referenceLabel, targetLabel, summarize(lineResults), lineResults, fieldResults);
     }
@@ -184,35 +203,37 @@ public class DocumentCheckService {
         }
     }
 
-    private List<CompareResult.LineComparison> compareLines(List<DocumentLine> reference,
-                                                            List<DocumentLine> target) {
-        Map<String, DocumentLine> refByKey = indexByName(reference);
-        Map<String, DocumentLine> tgtByKey = indexByName(target);
+    /**
+     * Compares the two lists item by item: one row for each logical item, with both quantities side by side. Items are paired by
+     * {@link #normalizeName} of the name the customer's accepted {@code nameMatches} give them (none, unless the customer accepted some),
+     * so two spellings accepted as one item are one row — never a Missing and an Extra for the same item.
+     */
+    private List<CompareResult.LineComparison> compareLines(List<DocumentLine> reference, List<DocumentLine> target,
+                                                            List<NameMatch> nameMatches) {
+        Map<String, String> canonical = canonicalNames(nameMatches);
+        Map<String, Item> refByKey = index(reference, canonical);
+        Map<String, Item> tgtByKey = index(target, canonical);
 
         // Preserve reference order first, then any extra target lines.
-        Map<String, Boolean> seen = new LinkedHashMap<>();
         List<CompareResult.LineComparison> results = new ArrayList<>();
-
-        for (Map.Entry<String, DocumentLine> e : refByKey.entrySet()) {
-            seen.put(e.getKey(), true);
-            DocumentLine ref = e.getValue();
-            DocumentLine tgt = tgtByKey.get(e.getKey());
+        for (Map.Entry<String, Item> e : refByKey.entrySet()) {
+            Item ref = e.getValue();
+            Item tgt = tgtByKey.get(e.getKey());
             if (tgt == null) {
-                results.add(new CompareResult.LineComparison(
-                        ref.name(), ref.quantity(), null, null, CompareResult.MatchStatus.MISSING_IN_TARGET));
+                results.add(new CompareResult.LineComparison(ref.name(), ref.spelling(), null,
+                        ref.quantity(), null, null, CompareResult.MatchStatus.MISSING_IN_TARGET));
             } else {
                 boolean match = quantitiesEqual(ref.quantity(), tgt.quantity());
-                results.add(new CompareResult.LineComparison(
-                        ref.name(), ref.quantity(), tgt.quantity(),
-                        difference(ref.quantity(), tgt.quantity()),
+                results.add(new CompareResult.LineComparison(ref.name(), ref.spelling(), tgt.spelling(),
+                        ref.quantity(), tgt.quantity(), difference(ref.quantity(), tgt.quantity()),
                         match ? CompareResult.MatchStatus.MATCH : CompareResult.MatchStatus.MISMATCH));
             }
         }
-        for (Map.Entry<String, DocumentLine> e : tgtByKey.entrySet()) {
-            if (!seen.containsKey(e.getKey())) {
-                DocumentLine tgt = e.getValue();
-                results.add(new CompareResult.LineComparison(
-                        tgt.name(), null, tgt.quantity(), null, CompareResult.MatchStatus.EXTRA_IN_TARGET));
+        for (Map.Entry<String, Item> e : tgtByKey.entrySet()) {
+            if (!refByKey.containsKey(e.getKey())) {
+                Item tgt = e.getValue();
+                results.add(new CompareResult.LineComparison(tgt.name(), null, tgt.spelling(),
+                        null, tgt.quantity(), null, CompareResult.MatchStatus.EXTRA_IN_TARGET));
             }
         }
         return results;
@@ -269,12 +290,43 @@ public class DocumentCheckService {
         return new DocumentLine(item.getName(), item.getQuantity());
     }
 
-    private Map<String, DocumentLine> indexByName(List<DocumentLine> lines) {
-        Map<String, DocumentLine> map = new LinkedHashMap<>();
+    /** One item of one document: its name for the comparison, the total quantity (a repeated name adds up), and how this document wrote it if differently. */
+    private record Item(String name, BigDecimal quantity, Set<String> writtenAs) {
+        /** The spellings this document used that differ from {@code name}, or null when it wrote it the same way. */
+        String spelling() {
+            return writtenAs.isEmpty() ? null : String.join(" / ", writtenAs);
+        }
+    }
+
+    /** The accepted spellings by the name they replace (as {@link #normalizeName} reads it). Nothing the customer sent is ever followed further than one step. */
+    private static Map<String, String> canonicalNames(List<NameMatch> nameMatches) {
+        Map<String, String> canonical = new LinkedHashMap<>();
+        if (nameMatches != null) {
+            for (NameMatch m : nameMatches) {
+                String from = normalizeName(m.from());
+                if (!from.isEmpty() && !from.equals(normalizeName(m.to()))) {
+                    canonical.putIfAbsent(from, m.to().strip());
+                }
+            }
+        }
+        return canonical;
+    }
+
+    private Map<String, Item> index(List<DocumentLine> lines, Map<String, String> canonical) {
+        Map<String, Item> map = new LinkedHashMap<>();
         for (DocumentLine line : lines) {
+            String name = canonical.getOrDefault(normalizeName(line.name()), line.name());
+            String key = normalizeName(name);
+            Set<String> writtenAs = new LinkedHashSet<>();
+            if (!normalizeName(line.name()).equals(key)) {
+                writtenAs.add(line.name().strip());   // an accepted spelling match was used: keep what this document actually said
+            }
             // If a name repeats, sum the quantities so totals compare correctly.
-            map.merge(normalizeName(line.name()), line, (a, b) ->
-                    new DocumentLine(a.name(), nullableAdd(a.quantity(), b.quantity())));
+            map.merge(key, new Item(name, line.quantity(), writtenAs), (a, b) -> {
+                Set<String> both = new LinkedHashSet<>(a.writtenAs());
+                both.addAll(b.writtenAs());
+                return new Item(a.name(), nullableAdd(a.quantity(), b.quantity()), both);
+            });
         }
         return map;
     }
@@ -306,9 +358,10 @@ public class DocumentCheckService {
     /**
      * Item-name key: ignores case, surrounding/repeated whitespace and simple punctuation
      * ("Joker-Dress", "joker  dress" → "joker dress"). Deliberately not fuzzy: "Table" and
-     * "Tables" stay different, so unrelated items are never silently merged.
+     * "Tables" stay different, so unrelated items are never silently merged — two spellings are one item only when the customer has
+     * accepted that (see {@link NameMatch}).
      */
-    private static String normalizeName(String s) {
+    static String normalizeName(String s) {
         if (s == null) return "";
         String folded = Normalizer.normalize(s, Normalizer.Form.NFKC).toLowerCase(Locale.ROOT);
         return folded.replaceAll("[^\\p{L}\\p{N}]+", " ").trim();

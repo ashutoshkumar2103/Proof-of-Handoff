@@ -68,7 +68,7 @@ class AccountIdentityTest extends ApiTestBase {
         assertThat(saved.getSubscriptionPlan()).isNull();
         assertThat(saved.getPlanStartedAt()).isNull();
         assertThat(saved.getPlanValidUntil()).isNull();
-        assertThat(saved.getHandoffPrefix()).isEqualTo("HO");
+        assertThat(saved.getHandoffPrefix()).matches("[A-Z]{2}").isNotEqualTo("ZZ").isNotEqualTo("HO");   // its own, made from its name; not the one the request asked for
 
         // No staff identity came out of it, and these credentials are not accepted by the support login.
         assertThat(jdbc.queryForObject("SELECT COUNT(*) FROM support_staff", Long.class)).isEqualTo(staffBefore);

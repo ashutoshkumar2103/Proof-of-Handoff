@@ -7,10 +7,11 @@ import { reportApi } from '../api/endpoints';
 import type { HandoffReport, HandoffStatus, HandoffSummary, ReportQuery } from '../api/types';
 import { useSubscriptionGate } from '../auth/useSubscriptionGate';
 import type { SubscriptionGate } from '../auth/useSubscriptionGate';
+import { ReportAssistant } from '../components/ReportAssistant';
 import { StatusBadge } from '../components/StatusBadge';
 import { EmptyState, ErrorNotice, Gated, Spinner, errorMessage } from '../components/ui';
 import {
-  formatDate, formatDay, presetRange, qty, REPORT_PRESET_LABELS, STATUS_LABELS,
+  formatDate, formatDay, presetRange, qty, REPORT_PRESET_LABELS, STATUS_LABELS, ZONE,
 } from '../lib/format';
 import type { ReportPreset } from '../lib/format';
 
@@ -19,15 +20,13 @@ type SortKey = 'reference' | 'title' | 'recipient' | 'created' | 'expectedReturn
 type SortDir = 'asc' | 'desc';
 
 const PAGE_SIZE = 20;
-/** The days of a report are the customer's own calendar days: the browser's zone, which the report states back. */
-const ZONE = Intl.DateTimeFormat().resolvedOptions().timeZone || 'UTC';
 const DAY = /^\d{4}-\d{2}-\d{2}$/;
 
 const PRESETS: ReportPreset[] = ['TODAY', 'THIS_WEEK', 'THIS_MONTH', 'LAST_MONTH', 'THIS_QUARTER', 'CUSTOM'];
 
 /** Every state a handoff can rest in, in lifecycle order, plus "overdue" (a handoff past its return date, not a state of its own). */
 const STATUS_FILTERS: StatusFilter[] = [
-  'ALL', 'DRAFT', 'AWAITING_RECIPIENT', 'ACTIVE_WITH_RECIPIENT', 'RETURN_PENDING', 'PARTIALLY_RETURNED', 'FULLY_RETURNED', 'CLOSED',
+  'ALL', 'DRAFT', 'AWAITING_RECIPIENT', 'ACTIVE_WITH_RECIPIENT', 'PARTIALLY_RETURNED', 'FULLY_RETURNED', 'CLOSED',
   'REJECTED', 'CANCELLED', 'DISPUTED', 'OVERDUE',
 ];
 const filterLabel = (f: StatusFilter) =>
@@ -45,48 +44,32 @@ const COLUMNS: { key: SortKey; label: string; num?: boolean }[] = [
   { key: 'missing', label: 'Missing', num: true },
 ];
 
+/** Which of the two views of the report is shown: the handoffs themselves (the Quotation List), or their totals (the Summary Report). */
+export type ReportView = 'list' | 'summary';
+
 /**
  * Reports: how the handoffs created in a period are doing. Read-only — everything is worked out by the backend (the totals,
- * the filtering, the sorting, the paging, the CSV); this page asks and shows. Needs an active subscription, like starting a
+ * the filtering, the sorting, the paging, the CSV); these pages ask and show. Needs an active subscription, like starting a
  * handoff does, so it is held by the same gate and dialog.
  */
-export function ReportsPage() {
+export function ReportsPage({ view }: { view: ReportView }) {
   const gate = useSubscriptionGate();
   if (gate.state === 'checking') return <Spinner />;
   if (!gate.shown) return null;   // never shown as usable without a subscription: all the customer sees is the dialog
-  return <Gated blocked={gate.blocked}><ReportsContent gate={gate} /></Gated>;
+  return <Gated blocked={gate.blocked}>{view === 'list' ? <QuotationList gate={gate} /> : <SummaryReport gate={gate} />}</Gated>;
 }
 
-function ReportsContent({ gate }: { gate: SubscriptionGate }) {
-  const { handle } = gate;
+/** The period both views are about: a preset or two dates, which only take effect on Apply (the boxes are a draft until then). */
+function useReportPeriod(onChange: () => void = () => {}) {
   const initial = presetRange('THIS_MONTH');
   const [preset, setPreset] = useState<ReportPreset>('THIS_MONTH');
   const [from, setFrom] = useState(initial.from);
   const [to, setTo] = useState(initial.to);
-  const [applied, setApplied] = useState(initial);   // what the report is showing; the two boxes above are only a draft until Apply
-  const [filter, setFilter] = useState<StatusFilter>('ALL');
-  const [sortKey, setSortKey] = useState<SortKey>('created');
-  const [sortDir, setSortDir] = useState<SortDir>('asc');
-  const [page, setPage] = useState(0);
-  const [exporting, setExporting] = useState(false);
-  const [exportError, setExportError] = useState<string | null>(null);
+  const [applied, setApplied] = useState(initial);   // what the report is showing
 
   const rangeError = !DAY.test(from) || !DAY.test(to) ? 'Choose both dates.'
     : from > to ? 'The start date must not be after the end date.' : null;
   const dirty = from !== applied.from || to !== applied.to;
-
-  const query: ReportQuery = {
-    from: applied.from, to: applied.to, timezone: ZONE, sort: `${sortKey},${sortDir}`,
-    ...(filter === 'OVERDUE' ? { overdue: true } : filter === 'ALL' ? {} : { status: filter }),
-  };
-  const report = useQuery({
-    queryKey: ['report', query, page],
-    queryFn: ({ signal }) => reportApi.handoffs(query, page, PAGE_SIZE, signal),
-    enabled: gate.state === 'active',
-    placeholderData: keepPreviousData,   // the old rows stay up (dimmed) while the next page or sort arrives
-    retry: false,                        // a refusal or a bad request is the same on a second try
-  });
-  useEffect(() => { if (report.error) handle(report.error); }, [report.error, handle]);
 
   function chooseRange(next: ReportPreset) {
     setPreset(next);
@@ -95,15 +78,119 @@ function ReportsContent({ gate }: { gate: SubscriptionGate }) {
     setFrom(range.from);
     setTo(range.to);
     setApplied(range);
-    setPage(0);
+    onChange();
   }
 
   function apply(e: FormEvent) {
     e.preventDefault();
     if (rangeError || !dirty) return;
     setApplied({ from, to });
-    setPage(0);
+    onChange();
   }
+
+  return {
+    applied, preset, from, to, rangeError, dirty, chooseRange, apply,
+    setFrom: (value: string) => { setFrom(value); setPreset('CUSTOM'); },
+    setTo: (value: string) => { setTo(value); setPreset('CUSTOM'); },
+  };
+}
+
+/** The report for a period, as the backend works it out; a refusal about the subscription is the gate's to show. */
+function useReport(gate: SubscriptionGate, query: ReportQuery, page: number, size: number) {
+  const report = useQuery({
+    queryKey: ['report', query, page, size],
+    queryFn: ({ signal }) => reportApi.handoffs(query, page, size, signal),
+    enabled: gate.state === 'active',
+    placeholderData: keepPreviousData,   // the old rows stay up (dimmed) while the next page or sort arrives
+    retry: false,                        // a refusal or a bad request is the same on a second try
+  });
+  const { handle } = gate;
+  useEffect(() => { if (report.error) handle(report.error); }, [report.error, handle]);
+  return report;
+}
+
+function PeriodForm({ period }: { period: ReturnType<typeof useReportPeriod> }) {
+  return (
+    <form className="card report-filter" onSubmit={period.apply}>
+      <div className="field">
+        <label htmlFor="report-preset">Period</label>
+        <select id="report-preset" value={period.preset} onChange={(e) => period.chooseRange(e.target.value as ReportPreset)}>
+          {PRESETS.map((p) => <option key={p} value={p}>{REPORT_PRESET_LABELS[p]}</option>)}
+        </select>
+      </div>
+      <div className="field">
+        <label htmlFor="report-from">From</label>
+        <input id="report-from" type="date" value={period.from} onChange={(e) => period.setFrom(e.target.value)} />
+      </div>
+      <div className="field">
+        <label htmlFor="report-to">To</label>
+        <input id="report-to" type="date" value={period.to} onChange={(e) => period.setTo(e.target.value)} />
+      </div>
+      <div className="field">
+        <button className="btn btn-primary" disabled={!!period.rangeError || !period.dirty}>Apply</button>
+      </div>
+      {period.rangeError && <div className="form-error report-filter-error" role="alert">{period.rangeError}</div>}
+    </form>
+  );
+}
+
+/** What a period with no handoffs says, on either view. */
+function NothingInPeriod({ report }: { report: HandoffReport }) {
+  return (
+    <EmptyState title="No handoffs in this period">
+      No handoff was created between {formatDay(report.period.from)} and {formatDay(report.period.to)}, so there is nothing to total.
+      Try a longer period.
+    </EmptyState>
+  );
+}
+
+/** The Summary Report: the totals for the period, and the questions that can be asked about them (the AI Reports assistant). */
+function SummaryReport({ gate }: { gate: SubscriptionGate }) {
+  const period = useReportPeriod();
+  const query: ReportQuery = { from: period.applied.from, to: period.applied.to, timezone: ZONE };
+  const report = useReport(gate, query, 0, 1);   // only the totals are shown, so no more than one row is read
+  const data = report.data;
+
+  return (
+    <div className="stack">
+      <div className="spread">
+        <div>
+          <h1>Summary Report</h1>
+          <p className="muted">The totals for the handoffs you created in a period. Nothing on this page can be changed.</p>
+        </div>
+        <ReportAssistant />
+      </div>
+
+      <PeriodForm period={period} />
+
+      {report.isError && !gate.blocked && <ErrorNotice error={report.error} />}
+      {!data && report.isLoading && <Spinner />}
+
+      {data && (
+        <div className={report.isPlaceholderData ? 'is-refreshing' : ''} aria-busy={report.isPlaceholderData}>
+          {data.summary.created === 0 ? <NothingInPeriod report={data} /> : <Summary report={data} />}
+        </div>
+      )}
+    </div>
+  );
+}
+
+/** The Quotation List: the period's handoffs themselves, which can be filtered by status, sorted, paged and exported. */
+function QuotationList({ gate }: { gate: SubscriptionGate }) {
+  const { handle } = gate;
+  const [filter, setFilter] = useState<StatusFilter>('ALL');
+  const [sortKey, setSortKey] = useState<SortKey>('created');
+  const [sortDir, setSortDir] = useState<SortDir>('asc');
+  const [page, setPage] = useState(0);
+  const [exporting, setExporting] = useState(false);
+  const [exportError, setExportError] = useState<string | null>(null);
+  const period = useReportPeriod(() => setPage(0));
+
+  const query: ReportQuery = {
+    from: period.applied.from, to: period.applied.to, timezone: ZONE, sort: `${sortKey},${sortDir}`,
+    ...(filter === 'OVERDUE' ? { overdue: true } : filter === 'ALL' ? {} : { status: filter }),
+  };
+  const report = useReport(gate, query, page, PAGE_SIZE);
 
   function sortBy(key: SortKey) {
     if (key === sortKey) setSortDir((d) => (d === 'asc' ? 'desc' : 'asc'));
@@ -128,100 +215,76 @@ function ReportsContent({ gate }: { gate: SubscriptionGate }) {
 
   return (
     <div className="stack">
-      <div>
-        <h1>Reports</h1>
-        <p className="muted">How the handoffs you created in a period are doing. Nothing on this page can be changed.</p>
+      <div className="spread">
+        <div>
+          <h1>Quotation List</h1>
+          <p className="muted">How the handoffs you created in a period are doing. Nothing on this page can be changed.</p>
+        </div>
+        <ReportAssistant />
       </div>
 
-      <form className="card report-filter" onSubmit={apply}>
-        <div className="field">
-          <label htmlFor="report-preset">Period</label>
-          <select id="report-preset" value={preset} onChange={(e) => chooseRange(e.target.value as ReportPreset)}>
-            {PRESETS.map((p) => <option key={p} value={p}>{REPORT_PRESET_LABELS[p]}</option>)}
-          </select>
-        </div>
-        <div className="field">
-          <label htmlFor="report-from">From</label>
-          <input id="report-from" type="date" value={from} onChange={(e) => { setFrom(e.target.value); setPreset('CUSTOM'); }} />
-        </div>
-        <div className="field">
-          <label htmlFor="report-to">To</label>
-          <input id="report-to" type="date" value={to} onChange={(e) => { setTo(e.target.value); setPreset('CUSTOM'); }} />
-        </div>
-        <div className="field">
-          <button className="btn btn-primary" disabled={!!rangeError || !dirty}>Apply</button>
-        </div>
-        {rangeError && <div className="form-error report-filter-error" role="alert">{rangeError}</div>}
-      </form>
+      <PeriodForm period={period} />
 
       {report.isError && !gate.blocked && <ErrorNotice error={report.error} />}
       {!data && report.isLoading && <Spinner />}
 
       {data && (
         <div className={`stack ${report.isPlaceholderData ? 'is-refreshing' : ''}`} aria-busy={report.isPlaceholderData}>
-          {data.summary.created === 0 ? (
-            <EmptyState title="No handoffs in this period">
-              No handoff was created between {formatDay(data.period.from)} and {formatDay(data.period.to)}, so there is nothing to total.
-              Try a longer period.
-            </EmptyState>
-          ) : (
-            <>
-              <Summary report={data} />
-              <div className="card">
-                <div className="list-toolbar">
-                  <h2 style={{ margin: 0 }}>Handoff report</h2>
-                  <div className="row report-toolbar">
-                    <select aria-label="Show handoffs with status" value={filter}
-                            onChange={(e) => { setFilter(e.target.value as StatusFilter); setPage(0); }}>
-                      {STATUS_FILTERS.map((f) => <option key={f} value={f}>{filterLabel(f)}</option>)}
-                    </select>
-                    <button type="button" className="btn" onClick={exportCsv} disabled={exporting}>
-                      {exporting ? 'Preparing…' : 'Export CSV'}
-                    </button>
-                  </div>
+          {data.summary.created === 0 ? <NothingInPeriod report={data} /> : (
+            <div className="card">
+              <div className="list-toolbar">
+                <h2 style={{ margin: 0 }}>Handoff report</h2>
+                <div className="row report-toolbar">
+                  <select aria-label="Show handoffs with status" value={filter}
+                          onChange={(e) => { setFilter(e.target.value as StatusFilter); setPage(0); }}>
+                    {STATUS_FILTERS.map((f) => <option key={f} value={f}>{filterLabel(f)}</option>)}
+                  </select>
+                  <button type="button" className="btn" onClick={exportCsv} disabled={exporting}>
+                    {exporting ? 'Preparing…' : 'Export CSV'}
+                  </button>
                 </div>
-                {exportError && <div className="notice notice-error" style={{ marginBottom: '0.75rem' }}>{exportError}</div>}
-
-                {data.handoffs.totalElements === 0 ? (
-                  <div className="center mt-3">
-                    <p className="muted">No handoffs in this period are {filter === 'OVERDUE' ? 'overdue' : `“${filterLabel(filter)}”`}.</p>
-                    <button className="btn btn-sm" onClick={() => { setFilter('ALL'); setPage(0); }}>Show all statuses</button>
-                  </div>
-                ) : (
-                  <>
-                    <div className="table-wrap">
-                      <table>
-                        <thead>
-                          <tr>
-                            {COLUMNS.map((c) => (
-                              <th key={c.key} className={`sortable ${c.num ? 'num' : ''}`} onClick={() => sortBy(c.key)}
-                                  tabIndex={0} onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); sortBy(c.key); } }}
-                                  aria-sort={c.key === sortKey ? (sortDir === 'asc' ? 'ascending' : 'descending') : undefined}>
-                                {c.label}{c.key === sortKey ? (sortDir === 'asc' ? ' ▲' : ' ▼') : ''}
-                              </th>
-                            ))}
-                          </tr>
-                        </thead>
-                        <tbody>
-                          {data.handoffs.content.map((h) => <Row key={h.id} h={h} />)}
-                        </tbody>
-                      </table>
-                    </div>
-                    <div className="spread mt-2">
-                      <span className="muted small">
-                        {data.handoffs.totalElements} {data.handoffs.totalElements === 1 ? 'handoff' : 'handoffs'}
-                        {filter !== 'ALL' && <> · {filterLabel(filter)}</>}
-                        {' · '}Page {data.handoffs.page + 1} of {Math.max(1, data.handoffs.totalPages)}
-                      </span>
-                      <div className="row">
-                        <button className="btn btn-sm" disabled={data.handoffs.first} onClick={() => setPage((p) => Math.max(0, p - 1))}>Previous</button>
-                        <button className="btn btn-sm" disabled={data.handoffs.last} onClick={() => setPage((p) => p + 1)}>Next</button>
-                      </div>
-                    </div>
-                  </>
-                )}
               </div>
-            </>
+              {exportError && <div className="notice notice-error" style={{ marginBottom: '0.75rem' }}>{exportError}</div>}
+
+              {data.handoffs.totalElements === 0 ? (
+                <div className="center mt-3">
+                  <p className="muted">No handoffs in this period are {filter === 'OVERDUE' ? 'overdue' : `“${filterLabel(filter)}”`}.</p>
+                  <button className="btn btn-sm" onClick={() => { setFilter('ALL'); setPage(0); }}>Show all statuses</button>
+                </div>
+              ) : (
+                <>
+                  <div className="table-wrap">
+                    <table>
+                      <thead>
+                        <tr>
+                          {COLUMNS.map((c) => (
+                            <th key={c.key} className={`sortable ${c.num ? 'num' : ''}`} onClick={() => sortBy(c.key)}
+                                tabIndex={0} onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); sortBy(c.key); } }}
+                                aria-sort={c.key === sortKey ? (sortDir === 'asc' ? 'ascending' : 'descending') : undefined}>
+                              {c.label}{c.key === sortKey ? (sortDir === 'asc' ? ' ▲' : ' ▼') : ''}
+                            </th>
+                          ))}
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {data.handoffs.content.map((h) => <Row key={h.id} h={h} />)}
+                      </tbody>
+                    </table>
+                  </div>
+                  <div className="spread mt-2">
+                    <span className="muted small">
+                      {data.handoffs.totalElements} {data.handoffs.totalElements === 1 ? 'handoff' : 'handoffs'}
+                      {filter !== 'ALL' && <> · {filterLabel(filter)}</>}
+                      {' · '}Page {data.handoffs.page + 1} of {Math.max(1, data.handoffs.totalPages)}
+                    </span>
+                    <div className="row">
+                      <button className="btn btn-sm" disabled={data.handoffs.first} onClick={() => setPage((p) => Math.max(0, p - 1))}>Previous</button>
+                      <button className="btn btn-sm" disabled={data.handoffs.last} onClick={() => setPage((p) => p + 1)}>Next</button>
+                    </div>
+                  </div>
+                </>
+              )}
+            </div>
           )}
         </div>
       )}
@@ -251,8 +314,7 @@ function Summary({ report }: { report: HandoffReport }) {
         <SummaryTile label="Items cancelled" value={qty(s.itemsCancelled)} hint="On handoffs that were cancelled" />
       </div>
       <p className="muted small" style={{ margin: '0.5rem 0 0' }}>
-        Items given = returned + missing + still out + rejected + cancelled. All statuses, whatever the filter below; drafts count as
-        created but have given nothing.
+        Items given = returned + missing + still out + rejected + cancelled. All statuses; drafts count as created but have given nothing.
       </p>
     </section>
   );

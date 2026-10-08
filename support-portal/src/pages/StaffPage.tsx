@@ -3,7 +3,7 @@ import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { staffApi } from '../api/endpoints';
 import type { StaffRole, StaffSummary } from '../api/types';
 import { useAuth } from '../auth/AuthContext';
-import { errorMessage, ErrorNotice, Pager, Spinner } from '../components/ui';
+import { errorMessage, ErrorNotice, Pager, Spinner, useTransient } from '../components/ui';
 import { ASSIGNABLE_ROLES, describeChange, formatDate, formatDateTime, ROLE_LABELS } from '../lib/format';
 
 type Action =
@@ -30,8 +30,8 @@ export function StaffPage() {
   const [form, setForm] = useState(EMPTY_FORM);
   const [action, setAction] = useState<Action | null>(null);
   const [busy, setBusy] = useState(false);
-  const [error, setError] = useState<string | null>(null);
-  const [done, setDone] = useState<string | null>(null);
+  const [error, setError] = useTransient<string>();
+  const [done, setDone] = useTransient<string>();
 
   const active = status === '' ? undefined : status === 'active';
   const staff = useQuery({

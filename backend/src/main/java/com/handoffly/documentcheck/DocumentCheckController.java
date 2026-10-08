@@ -1,6 +1,9 @@
 package com.handoffly.documentcheck;
 
 import com.handoffly.auth.UserPrincipal;
+import com.handoffly.documentcheck.dto.AiItemMatchRequest;
+import com.handoffly.documentcheck.dto.AiItemMatchResponse;
+import com.handoffly.documentcheck.dto.AiMappingResponse;
 import com.handoffly.documentcheck.dto.CompareRequest;
 import com.handoffly.documentcheck.dto.CompareResult;
 import com.handoffly.documentcheck.dto.ComparisonExportRequest;
@@ -46,12 +49,14 @@ public class DocumentCheckController {
     private static final Set<String> ON_EVERY_PLAN = Set.of(BASE + "/import-items", BASE + "/return-import");
 
     private final DocumentCheckService documentCheckService;
+    private final AiMappingService aiMappingService;
     private final ComparisonExportService exportService;
     private final UserService users;
 
-    public DocumentCheckController(DocumentCheckService documentCheckService, ComparisonExportService exportService,
-                                   UserService users) {
+    public DocumentCheckController(DocumentCheckService documentCheckService, AiMappingService aiMappingService,
+                                   ComparisonExportService exportService, UserService users) {
         this.documentCheckService = documentCheckService;
+        this.aiMappingService = aiMappingService;
         this.exportService = exportService;
         this.users = users;
     }
@@ -79,10 +84,37 @@ public class DocumentCheckController {
         return documentCheckService.compare(principal.id(), request);
     }
 
-    /** Standalone mode, step 1: read one file into editable item/quantity lines. Nothing is stored. */
+    /**
+     * Standalone mode, step 1: read one file into editable item/quantity lines. Nothing is stored. The columns can be named
+     * ({@code itemColumn}, {@code quantityColumn}, optionally {@code headerRow}) when the customer chose them, for example by accepting
+     * an AI Assist suggestion; without them the file is read exactly as before.
+     */
     @PostMapping(path = "/extract", consumes = MediaType.MULTIPART_FORM_DATA_VALUE)
-    public List<DocumentLine> extract(@RequestParam MultipartFile file) {
-        return documentCheckService.extractLines(file);
+    public List<DocumentLine> extract(@RequestParam MultipartFile file,
+                                      @RequestParam(required = false) Integer itemColumn,
+                                      @RequestParam(required = false) Integer quantityColumn,
+                                      @RequestParam(required = false) Integer headerRow) {
+        return documentCheckService.extractLines(file, itemColumn, quantityColumn, headerRow);
+    }
+
+    /**
+     * AI Assist (optional): suggests which columns of a spreadsheet hold the item and the quantity, for the customer to review.
+     * Part of HandoffCheck, so {@link #requireAccess} gates it like every other endpoint here. Only a suggestion: it returns no lines and
+     * changes nothing, and when AI is not available the answer says so (still 200) so HandoffCheck carries on as normal.
+     */
+    @PostMapping(path = "/ai/column-mapping", consumes = MediaType.MULTIPART_FORM_DATA_VALUE)
+    public AiMappingResponse suggestColumns(@AuthenticationPrincipal UserPrincipal principal, @RequestParam MultipartFile file) {
+        return aiMappingService.suggestColumns(principal.id(), file);
+    }
+
+    /**
+     * AI Assist (optional): suggests which item names of the two files are probably the same item spelled differently, for the customer to
+     * accept or reject. Given the names only, in one request. Only a suggestion: nothing is compared or changed, and when AI is not available
+     * the answer says so (still 200) so HandoffCheck carries on as normal. Part of HandoffCheck, so {@link #requireAccess} gates it.
+     */
+    @PostMapping("/ai/item-matching")
+    public AiItemMatchResponse suggestItemMatches(@AuthenticationPrincipal UserPrincipal principal, @Valid @RequestBody AiItemMatchRequest request) {
+        return aiMappingService.suggestItemMatches(principal.id(), request.fileA(), request.fileB());
     }
 
     /**

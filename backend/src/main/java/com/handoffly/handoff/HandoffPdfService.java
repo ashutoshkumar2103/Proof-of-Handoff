@@ -124,9 +124,14 @@ public class HandoffPdfService {
 
     /** Deterministic, filesystem-safe name derived only from the public code. */
     static String filenameFor(String publicCode) {
+        return filenameFor(publicCode, "pdf");
+    }
+
+    /** The same name for another format of the same record (the spreadsheet). */
+    static String filenameFor(String publicCode, String extension) {
         String code = publicCode == null ? "" : publicCode.replaceAll("[^A-Za-z0-9._-]+", "-")
                 .replaceAll("^-+|-+$", "");
-        return "HandOffly-" + (code.isEmpty() ? "Handoff" : code) + "-Proof-of-Handoff.pdf";
+        return "HandOffly-" + (code.isEmpty() ? "Handoff" : code) + "-Proof-of-Handoff." + extension;
     }
 
     private PdfFile toFile(HandoffDetailResponse detail) {
@@ -277,6 +282,31 @@ public class HandoffPdfService {
 
     /** One short line per day, not a table per return: what came back, what is missing, any return note. */
     private static void returnSummary(Document doc, PdfWriter w, HandoffDetailResponse d) throws DocumentException {
+        TreeMap<LocalDate, DayGroup> days = returnDays(d);
+        if (days.isEmpty()) return;
+
+        section(doc, w, "Return summary");
+        String missingWord = missingWord(d);
+        days.forEach((date, g) -> {
+            List<String> parts = dayParts(g, missingWord);
+            Paragraph p = new Paragraph();
+            p.setSpacingAfter(3);
+            p.add(new Chunk(DAY.format(date) + ":  ", BODY_BOLD));
+            p.add(new Chunk(String.join("; ", parts) + (parts.isEmpty() ? "" : "."), BODY));
+            for (String note : g.notes) {
+                p.add(Chunk.NEWLINE);
+                p.add(new Chunk("Note: " + note, SMALL));
+            }
+            try {
+                doc.add(p);
+            } catch (DocumentException e) {
+                throw new IllegalStateException(e);
+            }
+        });
+    }
+
+    /** Per day, what came back and what is reported missing (confirmed returns only), oldest first; days with nothing to say are left out. */
+    static TreeMap<LocalDate, DayGroup> returnDays(HandoffDetailResponse d) {
         Map<Long, HandoffItemResponse> byId = new HashMap<>();
         orEmpty(d.items()).forEach(i -> byId.put(i.id(), i));
 
@@ -297,41 +327,37 @@ public class HandoffPdfService {
             if (!note.isEmpty() && !g.notes.contains(note)) g.notes.add(note);
         }
         days.values().removeIf(DayGroup::isEmpty);
-        if (days.isEmpty()) return;
+        return days;
+    }
 
-        section(doc, w, "Return summary");
-        String missingWord = d.missingConfirmedAt() != null ? "confirmed missing" : "reported missing";
-        days.forEach((date, g) -> {
-            List<String> parts = new ArrayList<>();
-            if (g.returned.signum() > 0) {
-                parts.add(qty(g.returned) + (g.returned.compareTo(BigDecimal.ONE) == 0 ? " item returned" : " items returned"));
-            }
-            g.missing.forEach((item, q) -> parts.add(qty(q) + " " + item + " " + missingWord));
-            Paragraph p = new Paragraph();
-            p.setSpacingAfter(3);
-            p.add(new Chunk(DAY.format(date) + ":  ", BODY_BOLD));
-            p.add(new Chunk(String.join("; ", parts) + (parts.isEmpty() ? "" : "."), BODY));
-            for (String note : g.notes) {
-                p.add(Chunk.NEWLINE);
-                p.add(new Chunk("Note: " + note, SMALL));
-            }
-            try {
-                doc.add(p);
-            } catch (DocumentException e) {
-                throw new IllegalStateException(e);
-            }
-        });
+    /** "confirmed missing" once the recipient has confirmed it, "reported missing" before. */
+    static String missingWord(HandoffDetailResponse d) {
+        return d.missingConfirmedAt() != null ? "confirmed missing" : "reported missing";
+    }
+
+    /** What one day's line says: how many items came back and which were missing (the notes go on lines of their own). */
+    static List<String> dayParts(DayGroup g, String missingWord) {
+        List<String> parts = new ArrayList<>();
+        if (g.returned.signum() > 0) {
+            parts.add(qty(g.returned) + (g.returned.compareTo(BigDecimal.ONE) == 0 ? " item returned" : " items returned"));
+        }
+        g.missing.forEach((item, q) -> parts.add(qty(q) + " " + item + " " + missingWord));
+        return parts;
     }
 
     /** A compact line per kind of attachment — names only; nothing is embedded. */
     private static void attachments(Document doc, HandoffDetailResponse d) throws DocumentException {
-        List<String> evidence = new ArrayList<>();
-        List<String> reference = new ArrayList<>();
+        addAttachmentLine(doc, "Evidence attached", attachmentNames(d, false));
+        addAttachmentLine(doc, "Reference documents", attachmentNames(d, true));
+    }
+
+    /** The file names of the evidence (or of the reference documents). */
+    static List<String> attachmentNames(HandoffDetailResponse d, boolean referenceDocuments) {
+        List<String> names = new ArrayList<>();
         for (AttachmentResponse a : orEmpty(d.attachments())) {
-            (a.kind() == AttachmentKind.REFERENCE_DOCUMENT ? reference : evidence).add(clean(a.originalFilename()));
+            if ((a.kind() == AttachmentKind.REFERENCE_DOCUMENT) == referenceDocuments) names.add(clean(a.originalFilename()));
         }
-        addAttachmentLine(doc, "Evidence attached", evidence);
-        addAttachmentLine(doc, "Reference documents", reference);
+        return names;
     }
 
     private static void addAttachmentLine(Document doc, String label, List<String> names) throws DocumentException {
@@ -345,7 +371,7 @@ public class HandoffPdfService {
 
     // ----------------------------------------------------------- Per-item figures
 
-    private static final class DayGroup {
+    static final class DayGroup {
         BigDecimal returned = BigDecimal.ZERO;
         final Map<String, BigDecimal> missing = new LinkedHashMap<>();
         final List<String> notes = new ArrayList<>();
@@ -356,9 +382,9 @@ public class HandoffPdfService {
     }
 
     /** What actually came back for one item, by condition, and the notes recorded against those lines. */
-    private record ItemReturns(Map<ItemCondition, BigDecimal> byCondition, List<String> notes) {}
+    record ItemReturns(Map<ItemCondition, BigDecimal> byCondition, List<String> notes) {}
 
-    private static Map<Long, ItemReturns> confirmedReturns(HandoffDetailResponse d, Map<Long, HandoffItemResponse> items) {
+    static Map<Long, ItemReturns> confirmedReturns(HandoffDetailResponse d, Map<Long, HandoffItemResponse> items) {
         Map<Long, ItemReturns> out = new HashMap<>();
         for (ReturnEventResponse r : orEmpty(d.returns())) {
             if (!r.confirmed()) continue;
@@ -379,7 +405,7 @@ public class HandoffPdfService {
     }
 
     /** The condition of what came back; "Good 4, Damaged 2" when it differs; as-given if nothing returned yet. */
-    private static String conditionLabel(HandoffItemResponse i, ItemReturns ir) {
+    static String conditionLabel(HandoffItemResponse i, ItemReturns ir) {
         Map<ItemCondition, BigDecimal> by = ir == null ? Map.of() : ir.byCondition();
         if (by.isEmpty()) {
             boolean allMissing = signum(i.outgoing()) > 0 && i.missing() != null && i.missing().compareTo(i.outgoing()) == 0;
@@ -390,7 +416,7 @@ public class HandoffPdfService {
                 .collect(Collectors.joining(", "));
     }
 
-    private static String noteText(HandoffItemResponse i, ItemReturns ir) {
+    static String noteText(HandoffItemResponse i, ItemReturns ir) {
         List<String> notes = new ArrayList<>();
         if (!isBlank(i.notes())) notes.add(clean(i.notes()));
         if (ir != null) notes.addAll(ir.notes());
@@ -507,7 +533,7 @@ public class HandoffPdfService {
 
     // ----------------------------------------------------------------- Formatting
 
-    private static String identifiers(HandoffItemResponse i) {
+    static String identifiers(HandoffItemResponse i) {
         List<String> ids = new ArrayList<>();
         if (!isBlank(i.sku())) ids.add("SKU " + clean(i.sku()));
         if (!isBlank(i.serialNumber())) ids.add("Serial " + clean(i.serialNumber()));
@@ -515,24 +541,24 @@ public class HandoffPdfService {
         return String.join(" · ", ids);
     }
 
-    private static String qty(BigDecimal v) {
+    static String qty(BigDecimal v) {
         return v == null ? NONE : v.stripTrailingZeros().toPlainString();
     }
 
-    private static int signum(BigDecimal v) {
+    static int signum(BigDecimal v) {
         return v == null ? 0 : v.signum();
     }
 
     /** Date only, in UTC (the footer says so). */
-    private static String day(Instant at) {
+    static String day(Instant at) {
         return at == null ? NONE : DAY.format(at.atZone(ZoneOffset.UTC));
     }
 
-    private static <T> List<T> orEmpty(List<T> list) {
+    static <T> List<T> orEmpty(List<T> list) {
         return list == null ? List.of() : list;
     }
 
-    private static boolean isBlank(String s) {
+    static boolean isBlank(String s) {
         return s == null || s.isBlank();
     }
 
@@ -541,7 +567,7 @@ public class HandoffPdfService {
     }
 
     /** Drops control characters that would corrupt the layout; keeps line breaks as spaces. */
-    private static String clean(String s) {
+    static String clean(String s) {
         return s == null ? "" : s.replaceAll("[\\r\\n\\t]+", " ").replaceAll("\\p{Cntrl}", "").trim();
     }
 

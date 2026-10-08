@@ -254,6 +254,24 @@ export interface ReportQuery {
   sort?: string;
 }
 
+/** A ready-made question the Report Assistant offers as a shortcut (anything else can be typed), and the name the backend knows it by. */
+export interface ReportAssistantSuggestion { intent: string; question: string }
+
+/**
+ * The Report Assistant's answer. `answer` is the sentence to show; its figures and handoffs are the report's own for the handoffs `basis` names
+ * (all of them, or those created in the period the question named).
+ * UNSUPPORTED: the report cannot answer that. UNAVAILABLE: the AI was not available (the report itself is fine).
+ */
+export interface ReportAssistantAnswer {
+  kind: 'ANSWER' | 'UNSUPPORTED' | 'UNAVAILABLE';
+  answer: string;
+  basis?: string | null;
+  value?: number | null;
+  entries: { reference: string; title: string; recipient: string; detail: string }[];
+  entryTotal: number;
+  canRetry: boolean;
+}
+
 /** The reusable part of a handoff (the server decides what that is): what a duplicate starts from. */
 export interface HandoffTemplate {
   title: string;
@@ -407,7 +425,10 @@ export interface CompareInput {
   targetLabel?: string;
   targetLines?: DocLineInput[];
   targetFields?: DocFieldInput[];
+  /** Spellings the customer accepted as one item (from AI Assist): every line named `from`, in either file, is compared under `to`. */
+  nameMatches?: NameMatch[];
 }
+export interface NameMatch { from: string; to: string }
 export type MatchStatus = 'MATCH' | 'MISMATCH' | 'MISSING_IN_TARGET' | 'EXTRA_IN_TARGET';
 export interface CompareResult {
   referenceLabel: string;
@@ -417,7 +438,9 @@ export interface CompareResult {
     missingInTarget: number; extraInTarget: number; allMatch: boolean;
   };
   lines: {
-    name: string; referenceQuantity?: string | null; targetQuantity?: string | null;
+    /** The item's name for the comparison; `referenceName` / `targetName` are how a file wrote it when that differs (an accepted match). */
+    name: string; referenceName?: string | null; targetName?: string | null;
+    referenceQuantity?: string | null; targetQuantity?: string | null;
     difference?: string | null; status: MatchStatus;
   }[];
   fields: { label: string; referenceValue?: string | null; targetValue?: string | null; status: MatchStatus }[];
@@ -500,6 +523,43 @@ export interface SupportMessageInput {
   file?: File | null;
 }
 
+/** One column AI Assist suggests: where it is (0-based), its heading, how sure the AI says it is, why, and a few of its values. */
+export interface AiColumnSuggestion {
+  column: number;
+  columnName: string;
+  confidence: number;
+  reason: string;
+  sampleValues: string[];
+}
+
+/** AI Assist's answer. Only ever a suggestion: no lines, nothing read or stored. `available` is false whenever there is no usable one. */
+export interface AiMapping {
+  available: boolean;
+  message?: string | null;
+  item?: AiColumnSuggestion | null;
+  quantity?: AiColumnSuggestion | null;
+  headerRow?: number | null;
+  /** How many items the ordinary reading finds with these columns. */
+  itemsFound: number;
+  /** Asking again may well work (the provider was slow, or its answer was unusable). */
+  canRetry: boolean;
+}
+
+/** One suggested match of item names across the two files: `from` (in `fromFile`) is probably the same item as `to` (in `toFile`). */
+export interface AiItemMatch {
+  from: string; fromFile: string; to: string; toFile: string;
+  confidence: number;
+  /** False when the AI was less sure: shown as a possible match, never ticked for the customer. */
+  certain: boolean;
+  reason: string;
+}
+
+/** AI Assist's answer for item names. Only ever a suggestion: nothing is compared or changed. */
+export interface AiItemMatches { available: boolean; message?: string | null; matches: AiItemMatch[]; canRetry: boolean }
+
+/** Columns chosen for reading a spreadsheet (0-based; headerRow -1 = no heading row). */
+export interface ColumnChoice { itemColumn: number; quantityColumn: number; headerRow: number }
+
 /** An item list read from a file, to review before it is added to a new handoff. */
 export interface ItemImportPreview {
   fileName?: string | null;
@@ -517,7 +577,9 @@ export interface ApiError {
 
 export type JobType = 'RETURN_REMINDER' | 'OVERDUE_REMINDER' | 'MISSING_ITEM_REMINDER' | 'WEEKLY_SUMMARY'
   | 'RECIPIENT_RESPONSE_REMINDER';
-export type JobStatus = 'SENT' | 'NOTHING_TO_REPORT' | 'FAILED';
+/** SENT: every eligible handoff was in the one email. PARTIAL: it was sent, but without the handoffs that could not be prepared. FAILED: nothing was delivered. */
+export type JobStatus = 'SENT' | 'PARTIAL' | 'NOTHING_TO_REPORT' | 'FAILED';
+export type JobTrigger = 'SCHEDULED' | 'RUN_NOW' | 'RUN_ALL_NOW';
 
 /** One of the customer's jobs: how it is set up, its next runs, and how its latest run went. */
 export interface Job {
@@ -541,7 +603,28 @@ export interface JobRun {
   type: JobType;
   title: string;
   status: JobStatus;
+  /** The handoffs the run's one email told the customer about. */
   handoffs: string[];
   runAt: string;
   message?: string | null;
+  /** The handoffs that could not be included (or, when the email failed, were not delivered). */
+  failedHandoffs: string[];
+  /** The same one-line account of the run that the job's history shows. */
+  summary: string;
+}
+
+/** One run in the Job History: what happened, in one line (`summary`) and in structure. */
+export interface JobHistoryEntry {
+  id: number;
+  type: JobType;
+  title: string;
+  /** Null only for runs that were recorded before the history kept it. */
+  trigger?: JobTrigger | null;
+  runAt: string;
+  status: JobStatus;
+  summary: string;
+  successfulHandoffs: string[];
+  failedHandoffs: string[];
+  /** A safe sentence, never what went wrong inside. */
+  failureReason?: string | null;
 }

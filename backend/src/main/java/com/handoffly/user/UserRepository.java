@@ -8,6 +8,7 @@ import org.springframework.data.jpa.repository.Lock;
 import org.springframework.data.jpa.repository.Query;
 import org.springframework.data.repository.query.Param;
 
+import java.util.List;
 import java.util.Optional;
 
 public interface UserRepository extends JpaRepository<User, Long> {
@@ -26,6 +27,13 @@ public interface UserRepository extends JpaRepository<User, Long> {
     @Lock(LockModeType.PESSIMISTIC_WRITE)
     @Query("select u from User u where u.accountCode = :accountCode")
     Optional<User> findByAccountCodeForUpdate(@Param("accountCode") String accountCode);
+
+    /** Every handoff prefix some customer has now, in upper case (existing accounts may share one: HO). */
+    @Query("select distinct upper(u.handoffPrefix) from User u")
+    List<String> findCurrentHandoffPrefixes();
+
+    /** Whether a customer other than {@code id} has this prefix now, whatever its case. */
+    boolean existsByHandoffPrefixIgnoreCaseAndIdNot(String handoffPrefix, Long id);
 
     /** Customer search for support: account ID, name or email, case-insensitive ({@code like} is lower-case, wrapped in %). */
     @Query("select u from User u where lower(u.accountCode) like :like "

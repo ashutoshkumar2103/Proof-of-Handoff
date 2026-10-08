@@ -4,16 +4,19 @@ import com.handoffly.common.error.ApiException;
 import com.handoffly.common.error.BadRequestException;
 import com.handoffly.common.error.ConflictException;
 import com.handoffly.common.error.NotFoundException;
+import com.handoffly.common.sequence.SequenceService;
 import org.springframework.data.domain.Page;
 import org.springframework.data.domain.PageImpl;
 import org.springframework.data.domain.Pageable;
 import org.springframework.http.HttpStatus;
 import org.springframework.stereotype.Service;
+import org.springframework.transaction.annotation.Propagation;
 import org.springframework.transaction.annotation.Transactional;
 
 import java.time.Instant;
 import java.util.List;
 import java.util.Locale;
+import java.util.Set;
 import java.util.regex.Pattern;
 
 /**
@@ -44,16 +47,19 @@ public class UserService {
     /** The code, and the message, for a feature the customer's plan does not include (names the plans that do; keep in step with {@link SubscriptionPlan}). */
     public static final String PLAN_REQUIRED_CODE = "plan_required";
     public static final String HANDOFFCHECK_PLAN_MESSAGE = "HandoffCheck is available on Half-Yearly and Yearly plans.";
+    public static final String AI_ASSISTANT_PLAN_MESSAGE = "The AI Report Assistant is available on Half-Yearly and Yearly plans.";
 
     /** A complete Account ID (CUS-01, CUS-120 …); IDs are short, so a partial one is a "contains" search instead. */
     private static final Pattern FULL_ACCOUNT_ID = Pattern.compile("(?i)CUS-\\d{2,}");
 
     private final UserRepository userRepository;
     private final SubscriptionHistoryRepository history;
+    private final SequenceService sequences;
 
-    public UserService(UserRepository userRepository, SubscriptionHistoryRepository history) {
+    public UserService(UserRepository userRepository, SubscriptionHistoryRepository history, SequenceService sequences) {
         this.userRepository = userRepository;
         this.history = history;
+        this.sequences = sequences;
     }
 
     public User getById(Long id) {
@@ -97,6 +103,17 @@ public class UserService {
     }
 
     /**
+     * The AI features are offered on the plans that include HandoffCheck and no others — the same rule ({@link SubscriptionPlan#includesHandoffCheck}),
+     * not a second entitlement, so nothing is stored per customer and a plan change changes it at once. Refused like
+     * {@link #requireHandoffCheckPlan}, with its own wording, so the customer is told which feature the plan does not include.
+     */
+    public void requireAiAssistantPlan(User customer) {
+        if (!customer.entitledPlan().includesHandoffCheck()) {
+            throw new ApiException(HttpStatus.FORBIDDEN, PLAN_REQUIRED_CODE, AI_ASSISTANT_PLAN_MESSAGE);
+        }
+    }
+
+    /**
      * Loads the user with a row lock held until the caller's transaction ends. Used where a
      * per-account counter must be advanced safely (handoff numbering). Must run inside the caller's
      * read-write transaction.
@@ -125,14 +142,36 @@ public class UserService {
     }
 
     /**
+     * The default handoff prefix of a customer who is registering: made from the organization if they gave one, otherwise from their name
+     * ({@link HandoffPrefixes}: Siam Traders is ST, Rahul Kumar RK), and one that no customer has now — whatever its case — taking the
+     * next choice the rule gives when the first is taken. Chosen under the lock of the account counter, which every registration and every
+     * support prefix change holds until it commits, so two of them can never choose the same prefix; the caller must be registering in a
+     * transaction and give it to the new customer before it commits. Prefixes of existing customers are never touched.
+     */
+    @Transactional(propagation = Propagation.MANDATORY)
+    public String reserveDefaultHandoffPrefix(String organization, String displayName) {
+        sequences.lock(SequenceService.ACCOUNT);
+        Set<String> used = Set.copyOf(userRepository.findCurrentHandoffPrefixes());
+        String source = organization != null && !organization.isBlank() ? organization : displayName;
+        return HandoffPrefixes.firstFree(source, used);
+    }
+
+    /**
      * Sets the prefix that NEW handoffs of this customer get. Existing handoffs keep the reference
      * they were issued, and the customer's running number is untouched. Row-locked so it cannot
-     * interleave with that customer creating a handoff.
+     * interleave with that customer creating a handoff. No other customer may have the prefix now (compared without regard to case,
+     * under the same lock as {@link #reserveDefaultHandoffPrefix}); saying the customer's own prefix again is not a change.
      * @throws BadRequestException if the prefix is not 2-5 upper-case letters
+     * @throws ConflictException if another customer has the prefix
      */
     @Transactional
     public AccountChange changeHandoffPrefix(String accountCode, String prefix) {
         User customer = lockedCustomer(accountCode);
+        sequences.lock(SequenceService.ACCOUNT);
+        boolean sameAsNow = prefix != null && prefix.equalsIgnoreCase(customer.getHandoffPrefix());   // existing accounts share HO: asking for what one already has is no change
+        if (prefix != null && !sameAsNow && userRepository.existsByHandoffPrefixIgnoreCaseAndIdNot(prefix, customer.getId())) {
+            throw new ConflictException("The prefix " + prefix.toUpperCase(Locale.ROOT) + " is already used by another customer. Choose a different one.");
+        }
         String previous = customer.getHandoffPrefix();
         try {
             customer.changeHandoffPrefix(prefix);

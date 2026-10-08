@@ -22,6 +22,16 @@ public class SequenceService {
         this.counters = counters;
     }
 
+    /**
+     * Takes the counter's lock for the rest of the caller's transaction without taking a number, so that whatever the caller then decides
+     * about something that must be unique across accounts (a handoff prefix) is decided by one transaction at a time. The first thing the
+     * transaction should do: a read made before the lock may not see what the previous holder committed.
+     */
+    @Transactional(propagation = Propagation.MANDATORY)
+    public void lock(String name) {
+        counters.findForUpdateByName(name).orElseThrow(() -> new IllegalStateException("Sequence '" + name + "' is not configured."));
+    }
+
     @Transactional(propagation = Propagation.MANDATORY)
     public long next(String name) {
         return counters.findForUpdateByName(name)

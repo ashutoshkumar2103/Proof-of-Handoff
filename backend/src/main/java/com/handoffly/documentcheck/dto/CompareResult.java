@@ -18,9 +18,15 @@ public record CompareResult(
         EXTRA_IN_TARGET
     }
 
-    /** {@code difference} is target minus reference; null when the line is on one side only. */
+    /**
+     * {@code difference} is target minus reference; null when the line is on one side only. {@code name} is the item's name for the
+     * comparison; when a side wrote it differently (an accepted spelling match), {@code referenceName} / {@code targetName} keep that
+     * side's own spelling, and are null when it is the same.
+     */
     public record LineComparison(
             String name,
+            String referenceName,
+            String targetName,
             BigDecimal referenceQuantity,
             BigDecimal targetQuantity,
             BigDecimal difference,

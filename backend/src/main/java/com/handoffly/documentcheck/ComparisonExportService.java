@@ -90,7 +90,7 @@ public class ComparisonExportService {
         row(out, "Item", r.referenceLabel() + " quantity", r.targetLabel() + " quantity",
                 "Difference (" + r.targetLabel() + " minus " + r.referenceLabel() + ")", "Status");
         for (CompareResult.LineComparison l : r.lines()) {
-            row(out, safe(l.name()), number(l.referenceQuantity()), number(l.targetQuantity()), number(l.difference()),
+            row(out, safe(itemLabel(l, r)), number(l.referenceQuantity()), number(l.targetQuantity()), number(l.difference()),
                     statusText(l.status(), r.targetLabel()));
         }
         if (!r.fields().isEmpty()) {
@@ -175,7 +175,7 @@ public class ComparisonExportService {
                 lines.addCell(head(h, h.equals("ITEM") || h.equals("STATUS") ? Element.ALIGN_LEFT : Element.ALIGN_RIGHT));
             }
             for (CompareResult.LineComparison l : r.lines()) {
-                lines.addCell(cell(l.name(), BODY_BOLD, Element.ALIGN_LEFT));
+                lines.addCell(cell(itemLabel(l, r), BODY_BOLD, Element.ALIGN_LEFT));
                 lines.addCell(cell(number(l.referenceQuantity()), BODY, Element.ALIGN_RIGHT));
                 lines.addCell(cell(number(l.targetQuantity()), BODY, Element.ALIGN_RIGHT));
                 lines.addCell(cell(number(l.difference()), BODY, Element.ALIGN_RIGHT));
@@ -274,6 +274,16 @@ public class ComparisonExportService {
     }
 
     // ------------------------------------------------------------------ shared wording
+
+    /** The item's name, with how each file wrote it when they wrote it differently (an accepted spelling match). */
+    private static String itemLabel(CompareResult.LineComparison l, CompareResult r) {
+        if (l.referenceName() == null && l.targetName() == null) return l.name();
+        StringBuilder label = new StringBuilder(l.name()).append(" (");
+        if (l.referenceName() != null) label.append(r.referenceLabel()).append(": ").append(l.referenceName());
+        if (l.referenceName() != null && l.targetName() != null) label.append("; ");
+        if (l.targetName() != null) label.append(r.targetLabel()).append(": ").append(l.targetName());
+        return label.append(')').toString();
+    }
 
     private static String statusText(CompareResult.MatchStatus status, String targetLabel) {
         return switch (status) {

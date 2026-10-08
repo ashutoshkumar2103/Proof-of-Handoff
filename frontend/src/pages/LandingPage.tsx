@@ -43,7 +43,7 @@ const STEPS = [
   { n: 4, title: 'Confirm & close', text: 'Confirm any missing items, then close the handoff once everything is accounted for.' },
 ];
 
-const LIFECYCLE = ['Give', 'Acknowledge', 'Active with recipient', 'Return pending', 'Partial return', 'Full return', 'Closed'];
+const LIFECYCLE = ['Give', 'Acknowledge', 'Active with recipient', 'Partial return', 'Full return', 'Closed'];
 
 export function LandingPage() {
   const { user } = useAuth();

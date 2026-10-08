@@ -3,9 +3,11 @@ import { Link, useNavigate, useSearchParams } from 'react-router-dom';
 import { useMutation, useQuery } from '@tanstack/react-query';
 import { documentCheckApi, handoffApi } from '../api/endpoints';
 import type {
-  CompareInput, CompareResult, DocFieldInput, DocLineInput, ImportMatchState, MatchStatus, ReturnPrefill, SubscriptionPlan,
+  CompareInput, CompareResult, DocFieldInput, DocLineInput, ImportMatchState, MatchStatus, NameMatch, ReturnPrefill, SubscriptionPlan,
 } from '../api/types';
 import { ErrorNotice, Gated, Spinner, errorMessage, useTransient } from '../components/ui';
+import { AiColumnAssist } from '../components/AiColumnAssist';
+import { AiItemMatchAssist } from '../components/AiItemMatchAssist';
 import { UpgradePlans } from '../components/UpgradePlans';
 import { owed } from '../components/ReturnForm';
 import { isPlanRequired, saveBlob } from '../api/client';
@@ -236,6 +238,8 @@ interface Side { file: File | null; lines: DocLineInput[] | null; fields: DocFie
 const emptySide: Side = { file: null, lines: null, fields: [], error: null };
 const blankLine = (): DocLineInput => ({ name: '', quantity: '' });
 const SIDE_LABELS = ['File A', 'File B'] as const;
+/** The item names of a reviewed side: what AI Assist is asked about (names only, no quantities). */
+const itemNames = (s: Side) => (s.lines ?? []).map((l) => l.name.trim()).filter((n) => n !== '');
 type Step = 'upload' | 'review' | 'result';
 
 /**
@@ -247,6 +251,8 @@ function FileCompare({ handleRefusal }: { handleRefusal: HandleRefusal }) {
   const [sides, setSides] = useState<[Side, Side]>([emptySide, emptySide]);
   const [error, setError] = useState<string | null>(null);
   const [exporting, setExporting] = useState<'PDF' | 'CSV' | null>(null);
+  const [askNames, setAskNames] = useState(0);   // goes up each time the customer asks, from the result, for the item names to be checked
+  const [nameMatches, setNameMatches] = useState<NameMatch[]>([]);   // spellings the customer accepted as one item; the rows themselves are never changed
 
   const patchSide = (i: 0 | 1, p: Partial<Side>) =>
     setSides((s) => (i === 0 ? [{ ...s[0], ...p }, s[1]] : [s[0], { ...s[1], ...p }]));
@@ -284,6 +290,7 @@ function FileCompare({ handleRefusal }: { handleRefusal: HandleRefusal }) {
     compare.mutate({
       referenceLabel: SIDE_LABELS[0], referenceLines: rows(a), referenceFields: fields(a),
       targetLabel: SIDE_LABELS[1], targetLines: rows(b), targetFields: fields(b),
+      ...(nameMatches.length > 0 ? { nameMatches } : {}),
     });
   }
 
@@ -305,6 +312,8 @@ function FileCompare({ handleRefusal }: { handleRefusal: HandleRefusal }) {
 
   function reset() {
     setSides([emptySide, emptySide]);
+    setNameMatches([]);
+    setAskNames(0);
     setError(null);
     compare.reset();
     extract.reset();
@@ -348,10 +357,14 @@ function FileCompare({ handleRefusal }: { handleRefusal: HandleRefusal }) {
           <p className="muted" style={{ margin: 0 }}>
             Check what was read from each file. Fix any item or quantity, add or remove rows, then compare.
           </p>
+          {sides.every((s) => s.lines !== null) && (
+            <AiItemMatchAssist namesA={itemNames(sides[0])} namesB={itemNames(sides[1])} accepted={nameMatches} askNow={askNames}
+                               handleRefusal={handleRefusal} onAccept={setNameMatches} onClear={() => setNameMatches([])} />
+          )}
           <div className="field-row" style={{ alignItems: 'start' }}>
             {sides.map((s, i) => (
-              <ReviewSide key={i} title={`Review ${SIDE_LABELS[i]}`} side={s}
-                          onChange={(p) => patchSide(i as 0 | 1, p)} />
+              <ReviewSide key={i} title={`Review ${SIDE_LABELS[i]}`} side={s} nameMatches={nameMatches}
+                          onChange={(p) => patchSide(i as 0 | 1, p)} handleRefusal={handleRefusal} />
             ))}
           </div>
           <div className="row">
@@ -366,7 +379,8 @@ function FileCompare({ handleRefusal }: { handleRefusal: HandleRefusal }) {
 
       {step === 'result' && compare.data && (
         <>
-          <ResultView result={compare.data} fileNames={[sides[0].file?.name, sides[1].file?.name]} />
+          <ResultView result={compare.data} fileNames={[sides[0].file?.name, sides[1].file?.name]}
+                      onCheckNames={nameMatches.length === 0 ? () => { setAskNames((n) => n + 1); setStep('review'); } : undefined} />
           <div className="row">
             <button className="btn btn-primary" disabled={exporting !== null} onClick={() => download('PDF')}>
               {exporting === 'PDF' ? 'Preparing PDF…' : 'Download comparison PDF'}
@@ -417,11 +431,17 @@ function UploadZone({ label, fileName, disabled, onFile }: {
 }
 
 /** Editable view of what was read from one file; manual entry is offered only when reading failed. */
-function ReviewSide({ title, side, onChange }: { title: string; side: Side; onChange: (p: Partial<Side>) => void }) {
+function ReviewSide({ title, side, nameMatches, onChange, handleRefusal }: {
+  title: string; side: Side; nameMatches: NameMatch[]; onChange: (p: Partial<Side>) => void; handleRefusal: HandleRefusal;
+}) {
   return (
     <div className="card">
       <h2>{title}</h2>
       <p className="muted small">{side.file?.name}</p>
+      {side.file && (
+        <AiColumnAssist file={side.file} handleRefusal={handleRefusal}
+                        onAccepted={(lines) => onChange({ lines, error: null })} />
+      )}
       {side.lines === null ? (
         <>
           <div className="notice notice-error">Couldn't read this file: {side.error}</div>
@@ -432,7 +452,7 @@ function ReviewSide({ title, side, onChange }: { title: string; side: Side; onCh
         </>
       ) : (
         <>
-          <LinesEditor title="Items" lines={side.lines} onChange={(lines) => onChange({ lines })} />
+          <LinesEditor title="Items" lines={side.lines} nameMatches={nameMatches} onChange={(lines) => onChange({ lines })} />
           <FieldsEditor title="Fields" fields={side.fields} onChange={(fields) => onChange({ fields })} />
         </>
       )}
@@ -440,18 +460,25 @@ function ReviewSide({ title, side, onChange }: { title: string; side: Side; onCh
   );
 }
 
-function LinesEditor({ title, lines, onChange }: { title: string; lines: DocLineInput[]; onChange: (l: DocLineInput[]) => void }) {
+function LinesEditor({ title, lines, nameMatches, onChange }: {
+  title: string; lines: DocLineInput[]; nameMatches: NameMatch[]; onChange: (l: DocLineInput[]) => void;
+}) {
   const set = (i: number, p: Partial<DocLineInput>) => onChange(lines.map((l, idx) => idx === i ? { ...l, ...p } : l));
+  /** The name an accepted match makes this row be compared under (the row itself keeps what was read or typed). */
+  const comparedAs = (name: string) => nameMatches.find((m) => m.from === name.trim())?.to;
   return (
     <div className="mt-2">
       <div className="card-header"><h3>{title}</h3>
         <button type="button" className="btn btn-sm" onClick={() => onChange([...lines, blankLine()])}>+ Row</button></div>
       {lines.map((l, i) => (
-        <div key={i} className="row" style={{ marginBottom: 6 }}>
-          <input placeholder="Item name" value={l.name} onChange={(e) => set(i, { name: e.target.value })} className="grow" />
-          <input placeholder="Qty" type="number" step="0.001" value={l.quantity ?? ''} style={{ width: 90 }}
-                 onChange={(e) => set(i, { quantity: e.target.value })} />
-          {lines.length > 1 && <button type="button" className="btn btn-sm btn-ghost" onClick={() => onChange(lines.filter((_, idx) => idx !== i))}>×</button>}
+        <div key={i} style={{ marginBottom: 6 }}>
+          <div className="row">
+            <input placeholder="Item name" value={l.name} onChange={(e) => set(i, { name: e.target.value })} className="grow" />
+            <input placeholder="Qty" type="number" step="0.001" value={l.quantity ?? ''} style={{ width: 90 }}
+                   onChange={(e) => set(i, { quantity: e.target.value })} />
+            {lines.length > 1 && <button type="button" className="btn btn-sm btn-ghost" onClick={() => onChange(lines.filter((_, idx) => idx !== i))}>×</button>}
+          </div>
+          {comparedAs(l.name) && <div className="small muted" style={{ marginTop: 2 }}>Compared as “{comparedAs(l.name)}”</div>}
         </div>
       ))}
     </div>
@@ -488,7 +515,7 @@ function StatusChip({ status }: { status: MatchStatus }) {
 /** Target minus reference, signed, so a shortfall reads as -5. */
 const signed = (d?: string | null) => (d == null ? '—' : Number(d) > 0 ? `+${qty(String(d))}` : qty(String(d)));
 
-function ResultView({ result, fileNames }: { result: CompareResult; fileNames?: (string | undefined)[] }) {
+function ResultView({ result, fileNames, onCheckNames }: { result: CompareResult; fileNames?: (string | undefined)[]; onCheckNames?: () => void }) {
   const s = result.summary;
   const named = (label: string, i: number) => (fileNames?.[i] ? `${label} (${fileNames[i]})` : label);
   return (
@@ -500,6 +527,12 @@ function ResultView({ result, fileNames }: { result: CompareResult; fileNames?: 
           : <span className="badge badge-danger">{s.mismatched + s.missingInTarget + s.extraInTarget} difference(s)</span>}
       </div>
       <p className="muted small" style={{ marginBottom: 6 }}>{named(result.referenceLabel, 0)} vs {named(result.targetLabel, 1)}</p>
+      {onCheckNames && s.missingInTarget > 0 && s.extraInTarget > 0 && (
+        <div className="notice notice-info small" style={{ marginBottom: 8 }}>
+          Some Missing and Extra rows may be the same item spelled differently (for example “Exam Pad” and “Exam Ped”).{' '}
+          <button type="button" className="btn btn-sm btn-primary" onClick={onCheckNames}>AI Assist: match item names</button>
+        </div>
+      )}
       <div className="row small" style={{ marginBottom: 8 }}>
         <span className="badge badge-success">Matches {s.matched}</span>
         <span className="badge badge-danger">Mismatches {s.mismatched}</span>
@@ -512,7 +545,16 @@ function ResultView({ result, fileNames }: { result: CompareResult; fileNames?: 
           <tbody>
             {result.lines.map((l, i) => (
               <tr key={i}>
-                <td>{l.name}</td>
+                <td>
+                  {l.name}
+                  {(l.referenceName || l.targetName) && (
+                    <div className="small muted">
+                      {l.referenceName && <>{result.referenceLabel}: {l.referenceName}</>}
+                      {l.referenceName && l.targetName && ' · '}
+                      {l.targetName && <>{result.targetLabel}: {l.targetName}</>}
+                    </div>
+                  )}
+                </td>
                 <td className="num">{l.referenceQuantity != null ? qty(l.referenceQuantity) : '—'}</td>
                 <td className="num">{l.targetQuantity != null ? qty(l.targetQuantity) : '—'}</td>
                 <td className="num">{signed(l.difference)}</td>

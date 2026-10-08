@@ -8,7 +8,7 @@ returned. Returns are entered against that same handoff, so the system always kn
 what is still outstanding.
 
 ```
-Give → Acknowledge → Active With Recipient → Return Pending → Partial Return(s) → Full Return → Closed
+Give → Acknowledge → Active With Recipient → Partial Return(s) → Full Return → Closed
 ```
 
 It is **not** an inventory system. One generic handoff engine serves every domain —
@@ -175,8 +175,10 @@ template is used and a warning is logged.
 
 ## Proof-of-Handoff PDF
 
-On a handoff's detail page (any status except draft) **Download PDF**, **Share** and
-**Email PDF** produce the record on demand from live server data (nothing is stored). It
+On a handoff's detail page **Download PDF** and **Download Excel** are available in every status, a draft included; **Share** and
+**Email PDF** are for a handoff that has been sent. All produce the record on demand from live server data (nothing is stored). The Excel
+file is the same single page as the PDF — heading and reference, parties, items, summary, return summary, attachments — built from the same
+values; it is one handoff's record, not a report, and its text is never evaluated as a formula. It
 lists the handoff, parties, acknowledgement, items, full return history, final summary,
 lifecycle events and attachments (names only). A closed handoff is labelled **FINAL RECORD**;
 any other status is labelled **INTERIM RECORD — NOT FINAL** with its current status. All times
@@ -188,12 +190,16 @@ sharing files, and otherwise downloads the PDF.
 **Account ID.** Every customer has a permanent Account ID such as `CUS-42`, shown on their
 dashboard; support finds customers by it. The internal numeric id is never shown.
 
-**Handoff references are numbered per customer.** Each customer's handoffs count up from 1 under
-their own prefix — `HO-1, HO-2, …` by default, `AV-1, AV-2, …` once support sets the prefix `AV`.
-Two customers can both have an `AV-1`; the internal database ids stay globally unique and are what
+**Handoff references are numbered per customer, under a prefix that is the customer's own.** A new customer is given a prefix when they
+register, made from their organization (or, without one, their name): Siam Traders gets `ST`, Rahul Kumar `RK`, ABC Solutions `AS`, a single name such
+as Flipkart `FL`. No two customers have the same prefix (compared without regard to case): when the first choice is taken the next one of a fixed order is
+used — Siam Technologies, after Siam Traders, gets `SI` — and only when every two-letter prefix is in use does a new customer get three letters. The
+customer is never asked for one, and it is shown on their Account page. Support can still set another with *Change prefix*, and it is refused if another
+customer has it. Each customer's handoffs count up from 1 under that prefix — `ST-1, ST-2, …`, `RK-1, RK-2, …`. Accounts that existed before this rule keep
+the prefix they had (all of them `HO`) and the references they were given; nothing was rewritten. The internal database ids stay globally unique and are what
 the API addresses a handoff by. Numbers never restart: changing a prefix only affects *new* handoffs and
 carries on from the customer's current number, and numbers are issued under a row lock so concurrent
-creation can never repeat one. A prefix is 2–5 capital letters.
+creation can never repeat one. A prefix is 2–5 capital letters. The prefix is chosen (and a support change checked) under the lock of the account counter, so two customers registering at the same moment can never be given the same one.
 
 **Plans.** A new account has **no plan** until one is paid for (below) or support staff activate it; it is never
 silently put on `MONTHLY`. What a plan includes is derived from the plan alone — nobody edits
@@ -215,6 +221,50 @@ the API refuses its endpoints (compare, read a file, export, compare two files) 
 updates on the next check of the account, and the HandoffCheck page checks it when it opens and every 30 seconds after.
 Importing items into a new handoff and importing a returns file also read files with HandoffCheck's reader, but they belong to
 *New handoff* and *Returns* and work on every plan.
+
+**AI Assist (optional, HandoffCheck only).** On the review step of a CSV or Excel file, **AI Assist** asks Google Gemini which columns hold
+the item and the quantity — useful when the headings are unusual and the ordinary reading picks the wrong column. Only when the customer
+clicks it; only a few sanitized sample rows are sent (first 8 rows, 12 columns, cells cut to 40 characters, emails and phone numbers hidden,
+no file name or account details). It returns a *suggestion* the customer accepts or rejects; accepting re-reads the file with the ordinary
+reader using those columns, so every rule about the rows and the comparison is the existing code. If AI is off, unreachable, over quota or
+answers badly, a short note says so and HandoffCheck works exactly as before. It follows the HandoffCheck plans (Half-Yearly and Yearly)
+and is limited per customer (`RATE_LIMIT_AI_ASSIST_PER_USER`, default 30 an hour, shared by every AI feature). Set `GEMINI_API_KEY` in `.env.local` (never in the
+browser app or Git; blank = off); `GEMINI_MODEL` defaults to `gemini-3.1-flash-lite`, asked without "thinking" so it answers in a few seconds.
+An attempt is given up after `GEMINI_TIMEOUT_SECONDS` (30; Google's free endpoint answers in 2 to 25 seconds, depending on its load) and a timeout or an overload is tried once more; after a slow or unusable answer the panel
+offers **Try again**.
+
+**AI Assist for item names (optional, HandoffCheck only).** Two files rarely spell every item the same way: "Exam Pad" and "Exam Ped", "10th Science
+Book" and "10th Senence Book", "History Book" and "History Books" are one item, but the comparison (which only ignores case and punctuation) would show
+each as a Missing and an Extra. On the review step of two files, **AI Assist: match item names** (the first card on that step; the result screen offers it too when it shows Missing and Extra rows) finds the
+names of File A and File B that are spelled almost alike — by a fixed rule, not by the AI — and asks Gemini, in one request with the names only (never
+quantities, files or account details), whether each such pair is the same item or two different words. Each suggestion shows the name in one file, the
+name in the other, how sure the AI is and why; the likely ones are ticked, a less sure one is labelled *Possible match* and left unticked. Nothing changes
+until **Accept**: the rows stay exactly as they were read (and stay editable); the accepted names are only *compared as* one item, shown under the row
+("Compared as “Exam Pad”"), and **Undo** or **Reject** leaves everything as it was. The result then has one row per item with both quantities side by
+side — "Exam Pad · 6 · 2 · -4 · Mismatch", with how File B spelled it under the name, in the PDF/CSV too — and Missing / Extra stay for items that are
+really in one file only. The AI never decides Match, Mismatch, Missing or Extra: the existing comparison does, with the accepted names. The AI cannot
+over-match: only pairs that pass a fixed check (`ItemNameVariation`) are ever put to it — a typing mistake in one word (the same first letter, at most
+one or two letters), a plural, spacing or capitals; never a different word ("Science Book"/"History Book", "Chair"/"Table", "Laptop"/"Laptop Bag"),
+never a different number or size ("Chair 1"/"Chair 2", "10th"/"9th") — and it can only confirm or refuse them, never bring a pair of its own. Same plans, same limit, same key
+and same "AI unavailable" note as the column suggestion; works the same for CSV, Excel and PDF, since it works on the reviewed rows.
+
+**AI Report Assistant (Quotation List and Summary Report; Half-Yearly and Yearly).** The **Ask AI Reports** button, on both views of Reports, opens a box to ask anything about
+your handoffs in your own words ("How many total overdue items are there?", "Which handoff has the most missing items?", "Which recipient has the most
+active handoffs?"); the ready-made questions below the box are only examples. The AI turns the question into a small structured request — what to
+measure (handoffs, items given / returned / missing / still out), what to do with it (a total, a list, the one with the most), over which handoffs
+(all, overdue, open, closed, active, with missing items, ...) and grouped how (per handoff or per recipient) — choosing each part from a fixed
+list; it is shown the question text and nothing else, no report data. The backend checks the request against those lists and works the answer out
+from the report's own rows — **all of your handoffs**, whatever the page behind the box is showing, unless the question names a period
+("missing items between 1 Oct and 10 Oct", "this month", "since March"), which is matched against when handoffs were created, like the report's own period — then puts the figures into a
+fixed sentence and shows the handoffs it came from, so the AI can neither invent nor change a number. "Overdue items" are the items not yet returned
+on overdue handoffs (the answer also says how many were handed over on them). A question about data the report does not have ("What was my
+profit?") gets "I can't answer that from the available report data." It is read-only. The ready-made questions use no AI, so they work even when
+it is unavailable; if the AI is unavailable the report itself is unaffected.
+
+**PDFs in HandoffCheck.** HandOffly's own Proof-of-Handoff PDF is read by its item table only — each item and the quantity under *Given*; the
+header, parties, dates, summary, footer and page numbers are never items. Any other PDF is read line by line, and a line that is a date, a page
+marker, a footer or a labelled field ("Reference: AK-1") is never an item. If a PDF's items cannot be read for sure there are no rows, and
+the rows are entered by hand in the review step. AI Assist is for CSV and Excel only (a PDF has no columns to choose).
 A `QUARTERLY` customer's **Contact Support** page is a simple message form (subject, message, optional handoff
 reference and attachment): support receives it as a ticket and replies by email, but the customer has no ticket list
 and cannot reply in the app (the backend refuses the ticket endpoints for them). Priority is a ranking for the support
@@ -321,8 +371,10 @@ account. With `MAIL_PROVIDER=logging` the link is written to the backend log ins
 
 ### Reports
 
-**Reports** (top menu) is a read-only view of how the handoffs created in a period are doing — the deeper, historical companion to the
-Dashboard, which stays the quick view of what needs attention now. Pick *Today*, *This week* (Monday to Sunday), *This month*, *Last
+**Reports** (a top-menu dropdown) is a read-only view of how the handoffs created in a period are doing — the deeper, historical companion to the
+Dashboard, which stays the quick view of what needs attention now. It has two views, each with the same period controls: the **Quotation List**
+(`/reports`: the handoffs themselves, with the status filter, sorting, paging and CSV) and the **Summary Report** (`/reports/summary`: the totals, and
+the Ask AI Reports assistant). Pick *Today*, *This week* (Monday to Sunday), *This month*, *Last
 month*, *This quarter* or a *Custom range* of two dates (both days included). The period is matched against the date each handoff was
 **created** — the one date every handoff has, drafts included — as whole calendar days in the browser's time zone, which the CSV
 states; nothing is mixed between zones. The **summary** covers every handoff created in the period, whatever its status:
@@ -353,8 +405,13 @@ schedule (a six-field cron expression — second minute hour day-of-month month 
 | Recipient Response Reminder | handoffs sent to a recipient who has neither accepted nor declined after 24 hours (it stops by itself once they respond) |
 
 A run sends **one** email (or none if there is nothing to say), with the job's name as a bold heading. **Run now** runs one job
-without touching its schedule or whether it is on; **RUN ALL NOW** runs the customer's five jobs once. A table shows how each
-job's latest run went. A schedule is validated when saved: it must be a real cron expression in a real timezone, must run,
+without touching its schedule or whether it is on; **RUN ALL NOW** runs the customer's five jobs once (each job is its own run).
+Every run adds one row to **Jobs Monitoring History** (Account → Jobs Monitoring History), kept for good: when it ran, what started
+it (scheduled, Run Now or Run All Now) and a one-line result — *Successfully sent for …*, *Partial success — Successfully sent for
+…; Failed for …: reason*, *Nothing to report* or *Failed — reason*. The email only ever contains the handoffs that could be
+prepared for it; a handoff that could not be is named in the history, never in the email, and is tried again at the next run (the
+handoffs the partial run already sent are left out of that one retry). If the email itself cannot be sent, nothing counts as sent and
+the run is **Failed**. A schedule is validated when saved: it must be a real cron expression in a real timezone, must run,
 and may not run more often than once an hour (`JOBS_MIN_INTERVAL_MINUTES`). The background ticker is switched off with
 `JOBS_SCHEDULER_ENABLED=false`.
 
@@ -489,12 +546,13 @@ so IDs stay unique and still point at the same account, ticket or staff member. 
 `V15` only adds the `payment` table (nothing existing is touched). The demo payment page stays off until you set
 `PAYMENT_DEMO_ENABLED=true`.
 
-`V16`–`V20` are additive too. `V16` adds the password-reset table and a per-account token version (so a password change can end
+`V16`–`V21` are additive too. `V16` adds the password-reset table and a per-account token version (so a password change can end
 older sessions); `V17` adds `plan_started_at` / `plan_valid_until` (NULL for everyone existing — no end date, nothing changes) and
 the `subscription_history` table, filled only from plan changes and payments that really happened; `V18` adds `customer_job`
 (nobody has a job until they open Account → Jobs, and jobs start off); `V19` adds `support_job` and
 `subscription_expiry_reminder`; `V20` only relaxes two constraints — an account may have no plan, and a payment may record that it replaced
-none — and rewrites nothing, so every existing account keeps its plan and dates. No customer, handoff, return, attachment or audit row is changed or removed. These were applied
+none — and rewrites nothing, so every existing account keeps its plan and dates; `V21` adds the append-only `customer_job_run` table
+(the job history) and copies each job's existing latest run into it as its first row. No customer, handoff, return, attachment or audit row is changed or removed. These were applied
 to a real MySQL 8.0 database loaded with legacy-shaped data (V15 schema) and checked afterwards. **Restart the backend to apply
 them**; everyone signs in again once, because customer tokens now carry the account's token version.
 
@@ -539,7 +597,7 @@ cd support-portal && npm run build    # support portal: type-check + build
 | Returns | `POST /handoffs/{id}/returns`, `POST /handoffs/{id}/returns/{rid}/confirm` |
 | Attachments | `GET/POST /handoffs/{id}/attachments`, `GET .../{aid}/content`, `DELETE` |
 | Events | `GET /handoffs/{id}/events` |
-| PDF | `GET /handoffs/{id}/pdf` (`application/pdf`), `POST /handoffs/{id}/email-pdf` (`{ "to"? }`) |
+| PDF / Excel | `GET /handoffs/{id}/pdf` (`application/pdf`), `GET /handoffs/{id}/excel` (`.xlsx`), `POST /handoffs/{id}/email-pdf` (`{ "to"? }`) |
 | Recipient (public) | `GET /api/v1/r/{token}`, `POST /r/{token}/accept` · `/reject` · `/returns` |
 | HandoffCheck (Half-Yearly and Yearly) | `POST /api/v1/handoff-check`, `POST /handoff-check/extract` · `/compare-files` · `/export?format=PDF\|CSV` |
 | File imports (every plan) | `POST /api/v1/handoff-check/import-items` (CSV/XLSX → rows to review, for New handoff), `POST /handoff-check/return-import` (a returns file, for Returns) |

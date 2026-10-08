@@ -43,10 +43,12 @@ public class HandoffController {
 
     private final HandoffService handoffService;
     private final HandoffPdfService pdfService;
+    private final HandoffExcelService excelService;
 
-    public HandoffController(HandoffService handoffService, HandoffPdfService pdfService) {
+    public HandoffController(HandoffService handoffService, HandoffPdfService pdfService, HandoffExcelService excelService) {
         this.handoffService = handoffService;
         this.pdfService = pdfService;
+        this.excelService = excelService;
     }
 
     @PostMapping
@@ -99,6 +101,20 @@ public class HandoffController {
                         ContentDisposition.attachment().filename(file.filename()).build().toString())
                 .cacheControl(CacheControl.noStore())
                 .contentType(MediaType.APPLICATION_PDF)
+                .contentLength(file.content().length)
+                .body(file.content());
+    }
+
+    /** The same record as an Excel workbook, generated on demand in any status (never stored). */
+    @GetMapping("/{id}/excel")
+    public ResponseEntity<byte[]> excel(@AuthenticationPrincipal UserPrincipal principal,
+                                        @PathVariable Long id) {
+        HandoffExcelService.ExcelFile file = excelService.generate(principal.id(), id);
+        return ResponseEntity.ok()
+                .header(HttpHeaders.CONTENT_DISPOSITION,
+                        ContentDisposition.attachment().filename(file.filename()).build().toString())
+                .cacheControl(CacheControl.noStore())
+                .contentType(MediaType.parseMediaType(HandoffExcelService.CONTENT_TYPE))
                 .contentLength(file.content().length)
                 .body(file.content());
     }

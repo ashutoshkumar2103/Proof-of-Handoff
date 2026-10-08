@@ -5,9 +5,11 @@ import com.handoffly.notification.EmailMessage;
 import com.handoffly.testsupport.ApiTestBase;
 import com.jayway.jsonpath.JsonPath;
 import org.junit.jupiter.api.Test;
+import org.mockito.Mockito;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.dao.DataIntegrityViolationException;
 import org.springframework.http.MediaType;
+import org.springframework.test.context.bean.override.mockito.MockitoSpyBean;
 
 import java.time.Duration;
 import java.time.Instant;
@@ -17,9 +19,11 @@ import java.time.LocalDate;
 import java.time.temporal.ChronoUnit;
 import java.util.List;
 import java.util.Map;
+import java.util.Set;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
+import static org.mockito.Mockito.doAnswer;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.put;
@@ -33,7 +37,8 @@ class CustomerJobTest extends ApiTestBase {
 
     @Autowired
     private CustomerJobService jobService;
-    @Autowired
+    /** The real service, watched, so a test can make one handoff's line impossible to prepare (see {@link #breakLinesOf}). */
+    @MockitoSpyBean
     private HandoffActivityService activity;
 
     // ------------------------------------------------------------------ helpers
@@ -403,8 +408,12 @@ class CustomerJobTest extends ApiTestBase {
     @Test
     void onlyHandoffsWithItemsStillOutAreInTheReturnAndOverdueReminders() throws Exception {
         Account a = register();
-        String tomorrow = utc(10, 3, 12, 0).toString();
-        String longAgo = Instant.now().minus(5, ChronoUnit.DAYS).toString();
+        // One fixed calendar, independent of today's date. overdue() reads the real clock inside the application, so the two sides sit
+        // far apart on either side of any real date: 'tomorrow' is the 3rd of January 2099 (never yet due, however long this suite
+        // lives) and 'long ago' is a fixed day in 2020 (always past). returnsDueSoon takes its 'now' as an argument: the 2nd of January 2099.
+        Instant reference = Instant.parse("2099-01-02T08:00:00Z");
+        String tomorrow = Instant.parse("2099-01-03T12:00:00Z").toString();
+        String longAgo = Instant.parse("2020-01-01T12:00:00Z").toString();
         for (String due : new String[]{tomorrow, longAgo}) {
             for (String stage : new String[]{"DRAFT", "AWAITING", "CANCELLED", "RETURNED", "CLOSED"}) {
                 handoffAt(a, stage, due);   // none of these may ever be reminded about
@@ -415,11 +424,11 @@ class CustomerJobTest extends ApiTestBase {
         String activeLate = handoffAt(a, "ACTIVE", longAgo);
         String partialLate = handoffAt(a, "PARTIAL", longAgo);
 
-        assertThat(codes(activity.returnsDueSoon(a.id(), utc(10, 2, 8, 0), ZoneOffset.UTC, 2))).containsExactly(activeSoon, partialSoon);
+        assertThat(codes(activity.returnsDueSoon(a.id(), reference, ZoneOffset.UTC, 2))).containsExactly(activeSoon, partialSoon);
         assertThat(codes(activity.overdue(a.id()))).containsExactly(activeLate, partialLate);
         // A handoff that is overdue is never in the return reminder, and one that is not yet due is never overdue.
         assertThat(codes(activity.overdue(a.id()))).doesNotContain(activeSoon, partialSoon);
-        assertThat(codes(activity.returnsDueSoon(a.id(), Instant.now(), ZoneOffset.UTC, 2))).doesNotContain(activeLate, partialLate);
+        assertThat(codes(activity.returnsDueSoon(a.id(), reference, ZoneOffset.UTC, 2))).doesNotContain(activeLate, partialLate);
     }
 
     @Test
@@ -817,5 +826,281 @@ class CustomerJobTest extends ApiTestBase {
         jobService.runDue(due.plusSeconds(5));
         jobService.runDue(due.plusSeconds(5));
         assertThat(mailTo(a)).hasSize(1);
+    }
+
+    // ------------------------------------------------------------------ one run = one history row, with its successes and failures
+
+    private static final JobType OVERDUE = JobType.OVERDUE_REMINDER;
+
+    /** An overdue handoff of this customer; returns its public code. */
+    private String overdueHandoff(Account owner, String title) throws Exception {
+        return codeOf(owner, activeHandoff(owner, title, Instant.now().minus(3, ChronoUnit.DAYS).toString()));
+    }
+
+    /**
+     * Makes the line of each of these handoffs, in this customer's overdue reminder, impossible to prepare (its figures are missing)
+     * while every other handoff, and every other customer, is read as usual.
+     */
+    @SuppressWarnings("unchecked")
+    private void breakLinesOf(Account owner, String... codes) {
+        Set<String> broken = Set.of(codes);
+        doAnswer(call -> ((List<HandoffActivityService.ReminderLine>) call.callRealMethod()).stream()
+                .map(l -> broken.contains(l.reference())
+                        ? new HandoffActivityService.ReminderLine(l.reference(), l.title(), l.recipientName(), l.dueAt(), null, l.missing())
+                        : l)
+                .toList()).when(activity).overdue(owner.id());
+    }
+
+    private String history(Account who) throws Exception {
+        return json(who, JOBS + "/history");
+    }
+
+    @Test
+    @SuppressWarnings("unchecked")
+    void whenEveryEligibleHandoffIsSentTheRunIsOneEmailAndOneSuccessRow() throws Exception {
+        Account a = register();
+        List<String> codes = List.of(overdueHandoff(a, "Alpha"), overdueHandoff(a, "Bravo"), overdueHandoff(a, "Charlie"));
+
+        String result = run(a, OVERDUE);
+
+        assertThat((Object) JsonPath.read(result, "$.status")).isEqualTo("SENT");
+        assertThat(mailTo(a)).hasSize(1);
+        assertThat(mailTo(a).get(0).textBody()).contains("Alpha", "Bravo", "Charlie");
+        String h = history(a);
+        assertThat((Object) JsonPath.read(h, "$.totalElements")).isEqualTo(1);
+        assertThat((Object) JsonPath.read(h, "$.content[0].status")).isEqualTo("SENT");
+        assertThat((Object) JsonPath.read(h, "$.content[0].summary")).isEqualTo("Successfully sent for " + String.join(", ", codes));
+        assertThat((List<String>) JsonPath.read(h, "$.content[0].successfulHandoffs")).containsExactlyElementsOf(codes);
+        assertThat((List<String>) JsonPath.read(h, "$.content[0].failedHandoffs")).isEmpty();
+        assertThat((Object) JsonPath.read(h, "$.content[0].failureReason")).isNull();
+    }
+
+    @Test
+    @SuppressWarnings("unchecked")
+    void aPartialRunSendsOneEmailWithTheSuccessfulHandoffsOnlyAndRecordsBothSides() throws Exception {
+        Account a = register();
+        String one = overdueHandoff(a, "Alpha");
+        String two = overdueHandoff(a, "Bravo");
+        String three = overdueHandoff(a, "Charlie");
+        String four = overdueHandoff(a, "Delta");
+        breakLinesOf(a, three, four);
+
+        String result = run(a, OVERDUE);
+
+        // The one email has the two that could be prepared and says nothing of the others, nor of what went wrong.
+        assertThat(mailTo(a)).hasSize(1);
+        EmailMessage mail = mailTo(a).get(0);
+        assertThat(mail.textBody()).contains("Alpha", "Bravo", one, two)
+                .doesNotContain("Charlie", "Delta", three, four, "BigDecimal", "NullPointer", "Exception");
+        assertThat(mail.htmlBody()).doesNotContain("Charlie", "Delta", three, four);
+
+        // The run's own answer and its one history row keep both outcomes together.
+        assertThat((Object) JsonPath.read(result, "$.status")).isEqualTo("PARTIAL");
+        assertThat((List<String>) JsonPath.read(result, "$.handoffs")).containsExactly(one, two);
+        assertThat((List<String>) JsonPath.read(result, "$.failedHandoffs")).containsExactly(three, four);
+        String h = history(a);
+        assertThat((Object) JsonPath.read(h, "$.totalElements")).isEqualTo(1);
+        assertThat((Object) JsonPath.read(h, "$.content[0].status")).isEqualTo("PARTIAL");
+        assertThat((List<String>) JsonPath.read(h, "$.content[0].successfulHandoffs")).containsExactly(one, two);
+        assertThat((List<String>) JsonPath.read(h, "$.content[0].failedHandoffs")).containsExactly(three, four);
+        String summary = JsonPath.read(h, "$.content[0].summary");
+        assertThat(summary).startsWith("Partial success — Successfully sent for " + one + ", " + two
+                + "; Failed for " + three + ", " + four + ": ");
+        // The reason is a safe sentence, never what went wrong inside.
+        String reason = JsonPath.read(h, "$.content[0].failureReason");
+        assertThat(reason).isNotBlank().doesNotContain("BigDecimal", "NullPointer", "Exception", "java.", "null");
+        assertThat(summary).endsWith(reason);
+        // The Jobs page's view of the latest run agrees.
+        String row = job(a, OVERDUE).toString();
+        assertThat((Object) JsonPath.read(row, "$[0].lastStatus")).isEqualTo("PARTIAL");
+        assertThat((List<String>) JsonPath.read(row, "$[0].lastHandoffs")).containsExactly(one, two);
+        assertThat((String) JsonPath.read(row, "$[0].lastDetail")).startsWith("Failed for " + three + ", " + four + ": ");
+    }
+
+    @Test
+    @SuppressWarnings("unchecked")
+    void ifTheOneEmailCannotBeSentTheWholeRunFailsAndNothingCountsAsDelivered() throws Exception {
+        Account a = register();
+        String one = overdueHandoff(a, "Alpha");
+        String two = overdueHandoff(a, "Bravo");
+        String three = overdueHandoff(a, "Charlie");
+        breakLinesOf(a, three);
+        String result;
+        emailSender.setFailing(true);
+        try {
+            result = run(a, OVERDUE);
+        } finally {
+            emailSender.setFailing(false);
+        }
+
+        // Not "partial": the two that were ready were not delivered either.
+        assertThat((Object) JsonPath.read(result, "$.status")).isEqualTo("FAILED");
+        assertThat((List<String>) JsonPath.read(result, "$.handoffs")).isEmpty();
+        assertThat(mailTo(a)).isEmpty();
+        String h = history(a);
+        assertThat((Object) JsonPath.read(h, "$.totalElements")).isEqualTo(1);
+        assertThat((Object) JsonPath.read(h, "$.content[0].status")).isEqualTo("FAILED");
+        assertThat((List<String>) JsonPath.read(h, "$.content[0].successfulHandoffs")).isEmpty();
+        assertThat((List<String>) JsonPath.read(h, "$.content[0].failedHandoffs")).containsExactly(one, two, three);
+        String summary = JsonPath.read(h, "$.content[0].summary");
+        assertThat(summary).startsWith("Failed — The email could not be sent.").doesNotContain("Partial", "unavailable");   // the mail server's own words stay out
+
+        // Nothing was delivered, so nothing is left out of the next run.
+        Mockito.reset(activity);
+        assertThat((List<String>) JsonPath.read(run(a, OVERDUE), "$.handoffs")).containsExactly(one, two, three);
+        assertThat(mailTo(a)).hasSize(1);
+    }
+
+    @Test
+    void ifNoEligibleHandoffCanBePreparedNothingIsSentAndTheRunFails() throws Exception {
+        Account a = register();
+        String one = overdueHandoff(a, "Alpha");
+        String two = overdueHandoff(a, "Bravo");
+        breakLinesOf(a, one, two);
+
+        assertThat((Object) JsonPath.read(run(a, OVERDUE), "$.status")).isEqualTo("FAILED");
+
+        assertThat(mailTo(a)).isEmpty();
+        String summary = JsonPath.read(history(a), "$.content[0].summary");
+        assertThat(summary).startsWith("Failed — Their details could not be prepared").contains("Not sent: " + one + ", " + two + ".");
+    }
+
+    @Test
+    @SuppressWarnings("unchecked")
+    void aRetryLeavesOutWhatTheLastPartialRunSentAndTriesTheFailedOnesAgain() throws Exception {
+        Account a = register();
+        String one = overdueHandoff(a, "Alpha");
+        String two = overdueHandoff(a, "Bravo");
+        String three = overdueHandoff(a, "Charlie");
+        String four = overdueHandoff(a, "Delta");
+        breakLinesOf(a, three, four);
+        run(a, OVERDUE);                                   // partial: told the customer about one and two
+        Mockito.reset(activity);                           // whatever was wrong is over
+        String five = overdueHandoff(a, "Echo");           // and one more has become eligible
+
+        String retry = run(a, OVERDUE);
+
+        // The retry covers what failed and what is new, and does not repeat what the customer was already told.
+        assertThat((Object) JsonPath.read(retry, "$.status")).isEqualTo("SENT");
+        assertThat((List<String>) JsonPath.read(retry, "$.handoffs")).containsExactly(three, four, five);
+        assertThat(mailTo(a)).hasSize(2);
+        assertThat(mailTo(a).get(1).textBody()).contains("Charlie", "Delta", "Echo").doesNotContain("Alpha", "Bravo");
+        assertThat((Object) JsonPath.read(history(a), "$.content[0].summary"))
+                .isEqualTo("Successfully sent for " + three + ", " + four + ", " + five);
+
+        // That leave-out lasted one run: after a success the job's ordinary rule applies again, so all five are overdue and listed.
+        assertThat((List<String>) JsonPath.read(run(a, OVERDUE), "$.handoffs")).containsExactly(one, two, three, four, five);
+
+        // The history only ever grew: the partial run is still there, as it was, beneath the successes.
+        String h = history(a);
+        assertThat((Object) JsonPath.read(h, "$.totalElements")).isEqualTo(3);
+        assertThat((List<String>) JsonPath.read(h, "$.content[*].status")).containsExactly("SENT", "SENT", "PARTIAL");
+        assertThat(jdbc.queryForObject("select count(*) from customer_job_run where user_id = ? and status = 'PARTIAL'",
+                Integer.class, a.id())).isEqualTo(1);
+    }
+
+    @Test
+    @SuppressWarnings("unchecked")
+    void withNothingEligibleNothingIsSentAndTheRunSaysSo() throws Exception {
+        Account a = register();
+
+        assertThat((Object) JsonPath.read(run(a, OVERDUE), "$.status")).isEqualTo("NOTHING_TO_REPORT");
+
+        assertThat(mailTo(a)).isEmpty();
+        String h = history(a);
+        assertThat((Object) JsonPath.read(h, "$.totalElements")).isEqualTo(1);
+        assertThat((Object) JsonPath.read(h, "$.content[0].status")).isEqualTo("NOTHING_TO_REPORT");
+        assertThat((Object) JsonPath.read(h, "$.content[0].summary")).isEqualTo("Nothing to report");
+        assertThat((List<String>) JsonPath.read(h, "$.content[0].successfulHandoffs")).isEmpty();
+        assertThat((List<String>) JsonPath.read(h, "$.content[0].failedHandoffs")).isEmpty();
+    }
+
+    @Test
+    void everyRunNowIsOneRowOfThatJobAndNoOtherJobGetsOne() throws Exception {
+        Account a = register();
+        overdueHandoff(a, "Alpha");
+
+        run(a, OVERDUE);
+        String h = history(a);
+        assertThat((Object) JsonPath.read(h, "$.totalElements")).isEqualTo(1);
+        assertThat((Object) JsonPath.read(h, "$.content[0].type")).isEqualTo("OVERDUE_REMINDER");
+        assertThat((Object) JsonPath.read(h, "$.content[0].title")).isEqualTo("Overdue Reminder");
+        assertThat((Object) JsonPath.read(h, "$.content[0].trigger")).isEqualTo("RUN_NOW");
+        assertThat((Object) JsonPath.read(h, "$.content[0].runAt")).isNotNull();
+
+        run(a, OVERDUE);   // a second actual execution is a second row
+        assertThat((Object) JsonPath.read(history(a), "$.totalElements")).isEqualTo(2);
+        assertThat(jdbc.queryForObject("select count(*) from customer_job_run where user_id = ? and job_type <> 'OVERDUE_REMINDER'",
+                Integer.class, a.id())).isZero();
+    }
+
+    @Test
+    @SuppressWarnings("unchecked")
+    void runAllNowGivesEachOfTheFiveJobsItsOwnRow() throws Exception {
+        Account a = register();
+        overdueHandoff(a, "Alpha");
+
+        mvc.perform(as(a, post(JOBS + "/run-all"))).andExpect(status().isOk()).andExpect(jsonPath("$.length()").value(5));
+
+        String h = history(a);
+        assertThat((Object) JsonPath.read(h, "$.totalElements")).isEqualTo(5);
+        assertThat((List<String>) JsonPath.read(h, "$.content[*].type")).containsExactlyInAnyOrder(
+                "RETURN_REMINDER", "OVERDUE_REMINDER", "MISSING_ITEM_REMINDER", "WEEKLY_SUMMARY", "RECIPIENT_RESPONSE_REMINDER");
+        assertThat((List<String>) JsonPath.read(h, "$.content[*].trigger")).containsOnly("RUN_ALL_NOW");
+    }
+
+    @Test
+    void aScheduledRunIsRecordedAsScheduled() throws Exception {
+        Account a = register();
+        overdueHandoff(a, "Alpha");
+        enable(a, OVERDUE);
+        Instant due = Instant.parse(JsonPath.read(job(a, OVERDUE).toString(), "$[0].nextRunAt"));
+
+        jobService.runDue(due.plusSeconds(5));
+
+        String h = history(a);
+        assertThat((Object) JsonPath.read(h, "$.totalElements")).isEqualTo(1);
+        assertThat((Object) JsonPath.read(h, "$.content[0].trigger")).isEqualTo("SCHEDULED");
+        assertThat((Object) JsonPath.read(h, "$.content[0].status")).isEqualTo("SENT");
+    }
+
+    @Test
+    void historyAndTheLeaveOutRuleStayWithTheCustomerWhoseRunItWas() throws Exception {
+        Account a = register();
+        Account b = register();
+        String aOne = overdueHandoff(a, "A alpha");
+        String aTwo = overdueHandoff(a, "A bravo");
+        String bOne = overdueHandoff(b, "B alpha");
+        assertThat(aOne).endsWith("-1");    // references are numbered per customer: each has a first handoff, under its own prefix
+        assertThat(bOne).endsWith("-1");
+        breakLinesOf(a, aTwo);
+        run(a, OVERDUE);                    // A: partial, told about its HO-1
+
+        assertThat((Object) JsonPath.read(history(b), "$.totalElements")).isEqualTo(0);   // B sees none of A's runs
+        // A's partial run does not leave B's HO-1 out of B's run.
+        assertThat((Object) JsonPath.read(run(b, OVERDUE), "$.status")).isEqualTo("SENT");
+        assertThat(mailTo(b)).hasSize(1);
+        assertThat(mailTo(b).get(0).textBody()).contains("B alpha").doesNotContain("A alpha", "A bravo");
+        assertThat(mailTo(a)).hasSize(1);
+        assertThat(mailTo(a).get(0).textBody()).doesNotContain("B alpha");
+        assertThat((Object) JsonPath.read(history(a), "$.totalElements")).isEqualTo(1);
+        assertThat((Object) JsonPath.read(history(b), "$.totalElements")).isEqualTo(1);
+
+        StaffAccount staff = registerStaff(com.handoffly.support.staff.SupportRole.ADMIN);
+        mvc.perform(get(JOBS + "/history")).andExpect(status().isUnauthorized());
+        mvc.perform(as(staff, get(JOBS + "/history"))).andExpect(status().isUnauthorized());
+    }
+
+    @Test
+    void theHistoryIsNewestFirstInPagesOfAtMostAHundred() throws Exception {
+        Account a = register();
+        run(a, OVERDUE);
+        run(a, JobType.RETURN_REMINDER);
+
+        String newest = json(a, JOBS + "/history?size=1");
+        assertThat((Object) JsonPath.read(newest, "$.content[0].type")).isEqualTo("RETURN_REMINDER");
+        assertThat((Object) JsonPath.read(newest, "$.totalPages")).isEqualTo(2);
+        assertThat((Object) JsonPath.read(json(a, JOBS + "/history?size=1&page=1"), "$.content[0].type")).isEqualTo("OVERDUE_REMINDER");
+        assertThat((Object) JsonPath.read(json(a, JOBS + "/history?size=5000"), "$.size")).isEqualTo(100);
     }
 }

@@ -5,7 +5,7 @@ import { saveBlob } from '../api/client';
 import { supportApi } from '../api/endpoints';
 import type { TicketAttachment, TicketDetail, TicketStatus } from '../api/types';
 import { useAuth } from '../auth/AuthContext';
-import { errorMessage, ErrorNotice, PlanBadge, PriorityBadge, Spinner, StatusBadge } from '../components/ui';
+import { errorMessage, ErrorNotice, PlanBadge, PriorityBadge, Spinner, StatusBadge, useTransient } from '../components/ui';
 import { CATEGORY_LABELS, CONTACT_LABELS, formatBytes, formatDateTime, STATUS_LABELS, STATUSES } from '../lib/format';
 
 /** How often an open ticket is re-checked for new messages. */
@@ -26,7 +26,7 @@ export function TicketPage() {
 
   const [reply, setReply] = useState('');
   const [busy, setBusy] = useState(false);
-  const [error, setError] = useState<string | null>(null);
+  const [error, setError] = useTransient<string>();
 
   async function run(action: () => Promise<TicketDetail>, onDone?: () => void) {
     setError(null);

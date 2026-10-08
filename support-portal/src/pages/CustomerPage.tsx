@@ -4,7 +4,7 @@ import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { supportApi } from '../api/endpoints';
 import type { SubscriptionPlan } from '../api/types';
 import { useAuth } from '../auth/AuthContext';
-import { errorMessage, ErrorNotice, PlanBadge, PriorityBadge, Spinner, StatusBadge, SubscriptionStatusBadge } from '../components/ui';
+import { errorMessage, ErrorNotice, PlanBadge, PriorityBadge, Spinner, StatusBadge, SubscriptionStatusBadge, useTransient } from '../components/ui';
 import {
   describeChange, describePrice, describeValidity, formatDate, formatDateTime, lastDay, PLAN_LABELS, PLANS, shortPrice,
 } from '../lib/format';
@@ -39,8 +39,8 @@ export function CustomerPage() {
   const [reason, setReason] = useState('');
   const [validUntil, setValidUntil] = useState('');   // yyyy-mm-dd, empty = the plan's own duration from today
   const [busy, setBusy] = useState(false);
-  const [error, setError] = useState<string | null>(null);
-  const [saved, setSaved] = useState<string | null>(null);
+  const [error, setError] = useTransient<string>();   // both messages go by themselves after a few seconds
+  const [saved, setSaved] = useTransient<string>();
 
   if (profile.isLoading) return <Spinner />;
   if (profile.isError) return <ErrorNotice error={profile.error} />;
@@ -75,7 +75,7 @@ export function CustomerPage() {
   }
 
   async function confirmPlanChange() {
-    if (!newPlan) return;
+    if (!newPlan || !reason.trim()) return;   // the backend refuses a change without a reason too
     setError(null);
     setSaved(null);
     setBusy(true);
@@ -208,12 +208,13 @@ export function CustomerPage() {
                 </p>
               </div>
               <div className="field">
-                <label htmlFor="reason">Reason <span className="muted">(optional, kept in the history)</span></label>
-                <textarea id="reason" rows={2} maxLength={500} value={reason} onChange={(e) => setReason(e.target.value)}
+                <label htmlFor="reason">Reason <span className="muted">(required, kept in the history)</span></label>
+                <textarea id="reason" rows={2} maxLength={500} value={reason} required aria-required="true"
+                          onChange={(e) => setReason(e.target.value)}
                           placeholder="e.g. Customer upgraded after payment" />
               </div>
               <div className="row">
-                <button type="button" className="btn btn-primary" disabled={!newPlan || (sameAsCurrent && !validUntil)}
+                <button type="button" className="btn btn-primary" disabled={!newPlan || (sameAsCurrent && !validUntil) || !reason.trim()}
                         onClick={() => setPlanStep('confirm')}>
                   Review change
                 </button>
@@ -245,9 +246,9 @@ export function CustomerPage() {
                 What the customer can use changes immediately. This is recorded in the history as a change made by you
                 ({staff?.staffCode}). It does not record or prove a payment.
               </p>
-              {reason.trim() && <p className="small">Reason: “{reason.trim()}”</p>}
+              <p className="small">Reason: “{reason.trim()}”</p>
               <div className="row">
-                <button type="button" className="btn btn-primary" disabled={busy} onClick={confirmPlanChange}>
+                <button type="button" className="btn btn-primary" disabled={busy || !reason.trim()} onClick={confirmPlanChange}>
                   {busy ? 'Changing…' : 'Confirm change'}
                 </button>
                 <button type="button" className="btn" disabled={busy} onClick={() => setPlanStep('choose')}>Back</button>

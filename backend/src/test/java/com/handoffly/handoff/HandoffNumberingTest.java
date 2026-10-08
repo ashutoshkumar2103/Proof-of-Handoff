@@ -25,8 +25,8 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
 /**
- * Handoff references are numbered per customer (HO-1, HO-2 … or AV-1, AV-2 … after support sets a
- * prefix), independent of the internal database ids, and never repeat within a customer.
+ * Handoff references are numbered per customer (ST-1, ST-2 … under the prefix the customer was given when they registered, or
+ * under the one support sets), independent of the internal database ids, and never repeat within a customer.
  */
 class HandoffNumberingTest extends ApiTestBase {
 
@@ -48,44 +48,47 @@ class HandoffNumberingTest extends ApiTestBase {
         String a3 = createHandoff(first);
         String b1 = createHandoff(second);
 
-        assertThat(List.of(reference(a1), reference(a2), reference(a3))).containsExactly("HO-1", "HO-2", "HO-3");
+        String firstPrefix = prefixOf(first);
+        assertThat(firstPrefix).isNotEqualTo(prefixOf(second));   // each customer's own prefix
+        assertThat(List.of(reference(a1), reference(a2), reference(a3))).containsExactly(firstPrefix + "-1", firstPrefix + "-2", firstPrefix + "-3");
         // The second customer starts at 1 — not at 4 — so the number is not derived from any global id.
-        assertThat(reference(b1)).isEqualTo("HO-1");
+        assertThat(reference(b1)).isEqualTo(prefixOf(second) + "-1");
         // Internal ids stay globally unique; they are what the API addresses a handoff by.
         assertThat(Set.of(id(a1), id(a2), id(a3), id(b1))).hasSize(4);
     }
 
     @Test
-    void thePrefixSupportSetsGivesReferencesLikeAV1WhileAnotherCustomerKeepsHO1() throws Exception {
+    void thePrefixSupportSetsGivesItsReferencesWhileAnotherCustomerKeepsTheirOwn() throws Exception {
         StaffAccount staff = registerStaff(SupportRole.MANAGER);
         Account avCustomer = register();
-        Account hoCustomer = register();
-        setPrefix(staff, avCustomer, "AV");
+        Account otherCustomer = register();
+        String av = uniquePrefix();
+        String theirs = prefixOf(otherCustomer);
+        setPrefix(staff, avCustomer, av);
 
-        assertThat(reference(createHandoff(avCustomer))).isEqualTo("AV-1");
-        assertThat(reference(createHandoff(avCustomer))).isEqualTo("AV-2");
-        assertThat(reference(createHandoff(hoCustomer))).isEqualTo("HO-1");
-        assertThat(reference(createHandoff(hoCustomer))).isEqualTo("HO-2");
+        assertThat(reference(createHandoff(avCustomer))).isEqualTo(av + "-1");
+        assertThat(reference(createHandoff(avCustomer))).isEqualTo(av + "-2");
+        assertThat(reference(createHandoff(otherCustomer))).isEqualTo(theirs + "-1");
+        assertThat(reference(createHandoff(otherCustomer))).isEqualTo(theirs + "-2");
     }
 
     @Test
-    void twoCustomersMayHoldTheSameReferenceAndEachReachesOnlyTheirOwn() throws Exception {
-        StaffAccount staff = registerStaff(SupportRole.ADMIN);
+    void twoCustomersWhoShareAPrefixFromBeforeTheRuleStillEachReachOnlyTheirOwn() throws Exception {
         Account first = register();
         Account second = register();
-        setPrefix(staff, first, "AV");
-        setPrefix(staff, second, "AV");
+        String shared = uniquePrefix();
+        shareLegacyPrefix(shared, first, second);   // accounts that existed before prefixes were unique all had HO
 
         String mine = createHandoff(first);
         String theirs = createHandoff(second);
-        assertThat(reference(mine)).isEqualTo("AV-1");
-        assertThat(reference(theirs)).isEqualTo("AV-1");
+        assertThat(reference(mine)).isEqualTo(shared + "-1");
+        assertThat(reference(theirs)).isEqualTo(shared + "-1");
         assertThat(id(mine)).isNotEqualTo(id(theirs));
 
         mvc.perform(as(first, get("/api/v1/handoffs/" + id(mine))))
-                .andExpect(status().isOk()).andExpect(jsonPath("$.publicCode").value("AV-1"));
+                .andExpect(status().isOk()).andExpect(jsonPath("$.publicCode").value(shared + "-1"));
         mvc.perform(as(first, get("/api/v1/handoffs/" + id(theirs)))).andExpect(status().isForbidden());
-        mvc.perform(as(first, get("/api/v1/handoffs").param("q", "AV-1")))
+        mvc.perform(as(first, get("/api/v1/handoffs").param("q", shared + "-1")))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.totalElements").value(1))
                 .andExpect(jsonPath("$.content[0].id").value(id(mine)));
@@ -95,18 +98,20 @@ class HandoffNumberingTest extends ApiTestBase {
     void changingThePrefixLeavesExistingHandoffsAloneAndNeverRestartsTheNumbers() throws Exception {
         StaffAccount staff = registerStaff(SupportRole.MANAGER);
         Account customer = register();
-        setPrefix(staff, customer, "AV");
+        String av = uniquePrefix();
+        String rk = uniquePrefix();
+        setPrefix(staff, customer, av);
         String h1 = createHandoff(customer);
         String h2 = createHandoff(customer);
-        assertThat(List.of(reference(h1), reference(h2))).containsExactly("AV-1", "AV-2");
+        assertThat(List.of(reference(h1), reference(h2))).containsExactly(av + "-1", av + "-2");
 
-        setPrefix(staff, customer, "RK");
-        assertThat(reference(createHandoff(customer))).isEqualTo("RK-3");   // carries on from 2, under the new prefix
-        mvc.perform(as(customer, get("/api/v1/handoffs/" + id(h1)))).andExpect(jsonPath("$.publicCode").value("AV-1"));
-        mvc.perform(as(customer, get("/api/v1/handoffs/" + id(h2)))).andExpect(jsonPath("$.publicCode").value("AV-2"));
+        setPrefix(staff, customer, rk);
+        assertThat(reference(createHandoff(customer))).isEqualTo(rk + "-3");   // carries on from 2, under the new prefix
+        mvc.perform(as(customer, get("/api/v1/handoffs/" + id(h1)))).andExpect(jsonPath("$.publicCode").value(av + "-1"));
+        mvc.perform(as(customer, get("/api/v1/handoffs/" + id(h2)))).andExpect(jsonPath("$.publicCode").value(av + "-2"));
 
-        setPrefix(staff, customer, "AV");
-        assertThat(reference(createHandoff(customer))).isEqualTo("AV-4");   // AV-1 / AV-2 are never handed out again
+        setPrefix(staff, customer, av);   // its own old prefix is free again: no one else took it
+        assertThat(reference(createHandoff(customer))).isEqualTo(av + "-4");   // av-1 / av-2 are never handed out again
     }
 
     @Test
@@ -129,7 +134,8 @@ class HandoffNumberingTest extends ApiTestBase {
             for (Future<String> result : results) {
                 issued.add(result.get(60, TimeUnit.SECONDS));
             }
-            assertThat(issued).containsExactlyInAnyOrder("HO-1", "HO-2", "HO-3", "HO-4", "HO-5", "HO-6");
+            String own = prefixOf(customer);
+            assertThat(issued).containsExactlyInAnyOrder(own + "-1", own + "-2", own + "-3", own + "-4", own + "-5", own + "-6");
         } finally {
             pool.shutdownNow();
         }
@@ -139,19 +145,20 @@ class HandoffNumberingTest extends ApiTestBase {
     void theRecipientEmailLinkAndPdfCarryTheCustomersOwnReference() throws Exception {
         StaffAccount staff = registerStaff(SupportRole.MANAGER);
         Account customer = register();
-        setPrefix(staff, customer, "AV");
+        String av = uniquePrefix();
+        setPrefix(staff, customer, av);
         long handoffId = id(createHandoff(customer));
 
         mvc.perform(as(customer, post("/api/v1/handoffs/" + handoffId + "/submit"))).andExpect(status().isOk());
-        assertThat(emailSender.getLastMessage().subject()).contains("AV-1");
+        assertThat(emailSender.getLastMessage().subject()).contains(av + "-1");
 
         mvc.perform(get("/api/v1/r/" + emailSender.extractLastToken()))
                 .andExpect(status().isOk())
-                .andExpect(jsonPath("$.publicCode").value("AV-1"));
+                .andExpect(jsonPath("$.publicCode").value(av + "-1"));
 
         mvc.perform(as(customer, get("/api/v1/handoffs/" + handoffId + "/pdf")))
                 .andExpect(status().isOk())
-                .andExpect(header().string("Content-Disposition", containsString("HandOffly-AV-1-Proof-of-Handoff.pdf")));
+                .andExpect(header().string("Content-Disposition", containsString("HandOffly-" + av + "-1-Proof-of-Handoff.pdf")));
     }
 
     @Test
@@ -200,6 +207,6 @@ class HandoffNumberingTest extends ApiTestBase {
                         .content("{\"title\":\"First\",\"senderName\":\"S\",\"recipientName\":\"R\",\"recipientEmail\":\"r@example.test\","
                                 + "\"items\":[{\"name\":\"Drill\",\"quantity\":1}]}")))
                 .andExpect(status().isCreated())
-                .andExpect(jsonPath("$.publicCode").value("HO-1"));
+                .andExpect(jsonPath("$.publicCode").value(prefixOf(fresh) + "-1"));
     }
 }

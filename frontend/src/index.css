@@ -108,7 +108,7 @@ h3 { font-size: 1.05rem; }
 .topbar nav { display: flex; align-items: center; gap: 0.4rem; }
 .nav-actions { display: flex; align-items: center; gap: 0.4rem; margin-left: 0.4rem; }   /* Account, Sign out; the theme icon follows as the last item of the bar */
 .topbar > .theme-icon { margin-left: 0.4rem; }
-.topbar .nav-toggle, .account-inline { display: none; }   /* narrow screens only (below); .topbar makes it outrank .btn, which sets a display of its own */
+.topbar .nav-toggle, .nav-menu-inline { display: none; }   /* narrow screens only (below); .topbar makes it outrank .btn, which sets a display of its own */
 .topbar nav a {
   color: var(--text-muted); font-weight: 500; padding: 0.4rem 0.65rem;
   border-radius: var(--radius-sm); transition: background 0.12s, color 0.12s;
@@ -117,7 +117,10 @@ h3 { font-size: 1.05rem; }
 /* A feature the plan does not include: still in the menu, dimmed, and marked with a lock (see Layout). */
 .topbar nav a.nav-locked { opacity: 0.6; }
 .topbar nav a.nav-locked:hover { opacity: 0.85; }
-.topbar nav a.active { color: var(--primary); background: var(--primary-soft); font-weight: 600; }
+/* The active state: the page you are on, as a link of the bar, as the button of a dropdown that holds it, and as its item in the dropdown or in the narrow menu. */
+.topbar nav a.active, .topbar .nav-menu-trigger.active, .menu-item.current, .nav-menu-inline-item.current {
+  color: var(--primary); background: var(--primary-soft); font-weight: 600;
+}
 .container { width: 100%; max-width: 1280px; margin: 0 auto; padding: 1.5rem 1.5rem 4rem; }
 .container-narrow { max-width: 560px; }
 /* Keep reading/entry content comfortable even inside the wide container. */
@@ -231,6 +234,18 @@ th.sortable { cursor: pointer; user-select: none; white-space: nowrap; }
 th.sortable:hover { color: var(--text); }
 .remaining-zero { color: var(--success); font-weight: 600; }
 .remaining-open { color: var(--warning); font-weight: 600; }
+/* A table that becomes one card per row on a phone, so no column has to be scrolled to. Opt in with class="table-cards"; cells
+   with a data-label get it as a small heading, and the first cell is the card's title. */
+@media (max-width: 560px) {
+  .table-cards thead { display: none; }
+  .table-cards, .table-cards tbody, .table-cards tr, .table-cards td { display: block; width: 100%; }
+  .table-cards tr { padding: 0.6rem 0.8rem; border-bottom: 1px solid var(--border); }
+  .table-cards tbody tr:last-child { border-bottom: none; }
+  .table-cards td { padding: 0.15rem 0; border: 0; white-space: normal; min-width: 0 !important; }
+  .table-cards td:first-child { font-weight: 600; }
+  .table-cards td[data-label]::before { content: attr(data-label) ': '; color: var(--text-muted); }
+  .table-cards tbody tr:hover td { background: transparent; }
+}
 
 /* Badges */
 .badge {
@@ -283,15 +298,23 @@ th.sortable:hover { color: var(--text); }
 .actions .menu { margin-left: auto; }
 .doc-actions { margin-top: 0.5rem; }
 
-/* "More" dropdown (ActionMenu) */
+/* The dropdown (ActionMenu), the same wherever it is used: a card under its button. It opens under the button's left edge (ActionMenu moves it
+   sideways, through `left`, when that would leave the screen), and the strip above it (::before) keeps the pointer inside the menu on its way
+   down from the button, so a menu that opens on hover does not close. */
 .menu { position: relative; display: inline-block; }
 .menu-panel {
-  position: absolute; right: 0; top: calc(100% + 4px); z-index: 20; min-width: 11rem; padding: 0.3rem;
-  display: flex; flex-direction: column; background: var(--surface); border: 1px solid var(--border);
-  border-radius: var(--radius); box-shadow: var(--shadow-lg);
+  --menu-gap: 0.4rem;
+  position: absolute; left: 0; top: calc(100% + var(--menu-gap)); z-index: 20; min-width: max(100%, 13rem); max-width: calc(100vw - 1rem);
+  padding: 0.35rem; display: flex; flex-direction: column; gap: 0.1rem;
+  background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius); box-shadow: var(--shadow-lg);
 }
-.menu-item { text-align: left; background: transparent; border: 0; padding: 0.5rem 0.7rem; border-radius: var(--radius-sm); color: var(--text); font: inherit; cursor: pointer; }
+.menu-panel::before { content: ''; position: absolute; left: 0; right: 0; top: calc(-1 * var(--menu-gap)); height: var(--menu-gap); }
+.menu-item {
+  display: flex; align-items: center; min-height: 2.4rem; padding: 0.4rem 0.75rem; text-align: left; white-space: nowrap;
+  background: transparent; border: 0; border-radius: var(--radius-sm); color: var(--text); font: inherit; font-weight: 500; cursor: pointer;
+}
 .menu-item:hover:not(:disabled) { background: var(--surface-2); }
+.menu-item:focus-visible { outline: 2px solid var(--primary); outline-offset: -2px; }
 .menu-item.danger { color: var(--danger); }
 .menu-item:disabled { opacity: 0.5; cursor: not-allowed; }
 
@@ -357,6 +380,11 @@ th.sortable:hover { color: var(--text); }
 .search-bar input { min-width: 240px; }
 
 /* Reports: the period picker on one line (wraps on small screens), and the rows dimmed while a new page or sort arrives */
+/* The Report Assistant: its modal (the app's modal, a little wider and never taller than the screen), the question box, the ready-made questions and the answer. */
+.modal.modal-wide { max-width: 560px; max-height: calc(100vh - 2rem); max-height: calc(100dvh - 2rem); overflow-y: auto; overscroll-behavior: contain; }
+.report-assistant-form { flex-wrap: nowrap; }
+.report-assistant-form .grow { flex: 1; min-width: 0; }
+.report-assistant-answer { padding: 0.75rem 0.9rem; border-radius: var(--radius-sm); background: var(--primary-soft); border: 1px solid var(--border); overflow-wrap: anywhere; }
 .report-filter { display: flex; flex-wrap: wrap; align-items: flex-end; gap: 0.75rem 1rem; }
 .report-filter .field { margin: 0; flex: 0 1 180px; }
 .report-filter .field select, .report-filter .field input { width: 100%; }
@@ -568,13 +596,12 @@ th.sortable:hover { color: var(--text); }
   padding: 0.4rem 0.65rem; border-radius: var(--radius-sm); transition: background 0.12s, color 0.12s;
 }
 .topbar .nav-menu-trigger:hover, .topbar .menu:focus-within .nav-menu-trigger { background: var(--surface-2); color: var(--text); }
-.topbar .nav-menu-trigger.active { color: var(--primary); background: var(--primary-soft); font-weight: 600; }
-.menu-hover .menu-panel { top: 100%; }   /* no gap between the button and the list, so moving the pointer down does not close it */
+.menu-caret { display: inline-block; font-size: 0.8em; transition: transform 0.12s; }
+.menu [aria-expanded="true"] .menu-caret { transform: rotate(180deg); }
+.topbar .nav-menu-trigger[aria-expanded="true"] { background: var(--surface-2); color: var(--text); }
 .welcome { margin: 0.1rem 0 0.2rem; font-size: 1rem; font-weight: 600; }
 
 .theme-icon { width: 2.25rem; padding-left: 0; padding-right: 0; line-height: 1; }
-.menu-hover .menu-panel { min-width: 12.5rem; }
-.menu-hover .menu-item { white-space: nowrap; }
 
 /* Narrow screens (phones and small tablets): the bar is the brand, the theme icon and a menu button; the page links, the account list and
    Sign out sit in a menu that opens below the bar, full width, so nothing can run off the screen. */
@@ -592,13 +619,14 @@ th.sortable:hover { color: var(--text); }
   .topbar nav { flex-direction: column; align-items: stretch; gap: 0.15rem; }
   .topbar nav a { padding: 0.7rem 0.75rem; font-size: 1rem; }
   .nav-actions { flex-direction: column; align-items: stretch; gap: 0.6rem; margin-left: 0; }
-  .account-desktop { display: none; }
-  .account-inline { display: flex; flex-direction: column; gap: 0.15rem; border-top: 1px solid var(--border); padding-top: 0.6rem; }
-  .account-inline-label { padding: 0 0.75rem 0.25rem; font-size: 0.75rem; font-weight: 700; letter-spacing: 0.04em; text-transform: uppercase; color: var(--text-muted); }
-  .account-inline-item {
+  .nav-menu-desktop { display: none; }
+  .nav-menu-inline { display: flex; flex-direction: column; gap: 0.15rem; border-top: 1px solid var(--border); padding-top: 0.6rem; }
+  .topbar nav .nav-menu-inline { margin-top: 0.15rem; }
+  .nav-menu-inline-label { padding: 0 0.75rem 0.25rem; font-size: 0.75rem; font-weight: 700; letter-spacing: 0.04em; text-transform: uppercase; color: var(--text-muted); }
+  .nav-menu-inline-item {
     min-height: 2.75rem; padding: 0.6rem 0.75rem; text-align: left; background: transparent; border: 0; border-radius: var(--radius-sm);
     color: var(--text); font: inherit; cursor: pointer;
   }
-  .account-inline-item:hover, .account-inline-item:active { background: var(--surface-2); }
+  .nav-menu-inline-item:hover, .nav-menu-inline-item:active { background: var(--surface-2); }
   .nav-actions .btn { min-height: 2.75rem; }
 }

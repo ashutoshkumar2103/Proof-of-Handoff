@@ -49,7 +49,7 @@ class SupportRolePermissionsTest extends ApiTestBase {
                 new Endpoint("change prefix", HttpMethod.PUT, c + "/prefix", "{\"prefix\":\"AV\"}", CUSTOMER_ADMINISTRATION),
                 // a no-op change: refused with 409 once the caller is allowed in
                 new Endpoint("change plan", HttpMethod.PUT, c + "/plan",
-                        "{\"fromPlan\":\"HALF_YEARLY\",\"toPlan\":\"HALF_YEARLY\"}", CUSTOMER_ADMINISTRATION),
+                        "{\"reason\":\"Testing\",\"fromPlan\":\"HALF_YEARLY\",\"toPlan\":\"HALF_YEARLY\"}", CUSTOMER_ADMINISTRATION),
                 new Endpoint("staff list", HttpMethod.GET, "/api/v1/support/staff", null, ADMIN_ONLY),
                 // 400: password too short
                 new Endpoint("create staff", HttpMethod.POST, "/api/v1/support/staff",
@@ -161,6 +161,7 @@ class SupportRolePermissionsTest extends ApiTestBase {
     @Test
     void ticketAgentsCannotChangePlansOrPrefixesButManagersAndAdminsCan() throws Exception {
         Account customer = register();
+        String original = prefixOf(customer);
         StaffAccount agent = registerStaff(SupportRole.TICKET_AGENT);
         String prefix = "/api/v1/support/customers/" + customer.accountCode() + "/prefix";
         String plan = "/api/v1/support/customers/" + customer.accountCode() + "/plan";
@@ -168,16 +169,17 @@ class SupportRolePermissionsTest extends ApiTestBase {
         mvc.perform(as(agent, request(HttpMethod.PUT, prefix).contentType(MediaType.APPLICATION_JSON).content("{\"prefix\":\"ZZ\"}")))
                 .andExpect(status().isForbidden());
         mvc.perform(as(agent, request(HttpMethod.PUT, plan).contentType(MediaType.APPLICATION_JSON)
-                .content("{\"fromPlan\":\"MONTHLY\",\"toPlan\":\"YEARLY\"}"))).andExpect(status().isForbidden());
-        assertThat(users.findById(customer.id()).orElseThrow().getHandoffPrefix()).isEqualTo("HO");
+                .content("{\"reason\":\"Testing\",\"fromPlan\":\"MONTHLY\",\"toPlan\":\"YEARLY\"}"))).andExpect(status().isForbidden());
+        assertThat(users.findById(customer.id()).orElseThrow().getHandoffPrefix()).isEqualTo(original);
         assertThat(users.findById(customer.id()).orElseThrow().getSubscriptionPlan()).isEqualTo(SubscriptionPlan.MONTHLY);
 
+        String managers = uniquePrefix();
         mvc.perform(as(registerStaff(SupportRole.MANAGER), request(HttpMethod.PUT, prefix)
-                .contentType(MediaType.APPLICATION_JSON).content("{\"prefix\":\"MG\"}"))).andExpect(status().isOk());
+                .contentType(MediaType.APPLICATION_JSON).content("{\"prefix\":\"" + managers + "\"}"))).andExpect(status().isOk());
         mvc.perform(as(registerStaff(SupportRole.ADMIN), request(HttpMethod.PUT, plan)
-                .contentType(MediaType.APPLICATION_JSON).content("{\"fromPlan\":\"MONTHLY\",\"toPlan\":\"YEARLY\"}")))
+                .contentType(MediaType.APPLICATION_JSON).content("{\"reason\":\"Testing\",\"fromPlan\":\"MONTHLY\",\"toPlan\":\"YEARLY\"}")))
                 .andExpect(status().isOk());
-        assertThat(users.findById(customer.id()).orElseThrow().getHandoffPrefix()).isEqualTo("MG");
+        assertThat(users.findById(customer.id()).orElseThrow().getHandoffPrefix()).isEqualTo(managers);
         assertThat(users.findById(customer.id()).orElseThrow().getSubscriptionPlan()).isEqualTo(SubscriptionPlan.YEARLY);
     }
 

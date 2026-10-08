@@ -305,13 +305,13 @@ class SubscriptionSupportTest extends ApiTestBase {
         mvc.perform(as(customer, get(TICKETS + "/" + reference))).andExpect(status().isForbidden());
 
         mvc.perform(as(manager, put("/api/v1/support/customers/" + customer.accountCode() + "/plan")
-                        .contentType(MediaType.APPLICATION_JSON).content("{\"fromPlan\":\"QUARTERLY\",\"toPlan\":\"HALF_YEARLY\"}")))
+                        .contentType(MediaType.APPLICATION_JSON).content("{\"reason\":\"Testing\",\"fromPlan\":\"QUARTERLY\",\"toPlan\":\"HALF_YEARLY\"}")))
                 .andExpect(status().isOk());
         mvc.perform(as(customer, get(TICKETS + "/" + reference))).andExpect(status().isOk())
                 .andExpect(jsonPath("$.ticket.contactMethod").value("MESSAGE"));
 
         mvc.perform(as(manager, put("/api/v1/support/customers/" + customer.accountCode() + "/plan")
-                        .contentType(MediaType.APPLICATION_JSON).content("{\"fromPlan\":\"HALF_YEARLY\",\"toPlan\":\"MONTHLY\"}")))
+                        .contentType(MediaType.APPLICATION_JSON).content("{\"reason\":\"Testing\",\"fromPlan\":\"HALF_YEARLY\",\"toPlan\":\"MONTHLY\"}")))
                 .andExpect(status().isOk());
         postMessage(customer, "Now monthly", "m").andExpect(status().isForbidden());
         mvc.perform(as(customer, get(TICKETS + "/" + reference))).andExpect(status().isForbidden());
@@ -325,7 +325,7 @@ class SubscriptionSupportTest extends ApiTestBase {
 
         // Only the plan and the prefix can be changed; entitlement fields in a request change nothing.
         mvc.perform(as(manager, put(profile + "/plan").contentType(MediaType.APPLICATION_JSON)
-                        .content("{\"fromPlan\":\"MONTHLY\",\"toPlan\":\"MONTHLY\",\"ticket\":true,\"call\":true,\"contactSupport\":true}")))
+                        .content("{\"reason\":\"Testing\",\"fromPlan\":\"MONTHLY\",\"toPlan\":\"MONTHLY\",\"ticket\":true,\"call\":true,\"contactSupport\":true}")))
                 .andExpect(status().isConflict());
         mvc.perform(as(manager, put(profile + "/entitlements").contentType(MediaType.APPLICATION_JSON)
                         .content("{\"ticket\":true}"))).andExpect(status().is4xxClientError());

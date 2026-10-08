@@ -15,7 +15,7 @@ import java.time.Instant;
 
 /**
  * One customer's setting for one kind of job: whether it is on, when it runs, and the result of its latest run
- * (only the latest — it is overwritten, not accumulated). A job belongs to exactly one customer and is only ever
+ * (only the latest — it is overwritten, not accumulated; every run is kept in {@link CustomerJobRun}). A job belongs to exactly one customer and is only ever
  * read, changed or run for that customer; there is at most one per customer and kind.
  */
 @Entity

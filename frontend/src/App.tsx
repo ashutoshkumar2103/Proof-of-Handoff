@@ -63,7 +63,8 @@ export function App() {
         <Route path="/handoffs/:id" element={<HandoffDetailPage />} />
         <Route path="/handoffs/:id/edit" element={<EditHandoffPage />} />
         <Route path="/handoff-check" element={<HandoffCheckPage />} />
-        <Route path="/reports" element={<ReportsPage />} />
+        <Route path="/reports" element={<ReportsPage view="list" />} />
+        <Route path="/reports/summary" element={<ReportsPage view="summary" />} />
         <Route path="/account" element={<AccountPage />} />
         <Route path="/account/jobs" element={<JobsPage />} />
         <Route path="/account/jobs/history" element={<JobsHistoryPage />} />

@@ -1,11 +1,15 @@
 package com.handoffly.job;
 
 import com.handoffly.auth.UserPrincipal;
+import com.handoffly.common.web.PageResponse;
+import com.handoffly.job.dto.JobHistoryResponse;
 import com.handoffly.job.dto.JobResponse;
 import com.handoffly.job.dto.JobRunResponse;
 import com.handoffly.job.dto.SetEnabledRequest;
 import com.handoffly.job.dto.UpdateScheduleRequest;
 import jakarta.validation.Valid;
+import org.springframework.data.domain.Pageable;
+import org.springframework.data.web.PageableDefault;
 import org.springframework.security.core.annotation.AuthenticationPrincipal;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PathVariable;
@@ -36,7 +40,14 @@ public class CustomerJobController {
         return service.list(principal.id());
     }
 
-    /** Runs all four jobs once, now. No schedule changes. */
+    /** The caller's Job History: every run of every job, newest first. Only the caller's own runs, whatever the parameters. */
+    @GetMapping("/history")
+    public PageResponse<JobHistoryResponse> history(@AuthenticationPrincipal UserPrincipal principal,
+                                                    @PageableDefault(size = 20) Pageable pageable) {
+        return service.history(principal.id(), pageable);
+    }
+
+    /** Runs all five jobs once, now (each is its own run). No schedule changes. */
     @PostMapping("/run-all")
     public List<JobRunResponse> runAll(@AuthenticationPrincipal UserPrincipal principal) {
         return service.runAllNow(principal.id());

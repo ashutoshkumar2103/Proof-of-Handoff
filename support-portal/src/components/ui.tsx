@@ -1,6 +1,44 @@
+import { useEffect, useState } from 'react';
 import { HttpError } from '../api/client';
 import type { SubscriptionPlan, SubscriptionStatus, SupportPriority, TicketStatus } from '../api/types';
 import { PLAN_LABELS, PRIORITY_LABELS, STATUS_LABELS, STATUS_TONE } from '../lib/format';
+
+/** How long a message about what the user just did stays on screen. */
+export const TRANSIENT_NOTICE_MS = 5000;
+
+/**
+ * State for a message about the result of an action — done, refused, or failed: it clears itself after {@link TRANSIENT_NOTICE_MS}
+ * of being on screen. The countdown pauses while the browser tab is in the background, so the message is never used up unseen,
+ * and setting a new value restarts it. Use this for EVERY such message in the portal; plain `useState` is for things that are
+ * the page's own state (a failed load, a closed ticket), which stay for as long as they are true.
+ */
+export function useTransient<T>(): [T | null, (value: T | null) => void] {
+  const [value, setValue] = useState<T | null>(null);
+  useEffect(() => {
+    if (value === null) return;
+    let remaining = TRANSIENT_NOTICE_MS;
+    let startedAt = 0;
+    let timer: ReturnType<typeof setTimeout> | undefined;
+    const start = () => {
+      startedAt = Date.now();
+      timer = setTimeout(() => setValue(null), remaining);
+    };
+    const pause = () => {
+      if (timer === undefined) return;
+      clearTimeout(timer);
+      timer = undefined;
+      remaining = Math.max(0, remaining - (Date.now() - startedAt));
+    };
+    const onVisibility = () => (document.hidden ? pause() : timer === undefined && start());
+    if (!document.hidden) start();
+    document.addEventListener('visibilitychange', onVisibility);
+    return () => {
+      clearTimeout(timer);
+      document.removeEventListener('visibilitychange', onVisibility);
+    };
+  }, [value]);
+  return [value, setValue];
+}
 
 export function Spinner() {
   return <p className="muted center mt-3">Loading…</p>;

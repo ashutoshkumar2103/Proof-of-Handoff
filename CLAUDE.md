@@ -42,6 +42,9 @@ service / repository / controller / component / hook / utility / validator / map
 2. If something can be reused or extended, **reuse or extend it**.
 3. Only create new code when nothing fits.
 
+UI follows `docs/UI_GUIDELINES.md`: reuse the existing shared component/style (`ActionMenu`, the `.modal` markup, the tokens in `index.css`) rather than a visually different
+implementation of a pattern that already exists.
+
 Never create `FooService2`, `FooServiceNew`, `FooServiceFinal`, duplicate DTOs,
 duplicate utilities, duplicate components, or duplicate validation. Never solve the
 same problem twice. **Modify before creating. Search before implementing.**
@@ -102,6 +105,10 @@ call it a legally binding e-signature. No unsupported legal claims in code or UI
   invalid transitions, partial/multiple returns, closing, duplicate requests,
   expired links, missing/malformed data.
 - No useless files, no dead code, no speculative "just-in-case" abstractions.
+- **Messages disappear after 5 seconds.** Any message that reports the result of something the user just did (done, refused,
+  failed) must clear itself after 5 s via the app's `useTransient` hook (`ui.tsx` in `support-portal/`; `frontend/` has the same hook
+  and keeps its form/validation errors on screen) — never a bare `useState` plus a notice. Things that are the page's own state
+  (a failed load, a closed ticket, a locked feature) stay for as long as they are true.
 - Preserve working functionality; don't rewrite without a strong, evidenced reason.
 - Update existing docs instead of creating duplicates.
 

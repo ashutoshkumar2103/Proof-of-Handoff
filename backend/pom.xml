@@ -21,6 +21,7 @@
         <java.version>25</java.version>
         <jjwt.version>0.12.6</jjwt.version>
         <poi.version>5.5.1</poi.version>
+        <genai.version>1.76.0</genai.version>
         <pdfbox.version>3.0.8</pdfbox.version>
         <openpdf.version>3.0.5</openpdf.version>
     </properties>
@@ -109,6 +110,11 @@
             <groupId>org.apache.poi</groupId>
             <artifactId>poi-ooxml</artifactId>
             <version>${poi.version}</version>
+        </dependency>
+        <dependency>
+            <groupId>com.google.genai</groupId>
+            <artifactId>google-genai</artifactId>
+            <version>${genai.version}</version>
         </dependency>
         <dependency>
             <groupId>org.apache.pdfbox</groupId>

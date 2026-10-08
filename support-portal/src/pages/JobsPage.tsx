@@ -2,7 +2,7 @@ import { useState } from 'react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { jobApi } from '../api/endpoints';
 import type { ExpiryJobRun, JobStatus } from '../api/types';
-import { errorMessage, ErrorNotice, Spinner } from '../components/ui';
+import { errorMessage, ErrorNotice, Spinner, useTransient } from '../components/ui';
 
 const KEY = ['expiry-job'];
 
@@ -42,7 +42,7 @@ function timezones(): string[] {
 export function JobsPage() {
   const qc = useQueryClient();
   const job = useQuery({ queryKey: KEY, queryFn: jobApi.expiry });
-  const [result, setResult] = useState<{ kind: 'success' | 'error'; text: string } | null>(null);
+  const [result, setResult] = useTransient<{ kind: 'success' | 'error'; text: string }>();
   const [editing, setEditing] = useState(false);
   const refresh = () => qc.invalidateQueries({ queryKey: KEY });
 
@@ -138,7 +138,7 @@ function ScheduleEditor({ cron: initialCron, zone: initialZone, windowDays: init
   const [cron, setCron] = useState(initialCron);
   const [zone, setZone] = useState(initialZone);
   const [windowDays, setWindowDays] = useState(String(initialWindow));
-  const [error, setError] = useState<string | null>(null);
+  const [error, setError] = useTransient<string>();
   const zones = timezones();
 
   const save = useMutation({

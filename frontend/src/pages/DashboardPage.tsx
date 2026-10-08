@@ -22,12 +22,12 @@ type Tone = 'danger' | 'warning' | 'info';
 const ATTENTION: { filter: Filter; label: string; hint: string; tone: Tone }[] = [
   { filter: 'OVERDUE', label: 'Overdue', hint: 'Past their return date', tone: 'danger' },
   { filter: 'AWAITING_RECIPIENT', label: 'Awaiting recipient', hint: 'Not accepted yet', tone: 'info' },
-  { filter: 'RETURN_PENDING', label: 'Return pending', hint: 'Returns to confirm', tone: 'warning' },
 ];
 
 /** The rest of the status cards, in the order a handoff moves through them. */
 const OVERVIEW_ORDER: HandoffStatus[] = ['DRAFT', 'ACTIVE_WITH_RECIPIENT', 'PARTIALLY_RETURNED', 'FULLY_RETURNED', 'CLOSED'];
 
+// Mirrors the backend's rule (a status no handoff reaches today, RETURN_PENDING, is kept so an old one would still be counted).
 const OVERDUE_STATUSES: HandoffStatus[] = ['ACTIVE_WITH_RECIPIENT', 'RETURN_PENDING', 'PARTIALLY_RETURNED'];
 
 export function DashboardPage() {

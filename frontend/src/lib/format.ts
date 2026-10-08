@@ -10,6 +10,8 @@ export const NO_ACTIVE_SUBSCRIPTION_MESSAGE =
 
 /** Shown where HandoffCheck is locked because the customer's plan does not include it. */
 export const HANDOFFCHECK_PLAN_MESSAGE = 'HandoffCheck is available on Half-Yearly and Yearly plans.';
+/** The AI features go with the plans that include HandoffCheck (the backend decides; `User.handoffCheck` is that same answer). */
+export const AI_REPORT_PLAN_MESSAGE = 'The AI Report Assistant is available on Half-Yearly and Yearly plans.';
 
 export const PLAN_LABELS: Record<SubscriptionPlan, string> = {
   MONTHLY: 'Monthly',
@@ -101,6 +103,9 @@ export const REPORT_PRESET_LABELS: Record<ReportPreset, string> = {
   CUSTOM: 'Custom range',
 };
 
+/** The days of a report, and what "today" means to a question, are the customer's own calendar days: the browser's zone, which the report states back. */
+export const ZONE = Intl.DateTimeFormat().resolvedOptions().timeZone || 'UTC';
+
 /** The first and last day of a ready-made period, in the browser's calendar (a week runs Monday to Sunday). Custom has no days of its own. */
 export function presetRange(preset: Exclude<ReportPreset, 'CUSTOM'>, now: Date = new Date()): { from: string; to: string } {
   const y = now.getFullYear();
@@ -178,11 +183,12 @@ export const STATUS_TONE: Record<HandoffStatus, BadgeTone> = {
 };
 
 /**
- * The resting states of a handoff in the order it normally moves through them, for showing where it is. Display only: which
+ * The resting states of a handoff in the order it normally moves through them, for showing where it is (RETURN_PENDING is left out:
+ * it needs a return waiting for confirmation, and every return is confirmed when it is recorded, so no handoff gets there). Display only: which
  * moves are allowed is the backend's (HandoffStateMachine). A state off this path (rejected, cancelled, disputed …) is shown apart.
  */
 export const LIFECYCLE_ORDER: HandoffStatus[] = [
-  'DRAFT', 'AWAITING_RECIPIENT', 'ACTIVE_WITH_RECIPIENT', 'RETURN_PENDING', 'PARTIALLY_RETURNED', 'FULLY_RETURNED', 'CLOSED',
+  'DRAFT', 'AWAITING_RECIPIENT', 'ACTIVE_WITH_RECIPIENT', 'PARTIALLY_RETURNED', 'FULLY_RETURNED', 'CLOSED',
 ];
 
 /**

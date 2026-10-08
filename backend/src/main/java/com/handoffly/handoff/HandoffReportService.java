@@ -51,8 +51,8 @@ public class HandoffReportService {
     private static final ZoneId UTC = ZoneId.of("UTC");
 
     /** Dates outside these are not a period anyone means, and are refused before they reach the database. */
-    private static final LocalDate EARLIEST = LocalDate.of(1970, 1, 1);
-    private static final LocalDate LATEST = LocalDate.of(9998, 12, 31);
+    static final LocalDate EARLIEST = LocalDate.of(1970, 1, 1);
+    static final LocalDate LATEST = LocalDate.of(9998, 12, 31);
 
     /** What the caller asked about: the days, the zone they are days in, and the optional narrowing of the table and the CSV. */
     public record Query(LocalDate from, LocalDate to, String timezone, List<HandoffStatus> statuses, boolean overdueOnly) {}
@@ -82,6 +82,15 @@ public class HandoffReportService {
         List<HandoffSummaryResponse> slice = matching.subList(offset, Math.min(offset + pageable.getPageSize(), matching.size()));
         return new HandoffReportResponse(loaded.period(), summarise(loaded.all()),
                 PageResponse.of(new PageImpl<>(slice, pageable, matching.size()), Function.identity()));
+    }
+
+    /**
+     * The rows the report table is made of — the whole period narrowed by the filters, not one page — for a reader that wants to ask
+     * questions of them (the Report Assistant): exactly what {@link #report} and {@link #csv} work from, so anything worked out from them
+     * agrees with what the pages show. Same gate, same period rules, the customer's own handoffs only.
+     */
+    public List<HandoffSummaryResponse> rows(Long ownerId, Query query) {
+        return load(ownerId, query, Sort.unsorted()).matching();
     }
 
     /** Every handoff that matches the filters (not one page), with the period, the filters and the totals above them. */
@@ -156,7 +165,8 @@ public class HandoffReportService {
         return statusOk && (!query.overdueOnly() || h.overdue());
     }
 
-    private static Summary summarise(List<HandoffSummaryResponse> all) {
+    /** The totals of a list of handoffs — the one place they are worked out, for the report, the CSV and the Report Assistant alike. */
+    static Summary summarise(List<HandoffSummaryResponse> all) {
         long closed = 0;
         long open = 0;
         long overdue = 0;
@@ -170,20 +180,42 @@ public class HandoffReportService {
             if (h.status() == HandoffStatus.CLOSED) closed++;
             if (HandoffActivityService.OPEN_STATUSES.contains(h.status())) open++;
             if (h.overdue()) overdue++;
-            if (h.outgoingAt() != null) {   // a draft was never given to anyone
-                given = given.add(h.totalOutgoing());
-                returned = returned.add(h.totalReturned());
-                missing = missing.add(h.totalMissing());
-                // What is neither back nor missing is the handoff's remaining (outgoing = returned + missing + remaining). It is
-                // told apart by where it stayed, so the figures add up to the items given and no difference has to be explained.
+            given = given.add(itemsGiven(h));
+            returned = returned.add(itemsReturned(h));
+            missing = missing.add(itemsMissing(h));
+            stillOut = stillOut.add(itemsStillOut(h));
+            if (h.outgoingAt() != null) {   // what stayed on a rejected or cancelled handoff is told apart from what is still out
                 switch (h.status()) {
                     case REJECTED -> rejected = rejected.add(h.totalRemaining());
                     case CANCELLED -> cancelled = cancelled.add(h.totalRemaining());
-                    default -> stillOut = stillOut.add(h.totalRemaining());
+                    default -> { }
                 }
             }
         }
         return new Summary(all.size(), closed, open, overdue, given, returned, missing, stillOut, rejected, cancelled);
+    }
+
+    /**
+     * One handoff's share of each total above — the single definition of a given, returned, missing and still-out quantity, used by
+     * {@link #summarise} and by the Report Assistant's questions alike. A draft was never given to anyone, so it has none. What is neither
+     * back nor missing is the handoff's remaining (outgoing = returned + missing + remaining); it is told apart by where it stayed, so
+     * the figures add up to the items given: on a rejected or cancelled handoff it is not "still out".
+     */
+    static BigDecimal itemsGiven(HandoffSummaryResponse h) {
+        return h.outgoingAt() == null ? BigDecimal.ZERO : h.totalOutgoing();
+    }
+
+    static BigDecimal itemsReturned(HandoffSummaryResponse h) {
+        return h.outgoingAt() == null ? BigDecimal.ZERO : h.totalReturned();
+    }
+
+    static BigDecimal itemsMissing(HandoffSummaryResponse h) {
+        return h.outgoingAt() == null ? BigDecimal.ZERO : h.totalMissing();
+    }
+
+    static BigDecimal itemsStillOut(HandoffSummaryResponse h) {
+        boolean stayed = h.status() == HandoffStatus.REJECTED || h.status() == HandoffStatus.CANCELLED;
+        return h.outgoingAt() == null || stayed ? BigDecimal.ZERO : h.totalRemaining();
     }
 
     // ------------------------------------------------------------------ sorting
@@ -229,7 +261,7 @@ public class HandoffReportService {
     }
 
     /** "ACTIVE_WITH_RECIPIENT" as "Active with recipient" — the same wording the screens use for a status. */
-    private static String label(HandoffStatus status) {
+    static String label(HandoffStatus status) {
         String name = status.name();
         return name.charAt(0) + name.substring(1).toLowerCase(Locale.ROOT).replace('_', ' ');
     }
@@ -238,7 +270,7 @@ public class HandoffReportService {
         return at == null ? "" : at.atZone(zone).toLocalDate().toString();
     }
 
-    private static ZoneId zoneOf(String timezone) {
+    static ZoneId zoneOf(String timezone) {
         if (timezone == null || timezone.isBlank()) return UTC;
         try {
             return ZoneId.of(timezone.trim());

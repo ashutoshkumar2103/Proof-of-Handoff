@@ -1,11 +1,15 @@
 import { useState } from 'react';
 import { Link } from 'react-router-dom';
-import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
+import { keepPreviousData, useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { jobApi } from '../api/endpoints';
-import type { Job, JobRun, JobStatus, JobType } from '../api/types';
+import type { Job, JobHistoryEntry, JobRun, JobStatus, JobTrigger, JobType } from '../api/types';
 import { errorMessage, ErrorNotice, Spinner } from './ui';
 
 const JOBS_KEY = ['account-jobs'];
+const HISTORY_KEY = ['account-job-history'];
+
+type Notice = { kind: 'success' | 'warning' | 'error'; text: string };
+const NOTICE_CLASS: Record<Notice['kind'], string> = { success: 'notice-success', warning: 'notice-warning', error: 'notice-error' };
 
 /** Ready-made schedules, for convenience only: the backend checks every schedule it is given. */
 const PRESETS: { label: string; cron: string }[] = [
@@ -19,13 +23,20 @@ const CUSTOM = 'custom';
 
 const STATUS_LABEL: Record<JobStatus, string> = {
   SENT: 'Email sent',
+  PARTIAL: 'Partial success',
   NOTHING_TO_REPORT: 'Nothing to report',
   FAILED: 'Failed',
 };
 const STATUS_BADGE: Record<JobStatus, string> = {
   SENT: 'badge-success',
+  PARTIAL: 'badge-warning',
   NOTHING_TO_REPORT: 'badge-primary',
   FAILED: 'badge-danger',
+};
+const TRIGGER_LABEL: Record<JobTrigger, string> = {
+  SCHEDULED: 'Scheduled',
+  RUN_NOW: 'Run Now',
+  RUN_ALL_NOW: 'Run All Now',
 };
 
 function timezones(): string[] {
@@ -34,7 +45,7 @@ function timezones(): string[] {
 }
 
 /** A moment shown in the zone the job runs in, so "09:00" on the schedule reads as 09:00. */
-function inZone(iso: string | null | undefined, zone: string): string {
+function inZone(iso: string | null | undefined, zone: string | undefined): string {
   if (!iso) return '—';
   try {
     return new Date(iso).toLocaleString(undefined, {
@@ -45,30 +56,39 @@ function inZone(iso: string | null | undefined, zone: string): string {
   }
 }
 
-function runSummary(runs: JobRun[]): string {
+function runSummary(runs: JobRun[]): Notice {
   const sent = runs.filter((r) => r.status === 'SENT').length;
+  const partial = runs.filter((r) => r.status === 'PARTIAL').length;
   const failed = runs.filter((r) => r.status === 'FAILED').length;
-  if (!sent && !failed) return `All ${runs.length} jobs ran. There was nothing to report, so no emails were sent.`;
-  return `All ${runs.length} jobs ran: ${sent} email${sent === 1 ? '' : 's'} sent`
-    + `${failed ? `, ${failed} failed` : ''}. The others had nothing to report.`;
+  if (!sent && !partial && !failed) {
+    return { kind: 'success', text: `All ${runs.length} jobs ran. There was nothing to report, so no emails were sent.` };
+  }
+  const emails = sent + partial;
+  return {
+    kind: partial || failed ? 'warning' : 'success',
+    text: `All ${runs.length} jobs ran: ${emails} email${emails === 1 ? '' : 's'} sent`
+      + `${partial ? ` (${partial} without some handoffs)` : ''}${failed ? `, ${failed} failed` : ''}. The others had nothing to report. `
+      + 'Each run is in Jobs Monitoring History.',
+  };
 }
 
 /**
  * The customer's jobs: each can be switched on or off, scheduled with its own cron expression and timezone, and
- * run on demand. Running a job by hand never moves its schedule. How each one's latest run went is on its own page
+ * run on demand. Running a job by hand never moves its schedule. Every run is on its own page
  * ({@link JobMonitoring}), so this page stays short however many jobs there are. The backend is the authority on everything
  * here — it validates schedules and decides what a run says.
  */
 export function JobsPanel() {
   const qc = useQueryClient();
   const jobs = useQuery({ queryKey: JOBS_KEY, queryFn: jobApi.list });
-  const [notice, setNotice] = useState<{ kind: 'success' | 'error'; text: string } | null>(null);
+  const [notice, setNotice] = useState<Notice | null>(null);
 
   const runAll = useMutation({
     mutationFn: jobApi.runAll,
     onSuccess: (runs) => {
-      setNotice({ kind: 'success', text: runSummary(runs) });
+      setNotice(runSummary(runs));
       void qc.invalidateQueries({ queryKey: JOBS_KEY });
+      void qc.invalidateQueries({ queryKey: HISTORY_KEY });
     },
     onError: (e) => setNotice({ kind: 'error', text: errorMessage(e) }),
   });
@@ -85,7 +105,7 @@ export function JobsPanel() {
             <h1 style={{ margin: 0 }}>Jobs</h1>
             <p className="small muted" style={{ margin: '0.3rem 0 0' }}>
               Automatic emails about your own handoffs. Each job sends one email per run, and nothing when there is
-              nothing to say. They start switched off. Each job's latest run is in{' '}
+              nothing to say. They start switched off. Every run is in{' '}
               <Link to="/account/jobs/history">Jobs Monitoring History</Link>.
             </p>
           </div>
@@ -95,7 +115,7 @@ export function JobsPanel() {
           </button>
         </div>
         {notice && (
-          <div className={`notice ${notice.kind === 'error' ? 'notice-error' : 'notice-success'} mt-2`}
+          <div className={`notice ${NOTICE_CLASS[notice.kind]} mt-2`}
                role={notice.kind === 'error' ? 'alert' : 'status'}>
             {notice.text}
           </div>
@@ -109,7 +129,7 @@ export function JobsPanel() {
   );
 }
 
-function JobCard({ job, onNotice }: { job: Job; onNotice: (n: { kind: 'success' | 'error'; text: string } | null) => void }) {
+function JobCard({ job, onNotice }: { job: Job; onNotice: (n: Notice | null) => void }) {
   const qc = useQueryClient();
   const [editing, setEditing] = useState(false);
   const refresh = () => qc.invalidateQueries({ queryKey: JOBS_KEY });
@@ -118,12 +138,14 @@ function JobCard({ job, onNotice }: { job: Job; onNotice: (n: { kind: 'success' 
     mutationFn: (type: JobType) => jobApi.run(type),
     onSuccess: (r) => {
       onNotice({
-        kind: r.status === 'FAILED' ? 'error' : 'success',
+        kind: r.status === 'FAILED' ? 'error' : r.status === 'PARTIAL' ? 'warning' : 'success',
         text: r.status === 'SENT' ? `${r.title}: one email was sent about ${r.handoffs.length} handoff${r.handoffs.length === 1 ? '' : 's'}.`
           : r.status === 'NOTHING_TO_REPORT' ? `${r.title}: nothing to report, so no email was sent.`
+          : r.status === 'PARTIAL' ? `${r.title}: ${r.summary}`
           : `${r.title}: ${r.message ?? 'the email could not be sent.'}`,
       });
       void refresh();
+      void qc.invalidateQueries({ queryKey: HISTORY_KEY });
     },
     onError: (e) => onNotice({ kind: 'error', text: errorMessage(e) }),
   });
@@ -228,48 +250,91 @@ function ScheduleEditor({ job, onSaved }: { job: Job; onSaved: () => void }) {
 }
 
 /**
- * The latest run of each job, as a read-only table of its own (Account → Jobs Monitoring History). It reads the same list as
- * the jobs page, so a run made there shows here. Only the latest result of each job is kept, so this is a record, not an archive.
+ * Every run of every job, newest first, as a read-only table of its own (Account → Jobs Monitoring History): one row per actual
+ * run, whatever started it. The Result column is the account of the run, written by the backend — what was sent, what could not be
+ * and why — and View details shows the same facts as lists. Times are shown in the zone the job is scheduled in.
  */
 export function JobMonitoring() {
+  const [page, setPage] = useState(0);
+  const [open, setOpen] = useState<number | null>(null);
+  const history = useQuery({
+    queryKey: [...HISTORY_KEY, page], queryFn: () => jobApi.history(page),
+    placeholderData: keepPreviousData,   // the old rows stay up while the next page arrives
+  });
   const jobs = useQuery({ queryKey: JOBS_KEY, queryFn: jobApi.list });
-  if (jobs.isLoading) return <Spinner />;
-  if (jobs.error) return <ErrorNotice error={jobs.error} />;
-  const list = jobs.data ?? [];
+  if (history.isLoading) return <Spinner />;
+  if (history.error) return <ErrorNotice error={history.error} />;
+  const data = history.data!;
+  const zones = new Map((jobs.data ?? []).map((j) => [j.type, j.timezone]));
 
   return (
     <div className="card">
       <h1 style={{ marginTop: 0 }}>Jobs Monitoring History</h1>
       <p className="small muted">
-        The latest run of each job. This is a record only; change a job, or run it, under <Link to="/account/jobs">Jobs</Link>.
+        Every run of your jobs, newest first. This is a record only; change a job, or run it, under <Link to="/account/jobs">Jobs</Link>.
       </p>
-      <div className="table-wrap">
-        <table>
-          <thead>
-            <tr><th>Job</th><th>Status</th><th>Last run</th><th>Result</th><th>Handoffs</th><th>Next run</th></tr>
-          </thead>
-          <tbody>
-            {list.map((job) => (
-              <tr key={job.type}>
-                <td>{job.title}</td>
-                <td>
-                  <span className={`badge badge-dot ${job.enabled ? 'badge-success' : 'badge-warning'}`}>
-                    {job.enabled ? 'Active' : 'Paused'}
-                  </span>
-                </td>
-                <td>{inZone(job.lastRunAt, job.timezone)}</td>
-                <td>
-                  {job.lastStatus
-                    ? <span className={`badge ${STATUS_BADGE[job.lastStatus]}`}>{STATUS_LABEL[job.lastStatus]}</span>
-                    : <span className="muted">Not run yet</span>}
-                </td>
-                <td style={{ whiteSpace: 'normal', maxWidth: 260 }}>{job.lastHandoffs.length ? job.lastHandoffs.join(', ') : '—'}</td>
-                <td>{job.enabled ? inZone(job.nextRunAt, job.timezone) : '—'}</td>
-              </tr>
-            ))}
-          </tbody>
-        </table>
-      </div>
+      {data.content.length === 0 ? (
+        <p className="muted">No job has run yet.</p>
+      ) : (
+        <>
+          <div className="table-wrap">
+            <table className="table-cards">
+              <thead>
+                <tr><th>Job</th><th>Run time</th><th>Trigger</th><th>Result</th><th aria-label="Details"></th></tr>
+              </thead>
+              <tbody>
+                {data.content.map((run) => <HistoryRow key={run.id} run={run} zone={zones.get(run.type)}
+                                                      open={open === run.id} onToggle={() => setOpen(open === run.id ? null : run.id)} />)}
+              </tbody>
+            </table>
+          </div>
+          {data.totalPages > 1 && (
+            <div className="spread mt-2">
+              <button className="btn btn-sm" disabled={data.first} onClick={() => { setOpen(null); setPage(page - 1); }}>Newer</button>
+              <span className="small muted">Page {data.page + 1} of {data.totalPages}</span>
+              <button className="btn btn-sm" disabled={data.last} onClick={() => { setOpen(null); setPage(page + 1); }}>Older</button>
+            </div>
+          )}
+        </>
+      )}
     </div>
+  );
+}
+
+/** One run: a row of the table, and under it (when opened) the successful and failed handoffs as lists. */
+function HistoryRow({ run, zone, open, onToggle }: { run: JobHistoryEntry; zone: string | undefined; open: boolean; onToggle: () => void }) {
+  const hasDetails = run.successfulHandoffs.length > 0 || run.failedHandoffs.length > 0;
+  return (
+    <>
+      <tr>
+        <td style={{ whiteSpace: 'normal' }}>{run.title}</td>
+        <td data-label="Run time" style={{ whiteSpace: 'normal', minWidth: 110 }}>{inZone(run.runAt, zone)}</td>
+        <td data-label="Trigger" style={{ whiteSpace: 'normal' }}>{run.trigger ? TRIGGER_LABEL[run.trigger] : '—'}</td>
+        <td style={{ whiteSpace: 'normal', minWidth: 220 }}>
+          <span className={`badge badge-dot ${STATUS_BADGE[run.status]}`} title={STATUS_LABEL[run.status]} aria-label={STATUS_LABEL[run.status]} />
+          {' '}{run.summary}
+        </td>
+        <td>
+          {hasDetails && (
+            <button type="button" className="btn btn-sm btn-ghost" aria-expanded={open} onClick={onToggle}>
+              {open ? 'Hide details' : 'View details'}
+            </button>
+          )}
+        </td>
+      </tr>
+      {open && (
+        <tr>
+          <td colSpan={5} style={{ whiteSpace: 'normal' }}>
+            <dl className="job-facts" style={{ margin: 0 }}>
+              <dt>Successfully sent</dt>
+              <dd>{run.successfulHandoffs.length ? run.successfulHandoffs.join(', ') : 'None'}</dd>
+              <dt>Failed</dt>
+              <dd>{run.failedHandoffs.length ? run.failedHandoffs.join(', ') : 'None'}</dd>
+              {run.failureReason && <><dt>Reason</dt><dd>{run.failureReason}</dd></>}
+            </dl>
+          </td>
+        </tr>
+      )}
+    </>
   );
 }

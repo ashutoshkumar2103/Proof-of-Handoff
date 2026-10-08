@@ -39,7 +39,7 @@ class SubscriptionLifecycleTest extends ApiTestBase {
             throws Exception {
         String body = "{" + (from == null ? "" : "\"fromPlan\":\"" + from + "\",") + "\"toPlan\":\"" + to + "\""
                 + (validUntil == null ? "" : ",\"validUntil\":\"" + validUntil + "\"")
-                + (reason == null ? "" : ",\"reason\":\"" + reason + "\"") + "}";
+                + ",\"reason\":\"" + (reason == null ? "Test change" : reason) + "\"}";   // a reason is required
         return mvc.perform(as(staff, put("/api/v1/support/customers/" + customer.accountCode() + "/plan")
                 .contentType(MediaType.APPLICATION_JSON).content(body)));
     }
@@ -839,7 +839,7 @@ class SubscriptionLifecycleTest extends ApiTestBase {
         changePlan(agent, customer, "YEARLY", "MONTHLY", null, null).andExpect(status().isForbidden());   // no plan administration
         // A customer cannot see or edit it, and neither can anyone without a staff login.
         mvc.perform(as(customer, put("/api/v1/support/customers/" + customer.accountCode() + "/plan")
-                .contentType(MediaType.APPLICATION_JSON).content("{\"fromPlan\":\"YEARLY\",\"toPlan\":\"MONTHLY\"}")))
+                .contentType(MediaType.APPLICATION_JSON).content("{\"reason\":\"Testing\",\"fromPlan\":\"YEARLY\",\"toPlan\":\"MONTHLY\"}")))
                 .andExpect(status().isUnauthorized());
         me(customer).andExpect(jsonPath("$.subscription.plan").value("YEARLY"));
         assertThat(jdbc.queryForObject("SELECT COUNT(*) FROM subscription_history WHERE user_id = ?", Long.class, customer.id())).isEqualTo(2L);

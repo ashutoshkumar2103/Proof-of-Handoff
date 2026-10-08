@@ -74,6 +74,7 @@ class AccountPasswordTest extends ApiTestBase {
     @Test
     void aCustomerEditsTheirOwnDetailsButNothingElseAboutTheAccount() throws Exception {
         Account customer = register("Original Name", null);
+        String prefix = prefixOf(customer);
 
         mvc.perform(as(customer, put("/api/v1/auth/me").contentType(MediaType.APPLICATION_JSON)
                         .content("{\"displayName\":\"  New Name  \",\"organization\":\"Acme\",\"phone\":\"+91 90000 22222\","
@@ -86,7 +87,7 @@ class AccountPasswordTest extends ApiTestBase {
                 .andExpect(jsonPath("$.accountCode").value(customer.accountCode()))
                 .andExpect(jsonPath("$.email").value(customer.email()))
                 .andExpect(jsonPath("$.plan").value("MONTHLY"))
-                .andExpect(jsonPath("$.handoffPrefix").value("HO"));
+                .andExpect(jsonPath("$.handoffPrefix").value(prefix));
 
         // An empty organization or phone clears it; a blank name is refused.
         mvc.perform(as(customer, put("/api/v1/auth/me").contentType(MediaType.APPLICATION_JSON)

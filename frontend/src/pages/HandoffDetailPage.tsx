@@ -26,7 +26,7 @@ export function HandoffDetailPage() {
   const [showReturn, setShowReturn] = useState(prefill !== null);
   const [actionError, setActionError] = useState<string | null>(null);
   const [notice, setNotice] = useTransient<{ text: string; tone: 'notice-success' | 'notice-info' }>();
-  const [pdfBusy, setPdfBusy] = useState<'download' | 'share' | 'email' | null>(null);
+  const [pdfBusy, setPdfBusy] = useState<'download' | 'excel' | 'share' | 'email' | null>(null);
   // A PDF already fetched for sharing, so a retry can share instantly while the user gesture is fresh.
   const sharePdf = useRef<{ version: string; file: File } | null>(null);
   const confirm = useConfirm();
@@ -80,7 +80,7 @@ export function HandoffDetailPage() {
   const h = detail.data!;
   const has = (a: HandoffAction) => h.availableActions.includes(a);
 
-  async function withPdfBusy(kind: 'download' | 'share' | 'email', work: () => Promise<void>) {
+  async function withPdfBusy(kind: 'download' | 'excel' | 'share' | 'email', work: () => Promise<void>) {
     setActionError(null);
     setNotice(null);
     setPdfBusy(kind);
@@ -95,6 +95,11 @@ export function HandoffDetailPage() {
 
   const onDownloadPdf = () => withPdfBusy('download', async () => {
     const { blob, filename } = await handoffApi.downloadPdf(handoffId);
+    saveBlob(blob, filename);
+  });
+
+  const onDownloadExcel = () => withPdfBusy('excel', async () => {
+    const { blob, filename } = await handoffApi.downloadExcel(handoffId);
     saveBlob(blob, filename);
   });
 
@@ -391,11 +396,14 @@ export function HandoffDetailPage() {
       {/* Documents: the Proof-of-Handoff PDF (download / share / email) and the attachments */}
       <AttachmentsPanel handoffId={handoffId} attachments={h.attachments}
                         canModify={has('ADD_ATTACHMENT')} onChanged={refresh}>
+        {/* The record can be downloaded in any status, a draft included; sharing and emailing it are for a handoff that has been sent. */}
+        <span className="muted small">Proof of Handoff</span>
+        <button className={`btn ${h.status === 'CLOSED' ? 'btn-primary' : ''}`} disabled={pdfBusy !== null}
+                onClick={onDownloadPdf}>{pdfBusy === 'download' ? 'Generating PDF…' : 'Download PDF'}</button>
+        <button className="btn" disabled={pdfBusy !== null} onClick={onDownloadExcel}>
+          {pdfBusy === 'excel' ? 'Preparing Excel…' : 'Download Excel'}</button>
         {h.status !== 'DRAFT' && (
           <>
-            <span className="muted small">Proof of Handoff</span>
-            <button className={`btn ${h.status === 'CLOSED' ? 'btn-primary' : ''}`} disabled={pdfBusy !== null}
-                    onClick={onDownloadPdf}>{pdfBusy === 'download' ? 'Generating PDF…' : 'Download PDF'}</button>
             <button className="btn" disabled={pdfBusy !== null} onClick={onSharePdf}>
               {pdfBusy === 'share' ? 'Preparing PDF…' : 'Share'}</button>
             <button className="btn" disabled={pdfBusy !== null} onClick={onEmailPdf}>
