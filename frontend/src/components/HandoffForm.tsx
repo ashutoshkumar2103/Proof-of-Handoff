@@ -1,6 +1,7 @@
-import { useState } from 'react';
+import { useRef, useState } from 'react';
 import type { CreateHandoffInput, ItemCondition, ItemInput } from '../api/types';
 import { localPartsToIso } from '../lib/format';
+import { INVALID_EMAIL_MESSAGE, isValidEmail } from '../lib/validation';
 import { ItemImportPanel } from './ItemImportPanel';
 import type { ImportedItem } from './ItemImportPanel';
 import { TimeSelect } from './TimeSelect';
@@ -53,6 +54,8 @@ export function HandoffForm({ initial, submitLabel, onSubmit, busy, error }: {
   const [v, setV] = useState<HandoffFormValue>(initial);
   const [importOpen, setImportOpen] = useState(false);
   const [importNotice, setImportNotice] = useState<string | null>(null);
+  const [emailError, setEmailError] = useState<string | null>(null);
+  const emailRef = useRef<HTMLInputElement>(null);
   // Which item rows have the optional "serial / ID" field revealed.
   const [showIdFor, setShowIdFor] = useState<Set<number>>(
     () => new Set(initial.items.map((it, i) => (it.serialNumber ? i : -1)).filter((i) => i >= 0)));
@@ -82,6 +85,11 @@ export function HandoffForm({ initial, submitLabel, onSubmit, busy, error }: {
 
   function submit(e: React.FormEvent) {
     e.preventDefault();
+    if (!isValidEmail(v.recipientEmail.trim())) {   // the browser's own check lets name@ee through; the backend refuses it too
+      setEmailError(INVALID_EMAIL_MESSAGE);
+      emailRef.current?.focus();
+      return;
+    }
     const items: ItemInput[] = v.items
       .filter((it) => it.name.trim() !== '')
       .map((it) => ({
@@ -166,7 +174,10 @@ export function HandoffForm({ initial, submitLabel, onSubmit, busy, error }: {
           </div>
           <div className="field">
             <label>Recipient email</label>
-            <input type="email" value={v.recipientEmail} onChange={(e) => set('recipientEmail', e.target.value)} required />
+            <input ref={emailRef} type="email" value={v.recipientEmail} required aria-invalid={emailError !== null}
+                   aria-describedby={emailError ? 'recipient-email-error' : undefined} className={emailError ? 'input-error' : undefined}
+                   onChange={(e) => { set('recipientEmail', e.target.value); setEmailError(null); }} />
+            {emailError && <div id="recipient-email-error" className="form-error" role="alert">{emailError}</div>}
           </div>
         </div>
         <div className="field">
@@ -207,7 +218,7 @@ export function HandoffForm({ initial, submitLabel, onSubmit, busy, error }: {
                 </select>
                 <input aria-label="Notes" value={it.notes} placeholder="e.g. 50 back Friday"
                        onChange={(e) => setItem(i, { notes: e.target.value })} />
-                <button type="button" className="btn btn-sm btn-ghost icon-btn" title="Remove item"
+                <button type="button" className="btn btn-sm btn-negative icon-btn" title="Remove item"
                         disabled={v.items.length === 1} onClick={() => removeItem(i)}>✕</button>
               </div>
               <div className="item-sub">
@@ -215,7 +226,7 @@ export function HandoffForm({ initial, submitLabel, onSubmit, busy, error }: {
                   <div className="row">
                     <input aria-label="Serial or ID" value={it.serialNumber} placeholder="Serial / asset ID"
                            style={{ maxWidth: 280 }} onChange={(e) => setItem(i, { serialNumber: e.target.value })} />
-                    <button type="button" className="btn btn-sm btn-ghost"
+                    <button type="button" className="btn btn-sm btn-negative"
                             onClick={() => { setItem(i, { serialNumber: '' }); toggleId(i); }}>Remove ID</button>
                   </div>
                 ) : (

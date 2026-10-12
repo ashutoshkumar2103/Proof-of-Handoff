@@ -359,7 +359,7 @@ class CustomerJobTest extends ApiTestBase {
                 mvc.perform(as(owner, post("/api/v1/handoffs/" + id + "/submit"))).andExpect(status().isOk());
             }
             if (stage.equals("CANCELLED")) {
-                mvc.perform(as(owner, post("/api/v1/handoffs/" + id + "/cancel"))).andExpect(status().isOk());
+                mvc.perform(as(owner, post("/api/v1/handoffs/" + id + "/cancel").contentType("application/json").content("{\"reason\":\"Test\"}"))).andExpect(status().isOk());
             }
             return codeOf(owner, id);
         }
@@ -596,7 +596,7 @@ class CustomerJobTest extends ApiTestBase {
         Sent rejected = sentUnanswered(a, "No-D");
         answer(rejected, false);
         Sent cancelled = sentUnanswered(a, "Cancel-E");
-        mvc.perform(as(a, post("/api/v1/handoffs/" + cancelled.id() + "/cancel"))).andExpect(status().isOk());
+        mvc.perform(as(a, post("/api/v1/handoffs/" + cancelled.id() + "/cancel").contentType("application/json").content("{\"reason\":\"Test\"}"))).andExpect(status().isOk());
         handoffAt(a, "ACTIVE", null);     // accepted and out with the recipient
         handoffAt(a, "PARTIAL", null);    // partly returned
         handoffAt(a, "RETURNED", null);   // fully returned

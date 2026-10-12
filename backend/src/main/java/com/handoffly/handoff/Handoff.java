@@ -13,6 +13,7 @@ import jakarta.persistence.ManyToOne;
 import jakarta.persistence.OneToMany;
 import jakarta.persistence.OrderBy;
 import jakarta.persistence.Table;
+import org.hibernate.annotations.SQLRestriction;
 
 import java.time.Instant;
 import java.util.ArrayList;
@@ -25,15 +26,21 @@ import java.util.List;
  */
 @Entity
 @Table(name = "handoff")
+// A deleted draft is never loaded again, by any query, so no list, count, report, lookup or job can see it (see deletedAt).
+@SQLRestriction("deleted_at is null")
 public class Handoff extends BaseEntity {
 
     /**
-     * The customer-facing reference (e.g. AV-3). Unique per owning account — not globally — and
-     * immutable once issued, so PDFs, emails and audit history that quote it stay valid even if
-     * the account's prefix later changes.
+     * The customer-facing reference (e.g. AV-3), issued when the draft is first submitted: null until then. Unique per owning
+     * account — not globally — and immutable once issued, so PDFs, emails and audit history that quote it stay valid even if the
+     * account's prefix later changes. (A draft created before references moved to submission keeps the one it was given.)
      */
-    @Column(name = "public_code", nullable = false, length = 20)
+    @Column(name = "public_code", length = 20)
     private String publicCode;
+
+    /** The number inside {@link #publicCode} (3 for AV-3), so references sort in their real order; null while there is no reference. */
+    @Column(name = "reference_number")
+    private Long referenceNumber;
 
     @ManyToOne(fetch = FetchType.LAZY, optional = false)
     @JoinColumn(name = "owner_user_id", nullable = false)
@@ -110,6 +117,13 @@ public class Handoff extends BaseEntity {
     @Column(name = "return_wait_requested_by_name", length = 200)
     private String returnWaitRequestedByName;
 
+    /**
+     * Set when the customer deletes a draft. The row is kept, not erased: its audit events (append-only) and attachments still
+     * point at it. Nothing reads a handoff with this set; see {@link #markDeleted}.
+     */
+    @Column(name = "deleted_at")
+    private Instant deletedAt;
+
     @OneToMany(mappedBy = "handoff", cascade = CascadeType.ALL, orphanRemoval = true)
     @OrderBy("position ASC, id ASC")
     private List<HandoffItem> items = new ArrayList<>();
@@ -118,16 +132,30 @@ public class Handoff extends BaseEntity {
         // JPA
     }
 
-    public Handoff(String publicCode, User owner, String title) {
-        this.publicCode = publicCode;
+    /** A new draft: it has no reference yet (see {@link #assignReference}). */
+    public Handoff(User owner, String title) {
         this.owner = owner;
         this.title = title;
+    }
+
+    /** Gives a draft its reference, once, at its first submission. A handoff that already has one never gets another. */
+    public void assignReference(String reference, long number) {
+        if (this.publicCode != null) {
+            throw new IllegalStateException("This handoff already has a reference.");
+        }
+        this.publicCode = reference;
+        this.referenceNumber = number;
     }
 
     public void addItem(HandoffItem item) {
         item.setHandoff(this);
         item.setPosition(items.size());
         items.add(item);
+    }
+
+    /** Takes this handoff out of the workspace for good; what was recorded about it stays. */
+    public void markDeleted(Instant at) {
+        this.deletedAt = at;
     }
 
     public void clearItems() {
@@ -139,6 +167,8 @@ public class Handoff extends BaseEntity {
     }
 
     public String getPublicCode() { return publicCode; }
+
+    public Long getReferenceNumber() { return referenceNumber; }
 
     public User getOwner() { return owner; }
 

@@ -107,7 +107,7 @@ export function UpgradePlans({ onUpgraded }: { onUpgraded: (plan: SubscriptionPl
                       <button className="btn btn-primary" disabled={busy}>
                         {busy ? 'Processing…' : `Pay ${money(o.amountDue)} and upgrade`}
                       </button>
-                      <button type="button" className="btn btn-ghost" disabled={busy}
+                      <button type="button" className="btn btn-negative" disabled={busy}
                               onClick={() => { setChosen(null); setError(null); }}>
                         Cancel
                       </button>

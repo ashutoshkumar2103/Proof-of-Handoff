@@ -146,7 +146,7 @@ public class HandoffPdfService {
         try {
             PdfWriter writer = PdfWriter.getInstance(document, out);
             writer.setPageEvent(new Footer(d.publicCode()));
-            document.addTitle("Proof of Handoff — " + d.publicCode());
+            document.addTitle("Proof of Handoff — " + (d.publicCode() == null ? DRAFT_NOT_SUBMITTED : d.publicCode()));
             document.addSubject(clean(d.title()));
             document.addAuthor("HandOffly");
             document.addCreator("HandOffly");
@@ -176,7 +176,7 @@ public class HandoffPdfService {
         bar.addCell(left);
 
         PdfPCell right = plain();
-        right.addElement(rightAligned("Reference: " + clean(d.publicCode()), BODY_BOLD));
+        right.addElement(rightAligned(d.publicCode() == null ? DRAFT_NOT_SUBMITTED : "Reference: " + clean(d.publicCode()), BODY_BOLD));
         if (!isBlank(d.title())) right.addElement(rightAligned(clean(d.title()), BODY));
         bar.addCell(right);
         bar.setSpacingAfter(4);
@@ -567,6 +567,9 @@ public class HandoffPdfService {
     }
 
     /** Drops control characters that would corrupt the layout; keeps line breaks as spaces. */
+    /** What a draft says where the reference would be: it has none until it is submitted. */
+    static final String DRAFT_NOT_SUBMITTED = "DRAFT — NOT SUBMITTED";
+
     static String clean(String s) {
         return s == null ? "" : s.replaceAll("[\\r\\n\\t]+", " ").replaceAll("\\p{Cntrl}", "").trim();
     }
@@ -608,7 +611,7 @@ public class HandoffPdfService {
             cb.beginText();
             cb.setFontAndSize(font, 8);
             cb.setTextMatrix(document.left(), y);
-            cb.showText("HandOffly · " + code + " · Proof of Handoff · Dates in UTC");
+            cb.showText("HandOffly · " + (code == null ? DRAFT_NOT_SUBMITTED : code) + " · Proof of Handoff · Dates in UTC");
             cb.endText();
 
             String label = "Page " + writer.getPageNumber() + " of ";

@@ -173,7 +173,7 @@ class HandoffReportTest extends ApiTestBase {
         mvc.perform(post("/api/v1/r/" + emailSender.extractLastToken() + "/reject").contentType(MediaType.APPLICATION_JSON)
                 .content("{\"acknowledgementName\":\"Recipient\",\"reason\":\"Not what we ordered\"}")).andExpect(status().isOk());
         long cancelled = awaiting(a, "R cancelled");
-        mvc.perform(as(a, post("/api/v1/handoffs/" + cancelled + "/cancel"))).andExpect(status().isOk());
+        mvc.perform(as(a, post("/api/v1/handoffs/" + cancelled + "/cancel").contentType("application/json").content("{\"reason\":\"Test\"}"))).andExpect(status().isOk());
         long awaitingStill = awaiting(a, "R awaiting");
         draft(a, "R draft");
         String json = json(report(a, "2000-01-01", "2099-12-31", "size", "50"));   // wide, so every handoff above is inside it
@@ -362,7 +362,11 @@ class HandoffReportTest extends ApiTestBase {
                 .containsExactly("Q awaiting", "Q closed", "Q draft", "Q fully", "Q missing", "Q partial");
         assertThat(titles(json(report(a, p, q, "sort", "title,desc", "size", "50")))).first().isEqualTo("Q partial");
         assertThat(titles(json(report(a, p, q, "sort", "created,desc", "size", "50")))).first().isEqualTo("Q missing");
-        assertThat(titles(json(report(a, p, q, "sort", "reference,asc", "size", "50")))).first().isEqualTo("Q draft");
+        // By the number inside the reference, which was issued as each handoff was submitted; the draft has none, so it comes last either way.
+        assertThat(titles(json(report(a, p, q, "sort", "reference,asc", "size", "50"))))
+                .containsExactly("Q awaiting", "Q partial", "Q fully", "Q closed", "Q missing", "Q draft");
+        assertThat(titles(json(report(a, p, q, "sort", "reference,desc", "size", "50"))))
+                .containsExactly("Q missing", "Q closed", "Q fully", "Q partial", "Q awaiting", "Q draft");
         // The draft has given nothing and has no return date, so it is last whichever way the column is sorted.
         assertThat(titles(json(report(a, p, q, "sort", "given,desc", "size", "50")))).last().isEqualTo("Q draft");
         assertThat(titles(json(report(a, p, q, "sort", "given,asc", "size", "50")))).last().isEqualTo("Q draft");
@@ -419,7 +423,7 @@ class HandoffReportTest extends ApiTestBase {
     void theCsvCarriesThePeriodTheFilterTheSummaryAndEveryMatchingRow() throws Exception {
         Account a = register();
         October ids = october(a);
-        String draft = codeOf(a, ids.draft());
+        assertThat(codeOf(a, ids.draft())).isNull();   // a draft has no reference yet
         String awaiting = codeOf(a, ids.awaiting());
         String partial = codeOf(a, ids.partial());
         String fully = codeOf(a, ids.fully());
@@ -446,7 +450,7 @@ class HandoffReportTest extends ApiTestBase {
         int header = lines.indexOf("Reference,Title,Recipient,Created,Expected return,Status,Overdue,Given,Returned,Missing");
         List<String> rows = lines.subList(header + 1, lines.size()).stream().filter(l -> !l.isEmpty()).toList();
         assertThat(rows).containsExactly(
-                draft + ",Q draft,Recipient,2026-10-03,,Draft,No,,,",
+                ",Q draft,Recipient,2026-10-03,,Draft,No,,,",   // a draft has no reference yet: its cell is empty
                 awaiting + ",Q awaiting,Recipient,2026-10-07,,Awaiting recipient,No,10,0,0",
                 partial + ",Q partial,Recipient Q partial,2026-10-11,2020-01-01,Partially returned,Yes,10,4,0",
                 fully + ",Q fully,Recipient Q fully,2026-10-15,2099-01-01,Fully returned,No,10,10,0",

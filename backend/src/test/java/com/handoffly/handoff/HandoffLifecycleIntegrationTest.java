@@ -153,7 +153,8 @@ class HandoffLifecycleIntegrationTest {
                         .content("{\"lines\":[{\"itemId\":" + bedId + ",\"quantity\":1}]}"))
                 .andExpect(status().isConflict());
         mvc.perform(post("/api/v1/handoffs/" + handoffId + "/cancel")
-                        .header("Authorization", "Bearer " + token))
+                        .header("Authorization", "Bearer " + token)
+                        .contentType(MediaType.APPLICATION_JSON).content("{\"reason\":\"Test\"}"))
                 .andExpect(status().isConflict());
 
         // --- Audit trail recorded the lifecycle ---

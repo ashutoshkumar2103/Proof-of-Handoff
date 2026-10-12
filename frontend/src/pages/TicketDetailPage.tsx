@@ -1,11 +1,11 @@
 import { useRef, useState } from 'react';
-import { Link, useLocation, useParams } from 'react-router-dom';
+import { useLocation, useParams } from 'react-router-dom';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { saveBlob } from '../api/client';
 import { ticketApi } from '../api/endpoints';
 import type { TicketAttachment } from '../api/types';
 import { TicketStatusBadge } from '../components/StatusBadge';
-import { errorMessage, ErrorNotice, Spinner } from '../components/ui';
+import { BackLink, errorMessage, ErrorNotice, Spinner } from '../components/ui';
 import { formatBytes, formatDateTime, TICKET_CATEGORY_LABELS } from '../lib/format';
 
 /** How often an open ticket is re-checked for new messages. */
@@ -84,7 +84,7 @@ export function TicketDetailPage() {
   return (
     <div className="stack page-narrow">
       <div>
-        <Link to="/support" className="small">← Contact Support</Link>
+        <BackLink to="/support">Contact Support</BackLink>
         <div className="spread">
           <h1>{t.subject}</h1>
           <TicketStatusBadge status={t.status} />
@@ -99,7 +99,7 @@ export function TicketDetailPage() {
       {carriedNotice && (
         <div className="notice notice-warning spread">
           <span>{carriedNotice}</span>
-          <button className="btn btn-sm btn-ghost" onClick={() => setCarriedNotice(undefined)}>Dismiss</button>
+          <button className="btn btn-sm btn-negative" onClick={() => setCarriedNotice(undefined)}>Dismiss</button>
         </div>
       )}
       {error && <div className="notice notice-error">{error}</div>}

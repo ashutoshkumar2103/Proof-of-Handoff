@@ -183,7 +183,15 @@ public abstract class ApiTestBase {
                 .andExpect(status().isOk());
     }
 
-    /** Creates a one-item draft handoff and returns the response JSON (id, publicCode, ...). */
+    /** Creates a one-item draft and submits it, so it has been numbered: returns the submit response JSON (id, publicCode, ...). */
+    protected String createAndSubmitHandoff(Account owner) throws Exception {
+        long id = ((Number) JsonPath.read(createHandoff(owner), "$.id")).longValue();
+        return mvc.perform(as(owner, post("/api/v1/handoffs/" + id + "/submit")))
+                .andExpect(status().isOk())
+                .andReturn().getResponse().getContentAsString();
+    }
+
+    /** Creates a one-item draft handoff and returns the response JSON (id, ...). A draft has no publicCode until it is submitted. */
     protected String createHandoff(Account owner) throws Exception {
         String body = """
                 {"title":"Laptop handout","senderName":"IT Dept","recipientName":"New Hire",

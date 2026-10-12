@@ -5,7 +5,7 @@ import { documentCheckApi, handoffApi } from '../api/endpoints';
 import type {
   CompareInput, CompareResult, DocFieldInput, DocLineInput, ImportMatchState, MatchStatus, NameMatch, ReturnPrefill, SubscriptionPlan,
 } from '../api/types';
-import { ErrorNotice, Gated, Spinner, errorMessage, useTransient } from '../components/ui';
+import { BackLink, ErrorNotice, Gated, Spinner, errorMessage, useTransient } from '../components/ui';
 import { AiColumnAssist } from '../components/AiColumnAssist';
 import { AiItemMatchAssist } from '../components/AiItemMatchAssist';
 import { UpgradePlans } from '../components/UpgradePlans';
@@ -144,7 +144,7 @@ function ReturnImport({ handoffId, handleRefusal }: { handoffId: number; handleR
   return (
     <div className="stack">
       <div>
-        <Link to={back} className="small muted">← Back to {h.publicCode}</Link>
+        <BackLink to={back}>Back to {h.publicCode}</BackLink>
         <h1 style={{ marginTop: 4 }}>Import returned quantities</h1>
         <p className="muted">
           {h.publicCode} · {h.title}. Upload a CSV, Excel (.xlsx) or text PDF listing what came back. Quantities are
@@ -223,7 +223,7 @@ function ReturnImport({ handoffId, handleRefusal }: { handoffId: number; handleR
             <button className="btn btn-primary" disabled={blocked || !usable} onClick={carryToReturnForm}>
               Continue to return form
             </button>
-            <Link className="btn btn-ghost" to={back}>Cancel</Link>
+            <Link className="btn btn-negative" to={back}>Cancel</Link>
           </div>
           {blocked && <p className="small mt-2" style={{ color: 'var(--danger)' }}>Fix the highlighted rows to continue.</p>}
           {!blocked && !usable && <p className="muted small mt-2">Match at least one row with a quantity above 0 to continue.</p>}
@@ -476,7 +476,7 @@ function LinesEditor({ title, lines, nameMatches, onChange }: {
             <input placeholder="Item name" value={l.name} onChange={(e) => set(i, { name: e.target.value })} className="grow" />
             <input placeholder="Qty" type="number" step="0.001" value={l.quantity ?? ''} style={{ width: 90 }}
                    onChange={(e) => set(i, { quantity: e.target.value })} />
-            {lines.length > 1 && <button type="button" className="btn btn-sm btn-ghost" onClick={() => onChange(lines.filter((_, idx) => idx !== i))}>×</button>}
+            {lines.length > 1 && <button type="button" className="btn btn-sm btn-negative" onClick={() => onChange(lines.filter((_, idx) => idx !== i))}>×</button>}
           </div>
           {comparedAs(l.name) && <div className="small muted" style={{ marginTop: 2 }}>Compared as “{comparedAs(l.name)}”</div>}
         </div>
@@ -495,7 +495,7 @@ function FieldsEditor({ title, fields, onChange }: { title: string; fields: DocF
         <div key={i} className="row" style={{ marginBottom: 6 }}>
           <input placeholder="Label (e.g. Delivery date)" value={f.label} onChange={(e) => set(i, { label: e.target.value })} className="grow" />
           <input placeholder="Value" value={f.value ?? ''} onChange={(e) => set(i, { value: e.target.value })} className="grow" />
-          <button type="button" className="btn btn-sm btn-ghost" onClick={() => onChange(fields.filter((_, idx) => idx !== i))}>×</button>
+          <button type="button" className="btn btn-sm btn-negative" onClick={() => onChange(fields.filter((_, idx) => idx !== i))}>×</button>
         </div>
       ))}
     </div>

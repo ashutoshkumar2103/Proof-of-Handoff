@@ -364,7 +364,7 @@ class ReportAssistantTest extends ApiTestBase {
         choose("ITEMS_MISSING", "TOP", "ANY", "HANDOFF", 1);
         ask(a, wholeView(), "Which has the most missing?").andExpect(jsonPath("$.answer").value("Overall, no handoff has missing items."));
         choose("HANDOFFS", "LIST", "OVERDUE", "HANDOFF", 1);
-        ask(a, wholeView(), "What is overdue?").andExpect(jsonPath("$.answer").value("Overall, no handoff is overdue."));
+        ask(a, wholeView(), "Which handoffs are overdue?").andExpect(jsonPath("$.answer").value("Overall, no handoff is overdue."));
         total("ITEMS_STILL_OUT", "OVERDUE");
         ask(a, wholeView(), "How many total overdue items are there?").andExpect(jsonPath("$.value").value(0))
                 .andExpect(jsonPath("$.answer").value("Overall, there are no overdue handoffs."));
@@ -571,11 +571,13 @@ class ReportAssistantTest extends ApiTestBase {
         Fixture f = fixture(SubscriptionPlan.HALF_YEARLY);
 
         mvc.perform(as(f.owner(), get(SUGGESTIONS))).andExpect(status().isOk())
-                .andExpect(jsonPath("$[*].intent").value(org.hamcrest.Matchers.hasItems("ITEMS_STILL_OUT", "OVERDUE_HANDOFF_LIST", "ITEMS_MISSING", "HANDOFFS_CLOSED", "OVERDUE_ITEMS")))
+                .andExpect(jsonPath("$[*].intent").value(org.hamcrest.Matchers.hasItems("ITEMS_STILL_OUT", "MISSING_ITEM_HANDOFFS", "ITEMS_MISSING", "HANDOFFS_CLOSED", "OVERDUE_ITEMS")))
+                .andExpect(jsonPath("$[*].question").value(org.hamcrest.Matchers.not(org.hamcrest.Matchers.hasItem("What is overdue?"))))   // a definition, not a figure of the report: not offered
                 .andExpect(jsonPath("$[?(@.intent=='ITEMS_STILL_OUT')].question").value("How many items are pending?"));
 
         pick(f.owner(), wholeView(), "ITEMS_MISSING").andExpect(status().isOk()).andExpect(jsonPath("$.value").value(3));
-        pick(f.owner(), wholeView(), "OVERDUE_HANDOFF_LIST").andExpect(jsonPath("$.entries.length()").value(1));
+        pick(f.owner(), wholeView(), "MISSING_ITEM_HANDOFFS").andExpect(jsonPath("$.entries.length()").value(1));
+        pick(f.owner(), wholeView(), "OVERDUE_HANDOFF_LIST").andExpect(status().isBadRequest());   // it is no longer one of the ready-made questions
         mvc.perform(as(f.owner(), get(SUGGESTIONS))).andExpect(jsonPath("$[?(@.intent=='OVERDUE_ITEMS')].question").value("How many total overdue items are there?"));
         pick(f.owner(), wholeView(), "OVERDUE_ITEMS").andExpect(jsonPath("$.value").value(6))
                 .andExpect(jsonPath("$.answer").value("Overall, 6 items are still out (not back yet) in 1 overdue handoff (10 handed over on it)."));

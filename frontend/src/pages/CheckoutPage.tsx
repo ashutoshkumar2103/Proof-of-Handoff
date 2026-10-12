@@ -5,7 +5,7 @@ import { paymentApi, publicApi } from '../api/endpoints';
 import { useAuth } from '../auth/AuthContext';
 import { AuthShell } from '../components/AuthShell';
 import { DemoCardFields } from '../components/DemoCardFields';
-import { errorMessage, Spinner } from '../components/ui';
+import { BackLink, errorMessage, Spinner } from '../components/ui';
 import { cardProblem, EMPTY_CARD, setPendingPayment } from '../lib/checkout';
 import type { CardInput } from '../lib/checkout';
 import { formatMoney, PLAN_LABELS, supportHighlights } from '../lib/format';
@@ -103,7 +103,7 @@ export function CheckoutPage() {
             <button className="btn btn-primary btn-block" disabled={busy || alreadyOnPlan}>
               {busy ? 'Processing…' : `Pay ${formatMoney(price.amount, price.currency)}`}
             </button>
-            <p className="center small mt-3 muted"><Link to="/#pricing">← Back to pricing</Link></p>
+            <p className="center small mt-3 muted"><BackLink to="/#pricing">Back to pricing</BackLink></p>
           </form>
         )}
       </div>

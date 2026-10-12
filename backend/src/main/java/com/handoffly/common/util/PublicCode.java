@@ -34,6 +34,18 @@ public final class PublicCode {
         return accountPrefix + "-" + number;
     }
 
+    /**
+     * The number in an account-scoped handoff reference ({@code AV-12} is 12), or null when there is no reference (a draft not yet
+     * submitted) or it has no number. This is what puts references in their real order: 9 before 10, whatever the prefix.
+     */
+    public static Long sequenceOf(String reference) {
+        if (reference == null) return null;
+        int dash = reference.lastIndexOf('-');
+        String digits = dash < 0 ? "" : reference.substring(dash + 1);
+        if (digits.isEmpty() || digits.length() > 18 || !digits.chars().allMatch(Character::isDigit)) return null;
+        return Long.parseLong(digits);
+    }
+
     /** Two digits at least (01, 09, 10, 123): short, but still tidy in lists. */
     private static String padded(long number) {
         return String.format("%02d", number);

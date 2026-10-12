@@ -13,6 +13,9 @@ export const HANDOFFCHECK_PLAN_MESSAGE = 'HandoffCheck is available on Half-Year
 /** The AI features go with the plans that include HandoffCheck (the backend decides; `User.handoffCheck` is that same answer). */
 export const AI_REPORT_PLAN_MESSAGE = 'The AI Report Assistant is available on Half-Yearly and Yearly plans.';
 
+/** What shows where a handoff's reference would be, for a draft that has not been submitted yet (it has none until then). */
+export const REFERENCE_PENDING = 'Reference assigned on submission';
+
 export const PLAN_LABELS: Record<SubscriptionPlan, string> = {
   MONTHLY: 'Monthly',
   QUARTERLY: 'Quarterly',

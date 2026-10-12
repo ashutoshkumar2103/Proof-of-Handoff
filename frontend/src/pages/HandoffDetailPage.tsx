@@ -3,16 +3,16 @@ import { Link, useLocation, useNavigate, useParams } from 'react-router-dom';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { isSubscriptionEnded, saveBlob } from '../api/client';
 import { handoffApi, returnApi } from '../api/endpoints';
-import type { CreateReturnInput, HandoffAction, HandoffDetail, ReturnPrefill } from '../api/types';
+import type { AuditEvent, CreateReturnInput, HandoffAction, HandoffDetail, ReturnPrefill } from '../api/types';
 import { ActionMenu } from '../components/ActionMenu';
 import type { ActionMenuItem } from '../components/ActionMenu';
 import { LifecycleSteps, StatusBadge } from '../components/StatusBadge';
 import { ItemsTable } from '../components/ItemsTable';
 import { ReturnForm } from '../components/ReturnForm';
 import { AttachmentsPanel } from '../components/AttachmentsPanel';
-import { ErrorNotice, Spinner, errorMessage, useSubscriptionEndedModal, useTransient } from '../components/ui';
+import { BackLink, ErrorNotice, Spinner, errorMessage, useSubscriptionEndedModal, useTransient } from '../components/ui';
 import { useConfirm } from '../components/ConfirmDialog';
-import { CONDITION_LABELS, formatDate, formatDateTime, isFinished, qty } from '../lib/format';
+import { CONDITION_LABELS, formatDate, formatDateTime, isFinished, qty, REFERENCE_PENDING } from '../lib/format';
 
 export function HandoffDetailPage() {
   const { id } = useParams();
@@ -27,6 +27,8 @@ export function HandoffDetailPage() {
   const [actionError, setActionError] = useState<string | null>(null);
   const [notice, setNotice] = useTransient<{ text: string; tone: 'notice-success' | 'notice-info' }>();
   const [pdfBusy, setPdfBusy] = useState<'download' | 'excel' | 'share' | 'email' | null>(null);
+  const [showLogs, setShowLogs] = useState(false);
+  const logsButton = useRef<HTMLButtonElement>(null);
   // A PDF already fetched for sharing, so a retry can share instantly while the user gesture is fresh.
   const sharePdf = useRef<{ version: string; file: File } | null>(null);
   const confirm = useConfirm();
@@ -194,18 +196,18 @@ export function HandoffDetailPage() {
       title: 'Cancel this handoff?',
       message: 'The recipient will no longer be able to act on it.',
       danger: true, confirmText: 'Cancel handoff', cancelText: 'Keep',
-      input: { label: 'Reason (optional)', placeholder: 'Why are you cancelling?' },
+      input: { label: 'Reason (required)', placeholder: 'Why are you cancelling?', required: true },
     });
-    if (res.confirmed) action.mutate(() => handoffApi.cancel(handoffId, res.value || undefined));
+    if (res.confirmed) action.mutate(() => handoffApi.cancel(handoffId, res.value));
   }
 
   async function onDispute() {
     const res = await confirm({
       title: 'Mark as disputed?',
-      input: { label: 'Reason (optional)', placeholder: 'Describe the dispute' },
+      input: { label: 'Reason (required)', placeholder: 'Describe the dispute', required: true },
       confirmText: 'Mark disputed',
     });
-    if (res.confirmed) action.mutate(() => handoffApi.dispute(handoffId, res.value || undefined));
+    if (res.confirmed) action.mutate(() => handoffApi.dispute(handoffId, res.value));
   }
 
   async function onClose() {
@@ -233,12 +235,12 @@ export function HandoffDetailPage() {
 
   return (
     <div className="stack">
-      <Link to="/dashboard" className="small muted">← Dashboard</Link>
+      <BackLink to="/dashboard">Dashboard</BackLink>
 
       {/* What is this handoff, and where is it? */}
       <div className="card handoff-head">
         <div className="row">
-          <span className="handoff-ref">{h.publicCode}</span>
+          <span className="handoff-ref">{h.publicCode ?? REFERENCE_PENDING}</span>
           {h.category && <span className="badge">{h.category}</span>}
         </div>
         <h1>{h.title}</h1>
@@ -299,7 +301,7 @@ export function HandoffDetailPage() {
         <div className="row actions">
           {has('SUBMIT') && <button className="btn btn-primary" disabled={action.isPending}
             onClick={() => action.mutate(() => handoffApi.submit(handoffId))}>Submit & send link</button>}
-          {has('RECORD_RETURN') && <button className="btn btn-primary" onClick={onRecordReturn}>
+          {has('RECORD_RETURN') && <button className={`btn ${showReturn ? 'btn-negative' : 'btn-primary'}`} onClick={onRecordReturn}>
             {showReturn ? 'Close return form' : 'Record return'}</button>}
           {has('REQUEST_MISSING_CONFIRMATION') && <button className="btn btn-primary" disabled={action.isPending}
             onClick={() => action.mutate(() => handoffApi.requestMissingConfirmation(handoffId))}>
@@ -431,11 +433,50 @@ export function HandoffDetailPage() {
         </dl>
       </div>
 
-      {/* Event history */}
+      {/* Event history: the whole timeline is in a modal, so this page stays short */}
       <div className="card">
-        <h2>Event history</h2>
+        <div className="card-header" style={{ marginBottom: 0, flexWrap: 'wrap' }}>
+          <div>
+            <h2 style={{ margin: 0 }}>Event history</h2>
+            <div className="small muted">{h.events.length} {h.events.length === 1 ? 'event' : 'events'} recorded</div>
+          </div>
+          <button ref={logsButton} type="button" className="btn btn-sm" aria-haspopup="dialog" onClick={() => setShowLogs(true)}>
+            Click here to view all logs
+          </button>
+        </div>
+      </div>
+      {showLogs && (
+        <EventHistoryModal events={h.events} onClose={() => { setShowLogs(false); logsButton.current?.focus(); }} />
+      )}
+    </div>
+  );
+}
+
+/** The handoff's complete event history, in the order the backend returns it (read-only; the same events the page used to list inline). */
+function EventHistoryModal({ events, onClose }: { events: AuditEvent[]; onClose: () => void }) {
+  const closeButton = useRef<HTMLButtonElement>(null);
+
+  useEffect(() => { closeButton.current?.focus(); }, []);
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => { if (e.key === 'Escape') onClose(); };
+    document.addEventListener('keydown', onKey);
+    return () => document.removeEventListener('keydown', onKey);
+  }, [onClose]);
+  useEffect(() => {   // the page behind does not scroll while the modal is open
+    const before = document.body.style.overflow;
+    document.body.style.overflow = 'hidden';
+    return () => { document.body.style.overflow = before; };
+  }, []);
+
+  return (
+    <div className="modal-overlay" onMouseDown={onClose}>
+      <div className="modal modal-wide" role="dialog" aria-modal="true" aria-labelledby="event-history-title" onMouseDown={(e) => e.stopPropagation()}>
+        <div className="spread" style={{ flexWrap: 'nowrap', alignItems: 'flex-start' }}>
+          <h3 className="modal-title" id="event-history-title">Event history</h3>
+          <button ref={closeButton} type="button" className="btn btn-sm btn-negative" aria-label="Close event history" onClick={onClose}>✕</button>
+        </div>
         <ul className="timeline">
-          {h.events.map((e) => (
+          {events.map((e) => (
             <li key={e.id}>
               <div className="small"><strong>{e.message}</strong></div>
               <div className="small muted">
@@ -444,6 +485,9 @@ export function HandoffDetailPage() {
             </li>
           ))}
         </ul>
+        <div className="modal-actions">
+          <button type="button" className="btn btn-negative" onClick={onClose}>Close</button>
+        </div>
       </div>
     </div>
   );

@@ -128,7 +128,7 @@ class HandoffDownloadTest extends ApiTestBase {
 
         long cancelled = create(owner, "Cancelled");
         send(owner, "/api/v1/handoffs/" + cancelled + "/submit");
-        send(owner, "/api/v1/handoffs/" + cancelled + "/cancel");
+        mvc.perform(as(owner, post("/api/v1/handoffs/" + cancelled + "/cancel").contentType("application/json").content("{\"reason\":\"Test\"}"))).andExpect(status().isOk());
         byStatus.put("CANCELLED", cancelled);
 
         for (Map.Entry<String, Long> e : byStatus.entrySet()) {

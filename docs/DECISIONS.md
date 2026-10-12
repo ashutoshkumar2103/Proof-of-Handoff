@@ -60,7 +60,7 @@ project brief. Each can be revisited.
     handoff counter. If teams are ever needed, an account table can be introduced then, keyed by
     these same Account IDs.
 
-15. **Handoff references are per customer; `public_code` keeps every value ever issued.**
+15. **Handoff references are per customer; `public_code` keeps every value ever issued.** *(Since decision 45 the number is issued when a draft is first submitted, not when it is created; the rest below still holds.)*
     The reference a customer sees is `<prefix>-<n>` (`AV-1`, `AV-2`, …) where `n` comes from that
     customer's own counter (`app_user.handoff_sequence`, the last number issued), never from the
     global id. The counter is advanced under a pessimistic row lock on the customer inside the
@@ -528,3 +528,54 @@ project brief. Each can be revisited.
     on H2 and with 24 simultaneous registrations on MySQL. *Existing accounts:* nothing is rewritten — they keep their prefix (HO) and every reference already issued
     — so they may share a prefix, which is the one case the rule cannot undo: asking for their own prefix again is not an error, and HO is not given to a new customer while
     any account has it. A support change to a prefix another customer has is refused (409). No migration was needed: the counter row, the column and its length already existed.
+
+43. **The dark theme is layered charcoal, not black; the change is in the shared tokens only.** Dark mode used a near-black palette (page #000, cards #0c0c0f)
+    in which cards, tables, dropdowns and dialogs barely separated. The same tokens now hold layers of a blue-tinted charcoal: page #12151a, cards and the top bar
+    #1a1e25, what sits inside a card (table headings, hover, panels) #232831, what floats above (dropdowns, dialogs) #272c36 (new token `--surface-raised`) and the inside of
+    an input #14171d (new token `--field`), with softer, two-part shadows. The brand blue is unchanged; the soft status backgrounds were lifted to read on charcoal. In light
+    mode both new tokens equal the white it already used, so light is pixel-identical. Measured contrast of text on its layer is at least 5.6:1 and of the accent on its soft
+    background 4.8:1 (it would have been 4.5 with a lighter soft background, so that one was kept darker). The one pair under 4.5, white text on the brand-blue button
+    (about 3:1), is the existing brand colour and was left as it is. The support portal repeats the dark values, as it shares no code with the customer app. No component,
+    layout, route or behaviour changed: three rules (inputs, dropdown panel, dialog) now name the new tokens.
+
+44. **Deleting a draft hides it, it does not erase it: the handoff row is kept, marked deleted, so its audit trail stays whole.** `DELETE /handoffs/{id}` on a draft
+    failed with a 500 on MySQL (and on H2 — no test had ever deleted a draft): the draft already has its creation event, and `audit_event.handoff_id` is a foreign key
+    to `handoff` (`fk_audit_handoff`); a draft with an attachment was stopped the same way by `fk_attachment_handoff`. *Why not the alternatives:* cascading the delete
+    would erase append-only history; `ON DELETE SET NULL` would rewrite audit rows and lose which handoff they describe; dropping the key would leave events (and
+    attachments and their stored files) pointing at nothing. *The fix:* `handoff.deleted_at` (migration V22, nullable, so every existing row is unchanged) and
+    `@SQLRestriction("deleted_at is null")` on `Handoff`, so no query — lists, search, dashboard counts, reports, jobs, lookups by id or by reference — ever sees a deleted
+    handoff (a request for one is 404, as for any handoff that does not exist). `HandoffService.deleteDraft` marks it and flushes, then appends a `HANDOFF_DELETED` event; the
+    events already recorded are not touched and still point at a real row. Who may delete is unchanged: only the owner, only while it is a draft (409 otherwise, 403 for another
+    customer). A database failure is a 500 and changes nothing (the whole call is one transaction). *Trade-off:* the deleted draft's data (recipient, items, attachment files) is
+    retained, not erased; if a retention or erasure policy is ever needed it would purge deleted rows and their attachments deliberately, as its own change. References are never
+    reused (the per-customer counter only goes up), so a deleted draft's reference cannot be given to another handoff. Neither web app needed a change to delete; the mobile app
+    now says "Draft deleted." afterwards.
+
+45. **A handoff's reference is issued when its draft is first submitted, not when it is created.** A reference (`AV-12`) is the customer's own number, and it used to be
+    issued the moment a draft was created, so drafts that were deleted, never sent, or abandoned used numbers up and left gaps. Now a new draft has none (`public_code` is
+    NULL; migration V23 allows it), and `HandoffService.submit` issues it — the same `User.nextHandoffReference()` and the same per-customer counter, no second numbering
+    service. *Concurrency:* `submit` takes the existing pessimistic row lock on the account **first**, then loads the handoff and re-checks it is still a draft; two
+    submissions by one customer therefore take their numbers one at a time, and a second submission of the same draft is refused (409) because it only reads the draft
+    after the first has committed. *Failure:* everything — the status change, the audit event, the recipient link, the number and the email — is one transaction, as before,
+    so a failed email (or any other failure after the number was taken) rolls the number back too: the draft stays unnumbered and retryable, and no number is used up. A
+    submission refused up front (plan ended, no items) takes no number either. *Trade-off, unchanged in kind but now longer:* the email is still sent inside the transaction,
+    so the account lock is held while it is sent (one customer's other submissions wait that long); an outbox or post-commit delivery would remove that and is a separate change.
+    *Prefix:* a draft is numbered under the prefix in force when it is submitted (created under `ST`, prefix changed to `SX`, submitted: `SX-n`); a reference already issued is
+    never rewritten. *Legacy:* a draft that was numbered at creation keeps its reference and the counter does not move when it is submitted (the counter is already past it).
+    The audit event `OUTGOING_SUBMITTED` says "submitted as AV-12." when it issued the reference (no new event type); the soft-delete event says "Draft deleted." for a draft with none.
+    *Order:* `handoff.reference_number` holds the number inside the reference (migration V23 fills it for every existing handoff), so "by reference" (the Code column, the report's
+    reference sort) orders by that number — 9 before 10, whatever the prefix — with drafts that have none last, instead of by text or by internal id (which no longer follows the order
+    references are issued in). *Wording:* where a reference would be, a draft shows "Reference assigned on submission"; its PDF says "DRAFT — NOT SUBMITTED"; CSV and Excel leave the
+    reference empty. Only handoffs that have a reference are offered as a support ticket's related handoff. *Migration V23* is additive (`public_code` NULL, new nullable
+    `reference_number`, an index); no reference, id, counter or audit row changes.
+
+46. **Who ran a customer job, and who changed its settings, is recorded with a stable user id.** Two additions, both append-only and both written by the server from the
+    authenticated account (never from anything the client sends). *Settings:* every successful change to a job's schedule (cron expression and timezone together), or pausing
+    or resuming it, appends one row to `customer_job_change` — account id, job type, action, previous and new value, the actor's user id, the name they had then (a snapshot, so a
+    rename never rewrites history), the actor type (`ActorType`, so another kind of actor is a new value, not a schema change) and the time. It is written in the same transaction as the
+    change, so a refused or rolled-back change leaves no record; saving what is already set (the same schedule, pausing a paused job) is not a change and is not recorded. It is shown
+    as its own Configuration Changes table on the Jobs page and is not mixed into the run history, whose paging, ordering and status display are unchanged. *Runs:* `customer_job_run`
+    gets the same three actor columns, filled for a run pressed by hand (Run now, Run All Now). The history's new User column reads the person's name; "System" for a scheduled
+    run (the trigger proves it, so no column is needed); "Not recorded" for every run from before this was kept, which is never given a guessed name. Customers only ever see their
+    own entries. The audit that already exists was not reusable: `audit_event` belongs to a handoff and `support_audit_event` to a staff actor. *Migration V24* is additive (three
+    nullable columns, one new table and its index); no existing row is changed.

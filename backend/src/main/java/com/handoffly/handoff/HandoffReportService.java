@@ -2,6 +2,7 @@ package com.handoffly.handoff;
 
 import com.handoffly.common.error.BadRequestException;
 import com.handoffly.common.util.Csv;
+import com.handoffly.common.util.PublicCode;
 import com.handoffly.common.web.PageResponse;
 import com.handoffly.handoff.dto.HandoffReportResponse;
 import com.handoffly.handoff.dto.HandoffReportResponse.Period;
@@ -226,7 +227,7 @@ public class HandoffReportService {
         for (Sort.Order order : sort) {
             boolean asc = order.isAscending();
             Comparator<HandoffSummaryResponse> next = switch (order.getProperty()) {
-                case "reference" -> by(HandoffSummaryResponse::id, asc);   // references are issued in sequence, so id order is reference order
+                case "reference" -> by(h -> PublicCode.sequenceOf(h.publicCode()), asc);   // the number inside the reference (9 before 10); a draft with none last
                 case "title" -> by(h -> h.title().toLowerCase(Locale.ROOT), asc);
                 case "recipient" -> by(h -> h.recipientName().toLowerCase(Locale.ROOT), asc);
                 case "created" -> by(HandoffSummaryResponse::createdAt, asc);
@@ -239,7 +240,9 @@ public class HandoffReportService {
             };
             result = result == null ? next : result.thenComparing(next);
         }
-        Comparator<HandoffSummaryResponse> byReference = Comparator.comparing(HandoffSummaryResponse::id);
+        Comparator<HandoffSummaryResponse> byReference = Comparator
+                .comparing((HandoffSummaryResponse h) -> PublicCode.sequenceOf(h.publicCode()), Comparator.nullsLast(Comparator.<Long>naturalOrder()))
+                .thenComparing(HandoffSummaryResponse::id);
         return result == null ? byReference : result.thenComparing(byReference);
     }
 

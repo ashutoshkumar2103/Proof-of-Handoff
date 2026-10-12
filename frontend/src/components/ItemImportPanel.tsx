@@ -61,7 +61,7 @@ export function ItemImportPanel({ onAdd, onClose }: { onAdd: (items: ImportedIte
     <div className="panel mt-2" aria-label="Import items from a file">
       <div className="spread">
         <h3 style={{ margin: 0 }}>Import items from a file</h3>
-        <button type="button" className="btn btn-sm btn-ghost" onClick={onClose}>Close</button>
+        <button type="button" className="btn btn-sm btn-negative" onClick={onClose}>Close</button>
       </div>
       <p className="small muted">
         Upload a <strong>.csv</strong> or <strong>.xlsx</strong> file with a column for the item (named Item, Name,
@@ -101,7 +101,7 @@ export function ItemImportPanel({ onAdd, onClose }: { onAdd: (items: ImportedIte
                                onChange={(e) => patch(i, { quantity: e.target.value })} style={{ maxWidth: 120 }} />
                       </td>
                       <td>
-                        <button type="button" className="btn btn-sm btn-ghost icon-btn" title="Leave this row out"
+                        <button type="button" className="btn btn-sm btn-negative icon-btn" title="Leave this row out"
                                 onClick={() => remove(i)}>✕</button>
                       </td>
                     </tr>

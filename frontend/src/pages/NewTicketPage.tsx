@@ -4,7 +4,7 @@ import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { handoffApi, supportMessageApi, ticketApi } from '../api/endpoints';
 import type { TicketCategory } from '../api/types';
 import { useAuth } from '../auth/AuthContext';
-import { errorMessage } from '../components/ui';
+import { BackLink, errorMessage } from '../components/ui';
 import { TICKET_CATEGORY_LABELS } from '../lib/format';
 
 const CATEGORIES = Object.keys(TICKET_CATEGORY_LABELS) as TicketCategory[];
@@ -82,7 +82,7 @@ export function NewTicketPage({ mode = 'ticket' }: { mode?: 'ticket' | 'message'
   return (
     <div className="stack page-narrow">
       <div>
-        <Link to="/support" className="small">← Contact Support</Link>
+        <BackLink to="/support">Contact Support</BackLink>
         <h1>{isMessage ? 'Send a message' : 'Create a ticket'}</h1>
         <p className="muted">
           {isMessage ? 'Tell us what you need. We will reply by email.' : 'Tell us what you need. We will reply by email and in this ticket.'}
@@ -135,7 +135,8 @@ export function NewTicketPage({ mode = 'ticket' }: { mode?: 'ticket' | 'message'
             <input id="handoffReference" list="handoff-references" maxLength={20} placeholder="e.g. HO-12"
                    value={form.handoffReference} onChange={set('handoffReference')} />
             <datalist id="handoff-references">
-              {(handoffs.data?.content ?? []).map((h) => <option key={h.id} value={h.publicCode}>{h.title}</option>)}
+              {/* Only handoffs that have a reference to quote: a draft has none until it is submitted. */}
+              {(handoffs.data?.content ?? []).filter((h) => h.publicCode).map((h) => <option key={h.id} value={h.publicCode!}>{h.title}</option>)}
             </datalist>
           </div>
         </div>
@@ -151,7 +152,7 @@ export function NewTicketPage({ mode = 'ticket' }: { mode?: 'ticket' | 'message'
 
         <div className="row">
           <button className="btn btn-primary" disabled={busy}>{busy ? 'Sending…' : isMessage ? 'Send message' : 'Send ticket'}</button>
-          <Link to="/support" className="btn btn-ghost">Cancel</Link>
+          <Link to="/support" className="btn btn-negative">Cancel</Link>
         </div>
       </form>
     </div>

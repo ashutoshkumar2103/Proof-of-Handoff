@@ -99,7 +99,7 @@ class SupportCustomersTest extends ApiTestBase {
     void theProfileShowsWhatSupportNeedsAndNothingMore() throws Exception {
         StaffAccount staff = registerStaff(SupportRole.MANAGER);
         Account customer = register("Priya Nair", SubscriptionPlan.YEARLY);
-        String handoff = createHandoff(customer);
+        String handoff = createAndSubmitHandoff(customer);
 
         String body = mvc.perform(as(staff, get("/api/v1/support/customers/" + customer.accountCode())))
                 .andExpect(status().isOk())
@@ -155,7 +155,7 @@ class SupportCustomersTest extends ApiTestBase {
         StaffAccount staff = registerStaff(SupportRole.ADMIN);
         Account customer = register();
         String original = prefixOf(customer);
-        String existing = createHandoff(customer);
+        String existing = createAndSubmitHandoff(customer);
         String av = uniquePrefix();
         String longest = uniquePrefix() + "X";
 

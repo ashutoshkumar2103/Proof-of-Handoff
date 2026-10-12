@@ -16,6 +16,8 @@ Short rules for the two React apps (`frontend/`, `support-portal/`). They descri
 | Status, badges, notices | `StatusBadge`, `.badge-*`, `.notice-*` |
 | Colours, radius, shadow | the tokens at the top of `index.css` (`--primary`, `--surface`, `--border`, `--radius`, `--shadow-lg`, …) |
 
+Surfaces are layered, the same way in both themes: `--bg` (the page), `--surface` (cards, the top bar), `--surface-2` (what sits inside a card: table headings, hover, panels), `--surface-raised` (what floats above: dropdowns and dialogs) and `--field` (the inside of an input). Pick the layer by what the element is, not by how it looks.
+
 Never write a colour, radius or shadow as a literal when a token exists. Light and dark themes both come from the tokens, so a component that uses only tokens works in both.
 
 ## Look
@@ -29,12 +31,13 @@ Never write a colour, radius or shadow as a literal when a token exists. Light a
 
 ## Buttons
 
-One primary action per area: `.btn-primary`. Everything else is a plain `.btn`. `.btn-ghost` for quiet text actions (Close, Cancel), `.btn-danger` only for destructive actions, `.btn-sm` for dense toolbars. Do not restyle a button locally to make it stand out; pick the right variant. A feature that is locked by plan keeps its button and shows a lock (🔒) with the plan message, rather than disappearing.
+One primary action per area: `.btn-primary`. Everything else is a plain `.btn`. `.btn-ghost` for quiet text actions (Close, Cancel), `.btn-danger` only for destructive actions, `.btn-sm` for dense toolbars. Do not restyle a button locally to make it stand out; pick the right variant. A button that says **no** (Close, Cancel, No, Reject, Delete, Remove, Dismiss, and their ✕ forms) is red — `.btn-negative` for the quiet ones, `.btn-danger` when it is the destructive action itself; one that says **yes** (Yes, Confirm, Open, Accept, Save) is blue and never red. A feature that is locked by plan keeps its button and shows a lock (🔒) with the plan message, rather than disappearing.
 
 ## Navigation and dropdowns
 
 - The top bar lists pages; an entry that groups pages or actions is a dropdown (`NavMenu` → `ActionMenu`) with the same items in the narrow menu.
 - Items are the existing pages or dialogs; a dropdown decides nothing itself. Keep labels short and the order stable.
+- A dialog the customer types into (the AI Report Assistant, Change password) is closed only by its own Close / Cancel button or Escape, never by a click outside it: a stray click must not throw away what they were writing.
 - The dropdown opens under its button's left edge; if it would not fit there it lines up with the right edge; it is never outside the screen (`ActionMenu` measures and moves it). Do not position a menu with its own CSS.
 - Opens by click or tap, on hover where the device has one, and by the keyboard: ArrowDown opens and moves through the items, Home/End jump, Escape closes and returns focus to the button, tabbing out closes it.
 - The item for the page you are on is marked active (`current: true` on the `ActionMenuItem`, compared with the route; `aria-current="page"` comes with it).

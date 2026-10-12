@@ -195,7 +195,7 @@ register, made from their organization (or, without one, their name): Siam Trade
 as Flipkart `FL`. No two customers have the same prefix (compared without regard to case): when the first choice is taken the next one of a fixed order is
 used — Siam Technologies, after Siam Traders, gets `SI` — and only when every two-letter prefix is in use does a new customer get three letters. The
 customer is never asked for one, and it is shown on their Account page. Support can still set another with *Change prefix*, and it is refused if another
-customer has it. Each customer's handoffs count up from 1 under that prefix — `ST-1, ST-2, …`, `RK-1, RK-2, …`. Accounts that existed before this rule keep
+customer has it. Each customer's handoffs count up from 1 under that prefix — `ST-1, ST-2, …`, `RK-1, RK-2, …` — and a handoff is given its number when its draft is first submitted (a draft shows "Reference assigned on submission" until then, so drafts never use numbers up). Accounts that existed before this rule keep
 the prefix they had (all of them `HO`) and the references they were given; nothing was rewritten. The internal database ids stay globally unique and are what
 the API addresses a handoff by. Numbers never restart: changing a prefix only affects *new* handoffs and
 carries on from the customer's current number, and numbers are issued under a row lock so concurrent

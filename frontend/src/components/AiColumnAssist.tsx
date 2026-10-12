@@ -106,7 +106,7 @@ export function AiColumnAssist({ file, handleRefusal, onAccepted }: {
             <button type="button" className="btn btn-sm btn-primary" disabled={phase === 'applying'} onClick={() => void accept()}>
               {phase === 'applying' ? 'Reading…' : 'Accept'}
             </button>
-            <button type="button" className="btn btn-sm btn-ghost" disabled={phase === 'applying'}
+            <button type="button" className="btn btn-sm btn-negative" disabled={phase === 'applying'}
                     onClick={() => { setPhase('dismissed'); setNote(null); }}>
               Reject
             </button>

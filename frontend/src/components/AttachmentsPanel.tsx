@@ -100,7 +100,7 @@ export function AttachmentsPanel({ handoffId, attachments, canModify, onChanged,
               </div>
               <div className="row small muted">
                 <span>{formatBytes(a.sizeBytes)}</span>
-                {canModify && <button className="btn btn-sm btn-ghost" onClick={() => onDelete(a)}>Delete</button>}
+                {canModify && <button className="btn btn-sm btn-negative" onClick={() => onDelete(a)}>Delete</button>}
               </div>
             </div>
           ))}

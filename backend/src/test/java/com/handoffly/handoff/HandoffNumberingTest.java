@@ -26,9 +26,17 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
 
 /**
  * Handoff references are numbered per customer (ST-1, ST-2 … under the prefix the customer was given when they registered, or
- * under the one support sets), independent of the internal database ids, and never repeat within a customer.
+ * under the one support sets), independent of the internal database ids, and never repeat within a customer. A reference is issued
+ * when a draft is first submitted, so these tests submit their handoffs (see HandoffReferenceAtSubmissionTest for what happens before).
  */
 class HandoffNumberingTest extends ApiTestBase {
+
+    /** A handoff that has been submitted, so it has its reference: the answer of the submit call. */
+    private String sent(Account owner) throws Exception {
+        long id = id(createHandoff(owner));
+        return mvc.perform(as(owner, post("/api/v1/handoffs/" + id + "/submit")))
+                .andExpect(status().isOk()).andReturn().getResponse().getContentAsString();
+    }
 
     private static String reference(String handoffJson) {
         return JsonPath.read(handoffJson, "$.publicCode");
@@ -43,10 +51,10 @@ class HandoffNumberingTest extends ApiTestBase {
         Account first = register();
         Account second = register();
 
-        String a1 = createHandoff(first);
-        String a2 = createHandoff(first);
-        String a3 = createHandoff(first);
-        String b1 = createHandoff(second);
+        String a1 = sent(first);
+        String a2 = sent(first);
+        String a3 = sent(first);
+        String b1 = sent(second);
 
         String firstPrefix = prefixOf(first);
         assertThat(firstPrefix).isNotEqualTo(prefixOf(second));   // each customer's own prefix
@@ -66,10 +74,10 @@ class HandoffNumberingTest extends ApiTestBase {
         String theirs = prefixOf(otherCustomer);
         setPrefix(staff, avCustomer, av);
 
-        assertThat(reference(createHandoff(avCustomer))).isEqualTo(av + "-1");
-        assertThat(reference(createHandoff(avCustomer))).isEqualTo(av + "-2");
-        assertThat(reference(createHandoff(otherCustomer))).isEqualTo(theirs + "-1");
-        assertThat(reference(createHandoff(otherCustomer))).isEqualTo(theirs + "-2");
+        assertThat(reference(sent(avCustomer))).isEqualTo(av + "-1");
+        assertThat(reference(sent(avCustomer))).isEqualTo(av + "-2");
+        assertThat(reference(sent(otherCustomer))).isEqualTo(theirs + "-1");
+        assertThat(reference(sent(otherCustomer))).isEqualTo(theirs + "-2");
     }
 
     @Test
@@ -79,8 +87,8 @@ class HandoffNumberingTest extends ApiTestBase {
         String shared = uniquePrefix();
         shareLegacyPrefix(shared, first, second);   // accounts that existed before prefixes were unique all had HO
 
-        String mine = createHandoff(first);
-        String theirs = createHandoff(second);
+        String mine = sent(first);
+        String theirs = sent(second);
         assertThat(reference(mine)).isEqualTo(shared + "-1");
         assertThat(reference(theirs)).isEqualTo(shared + "-1");
         assertThat(id(mine)).isNotEqualTo(id(theirs));
@@ -101,31 +109,36 @@ class HandoffNumberingTest extends ApiTestBase {
         String av = uniquePrefix();
         String rk = uniquePrefix();
         setPrefix(staff, customer, av);
-        String h1 = createHandoff(customer);
-        String h2 = createHandoff(customer);
+        String h1 = sent(customer);
+        String h2 = sent(customer);
         assertThat(List.of(reference(h1), reference(h2))).containsExactly(av + "-1", av + "-2");
 
         setPrefix(staff, customer, rk);
-        assertThat(reference(createHandoff(customer))).isEqualTo(rk + "-3");   // carries on from 2, under the new prefix
+        assertThat(reference(sent(customer))).isEqualTo(rk + "-3");   // carries on from 2, under the new prefix
         mvc.perform(as(customer, get("/api/v1/handoffs/" + id(h1)))).andExpect(jsonPath("$.publicCode").value(av + "-1"));
         mvc.perform(as(customer, get("/api/v1/handoffs/" + id(h2)))).andExpect(jsonPath("$.publicCode").value(av + "-2"));
 
         setPrefix(staff, customer, av);   // its own old prefix is free again: no one else took it
-        assertThat(reference(createHandoff(customer))).isEqualTo(av + "-4");   // av-1 / av-2 are never handed out again
+        assertThat(reference(sent(customer))).isEqualTo(av + "-4");   // av-1 / av-2 are never handed out again
     }
 
     @Test
-    void concurrentCreationNeverIssuesTheSameNumberTwice() throws Exception {
+    void concurrentSubmissionNeverIssuesTheSameNumberTwice() throws Exception {
         Account customer = register();
         int threads = 6;
+        List<Long> drafts = new ArrayList<>();
+        for (int i = 0; i < threads; i++) {
+            drafts.add(id(createHandoff(customer)));   // creating drafts issues no numbers
+        }
         ExecutorService pool = Executors.newFixedThreadPool(threads);
         CountDownLatch go = new CountDownLatch(1);
         try {
             List<Future<String>> results = new ArrayList<>();
-            for (int i = 0; i < threads; i++) {
+            for (long draft : drafts) {
                 results.add(pool.submit(() -> {
                     go.await();
-                    return reference(createHandoff(customer));
+                    return reference(mvc.perform(as(customer, post("/api/v1/handoffs/" + draft + "/submit")))
+                            .andExpect(status().isOk()).andReturn().getResponse().getContentAsString());
                 }));
             }
             go.countDown();
@@ -200,13 +213,17 @@ class HandoffNumberingTest extends ApiTestBase {
     void aRegisteredButHandoffLessCustomerStartsAtOneWhateverOthersHaveDone() throws Exception {
         Account busy = register();
         for (int i = 0; i < 3; i++) {
-            createHandoff(busy);
+            sent(busy);
         }
         Account fresh = register();
-        mvc.perform(as(fresh, post("/api/v1/handoffs").contentType(MediaType.APPLICATION_JSON)
+        String draft = mvc.perform(as(fresh, post("/api/v1/handoffs").contentType(MediaType.APPLICATION_JSON)
                         .content("{\"title\":\"First\",\"senderName\":\"S\",\"recipientName\":\"R\",\"recipientEmail\":\"r@example.test\","
                                 + "\"items\":[{\"name\":\"Drill\",\"quantity\":1}]}")))
                 .andExpect(status().isCreated())
+                .andExpect(jsonPath("$.publicCode").doesNotExist())   // a draft has no reference yet
+                .andReturn().getResponse().getContentAsString();
+        mvc.perform(as(fresh, post("/api/v1/handoffs/" + id(draft) + "/submit")))
+                .andExpect(status().isOk())
                 .andExpect(jsonPath("$.publicCode").value(prefixOf(fresh) + "-1"));
     }
 }

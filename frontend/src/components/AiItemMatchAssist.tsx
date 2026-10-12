@@ -128,7 +128,7 @@ export function AiItemMatchAssist({ namesA, namesB, accepted, askNow = 0, handle
             <button type="button" className="btn btn-sm btn-primary" disabled={picks === 0} onClick={accept}>
               Accept{picks > 0 ? ` (${picks})` : ''}
             </button>
-            <button type="button" className="btn btn-sm btn-ghost" onClick={() => { setPhase('idle'); setNote(null); }}>Reject</button>
+            <button type="button" className="btn btn-sm btn-negative" onClick={() => { setPhase('idle'); setNote(null); }}>Reject</button>
           </div>
         </div>
       )}

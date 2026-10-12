@@ -19,7 +19,6 @@ public enum ReportIntent {
     ITEMS_MISSING("How many items are missing?", Metric.ITEMS_MISSING, Operation.TOTAL, Condition.ANY, Grouping.NONE),
     ITEMS_STILL_OUT("How many items are pending?", Metric.ITEMS_STILL_OUT, Operation.TOTAL, Condition.ANY, Grouping.NONE),
     OVERDUE_ITEMS("How many total overdue items are there?", Metric.ITEMS_STILL_OUT, Operation.TOTAL, Condition.OVERDUE, Grouping.NONE),
-    OVERDUE_HANDOFF_LIST("What is overdue?", Metric.HANDOFFS, Operation.LIST, Condition.OVERDUE, Grouping.HANDOFF),
     MISSING_ITEM_HANDOFFS("Which handoffs have missing items?", Metric.ITEMS_MISSING, Operation.LIST, Condition.ANY, Grouping.HANDOFF);
 
     private final String suggestion;

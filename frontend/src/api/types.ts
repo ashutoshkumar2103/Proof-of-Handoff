@@ -196,7 +196,8 @@ export interface AuditEvent {
 
 export interface HandoffSummary {
   id: number;
-  publicCode: string;
+  /** Issued when the draft is first submitted: null for a draft that has not been submitted yet. */
+  publicCode: string | null;
   title: string;
   category?: string | null;
   status: HandoffStatus;
@@ -284,7 +285,8 @@ export interface HandoffTemplate {
 
 export interface HandoffDetail {
   id: number;
-  publicCode: string;
+  /** Issued when the draft is first submitted: null for a draft that has not been submitted yet. */
+  publicCode: string | null;
   title: string;
   purpose?: string | null;
   category?: string | null;
@@ -627,4 +629,20 @@ export interface JobHistoryEntry {
   failedHandoffs: string[];
   /** A safe sentence, never what went wrong inside. */
   failureReason?: string | null;
+  /** Who started the run: the person's name, "System" for a scheduled run, or "Not recorded" for a run from before it was kept. */
+  performedBy: string;
+}
+
+export type JobChangeAction = 'SCHEDULE_CHANGED' | 'PAUSED' | 'RESUMED';
+
+/** One change to a job's settings: what it was, what it became, and who made it. Values are text as the job showed them. */
+export interface JobChange {
+  id: number;
+  type: JobType;
+  title: string;
+  action: JobChangeAction;
+  previousValue?: string | null;
+  newValue: string;
+  performedBy: string;
+  changedAt: string;
 }

@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useState } from 'react';
 import type { ReactNode } from 'react';
-import { useNavigate } from 'react-router-dom';
+import { Link, useNavigate } from 'react-router-dom';
 import { HttpError } from '../api/client';
 import { NO_ACTIVE_SUBSCRIPTION_MESSAGE, SUBSCRIPTION_ENDED_MESSAGE } from '../lib/format';
 import { useConfirm } from './ConfirmDialog';
@@ -40,6 +40,22 @@ export function useTransient<T>(): [T | null, (value: T | null) => void] {
     };
   }, [value]);
   return [value, setValue];
+}
+
+/**
+ * A way back to the page the customer came from: a compact secondary button with a left arrow, in the same style as the other
+ * secondary buttons (`.btn`), never plain underlined text. It is an ordinary link underneath, so where it goes is the caller's `to`.
+ */
+export function BackLink({ to, children }: { to: string; children: ReactNode }) {
+  return (
+    <Link to={to} className="btn btn-sm btn-back">
+      <svg className="btn-back-icon" viewBox="0 0 24 24" aria-hidden="true" focusable="false">
+        <path d="M19 12H5" />
+        <path d="m12 19-7-7 7-7" />
+      </svg>
+      {children}
+    </Link>
+  );
 }
 
 export function Spinner({ label }: { label?: string }) {

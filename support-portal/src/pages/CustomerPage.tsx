@@ -59,7 +59,7 @@ export function CustomerPage() {
       const updated = await supportApi.setPrefix(accountId, prefix);
       queryClient.setQueryData(queryKey, updated);
       setDraft(null);
-      setSaved(`Prefix changed. This customer's next handoff will be ${updated.nextHandoffReference}; existing handoffs keep the references they already have.`);
+      setSaved(`Prefix changed. The next reference issued to this customer (when a draft is submitted) will be ${updated.nextHandoffReference}; existing handoffs keep the references they already have.`);
     } catch (err) {
       setError(errorMessage(err));
     } finally {
@@ -218,7 +218,7 @@ export function CustomerPage() {
                         onClick={() => setPlanStep('confirm')}>
                   Review change
                 </button>
-                <button type="button" className="btn btn-ghost" onClick={closePlanFlow}>Cancel</button>
+                <button type="button" className="btn btn-negative" onClick={closePlanFlow}>Cancel</button>
               </div>
             </div>
           )}

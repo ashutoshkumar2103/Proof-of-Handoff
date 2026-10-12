@@ -133,7 +133,7 @@ export function StaffPage() {
           </p>
           <div className="row">
             <button className="btn btn-primary" disabled={busy}>{busy ? 'Creating…' : 'Create staff'}</button>
-            <button type="button" className="btn btn-ghost" onClick={() => { setCreating(false); setForm(EMPTY_FORM); }}>Cancel</button>
+            <button type="button" className="btn btn-negative" onClick={() => { setCreating(false); setForm(EMPTY_FORM); }}>Cancel</button>
           </div>
         </form>
       )}
@@ -184,7 +184,7 @@ export function StaffPage() {
             {action.kind === 'role' && action.step === 'confirm' && (
               <button className="btn" disabled={busy} onClick={() => setAction({ ...action, step: 'choose' })}>Back</button>
             )}
-            <button className="btn btn-ghost" disabled={busy} onClick={() => setAction(null)}>Cancel</button>
+            <button className="btn btn-negative" disabled={busy} onClick={() => setAction(null)}>Cancel</button>
           </div>
         </div>
       )}

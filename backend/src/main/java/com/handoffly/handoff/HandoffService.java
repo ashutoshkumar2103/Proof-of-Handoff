@@ -27,7 +27,9 @@ import com.handoffly.returns.dto.ReturnEventResponse;
 import com.handoffly.user.User;
 import com.handoffly.user.UserService;
 import org.springframework.data.domain.Page;
+import org.springframework.data.domain.PageRequest;
 import org.springframework.data.domain.Pageable;
+import org.springframework.data.domain.Sort;
 import org.springframework.data.jpa.domain.Specification;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
@@ -88,11 +90,11 @@ public class HandoffService {
 
     @Transactional
     public HandoffDetailResponse create(Long userId, CreateHandoffRequest request) {
-        // The owner row stays locked until this transaction ends, so concurrent creations by the
-        // same customer take the next number one at a time: AV-1, AV-2, AV-3 … with no duplicates.
-        User owner = userService.getByIdForUpdate(userId);
+        // A new draft has no reference: it is numbered when it is first submitted (see submit), so creating, editing, duplicating
+        // or deleting drafts never uses up a number.
+        User owner = userService.getById(userId);
         userService.requireActiveSubscription(owner);   // the one gate on starting any new handoff: nothing below has run yet
-        Handoff handoff = new Handoff(owner.nextHandoffReference(), owner, request.title().trim());
+        Handoff handoff = new Handoff(owner, request.title().trim());
         applyHeader(handoff, request.purpose(), request.category(), request.senderName(),
                 request.senderOrganization(), request.recipientName(), request.recipientEmail(),
                 request.recipientPhone(), request.dueAt());
@@ -151,21 +153,37 @@ public class HandoffService {
         if (!handoff.getStatus().isDraft()) {
             throw new ConflictException("Only draft handoffs can be deleted. Cancel it instead.");
         }
-        handoffRepository.delete(handoff);
+        // Deleting a draft hides it, it does not erase it: its audit trail is append-only and its events point at this row.
+        handoff.markDeleted(Instant.now());
+        handoffRepository.saveAndFlush(handoff);   // a database failure surfaces here, before the deletion is recorded or reported
+        auditService.record(handoff.getId(), AuditEventType.HANDOFF_DELETED, ActorType.USER,
+                ownerRef(handoff), handoff.getPublicCode() == null ? "Draft deleted." : "Draft " + handoff.getPublicCode() + " deleted.");
     }
 
     @Transactional
     public HandoffDetailResponse submit(Long userId, Long handoffId) {
+        // The account row is locked first, before the handoff is read, and held until this transaction ends. So two submissions by
+        // one customer take their numbers one at a time, and a second submission of the same draft only reads it after the first
+        // has committed: it finds it already sent and is refused, rather than issuing a second reference.
+        // (The lock stays held while the recipient's email is sent below: the email is still sent inside this transaction.)
+        User owner = userService.getByIdForUpdate(userId);
         Handoff handoff = getOwnedHandoff(handoffId, userId);
         requireDraft(handoff);
-        userService.requireActiveSubscription(userId);   // sending a draft is starting a handoff: asked before anything changes
+        userService.requireActiveSubscription(owner);   // sending a draft is starting a handoff: asked before anything changes
         if (handoff.getItems().isEmpty()) {
             throw new ConflictException("Add at least one item before submitting the handoff.");
+        }
+        // The reference is issued here, the first time the draft is submitted, under the prefix in force now. A draft that was
+        // numbered when it was created (before references moved to submission) keeps the reference it has. If anything below
+        // fails, the whole transaction rolls back and the number goes back with it.
+        boolean newlyNumbered = handoff.getPublicCode() == null;
+        if (newlyNumbered) {
+            handoff.assignReference(owner.nextHandoffReference(), owner.getHandoffSequence());
         }
         transition(handoff, HandoffStatus.OUTGOING_SENT);
         handoff.setOutgoingAt(Instant.now());
         auditService.record(handoff.getId(), AuditEventType.OUTGOING_SUBMITTED, ActorType.USER,
-                ownerRef(handoff), "Outgoing handoff submitted.");
+                ownerRef(handoff), newlyNumbered ? "Outgoing handoff submitted as " + handoff.getPublicCode() + "." : "Outgoing handoff submitted.");
 
         String rawToken = recipientLinkService.issue(handoff);
         notificationService.sendRecipientReviewLink(
@@ -197,6 +215,7 @@ public class HandoffService {
     @Transactional
     public HandoffDetailResponse cancel(Long userId, Long handoffId, String reason) {
         Handoff handoff = getOwnedHandoff(handoffId, userId);
+        requireReason(reason, "cancel a handoff");
         transition(handoff, HandoffStatus.CANCELLED);
         auditService.record(handoff.getId(), AuditEventType.HANDOFF_CANCELLED, ActorType.USER,
                 ownerRef(handoff), reasonMessage("Handoff cancelled", reason));
@@ -206,6 +225,7 @@ public class HandoffService {
     @Transactional
     public HandoffDetailResponse dispute(Long userId, Long handoffId, String reason) {
         Handoff handoff = getOwnedHandoff(handoffId, userId);
+        requireReason(reason, "mark a handoff as disputed");
         transition(handoff, HandoffStatus.DISPUTED);
         auditService.record(handoff.getId(), AuditEventType.HANDOFF_DISPUTED, ActorType.USER,
                 ownerRef(handoff), reasonMessage("Handoff marked as disputed", reason));
@@ -277,11 +297,29 @@ public class HandoffService {
                 HandoffSpecifications.ownedBy(userId),
                 HandoffSpecifications.statusIn(statuses),
                 HandoffSpecifications.textSearch(query));
-        Page<Handoff> page = handoffRepository.findAll(spec, pageable);
+        Page<Handoff> page = handoffRepository.findAll(spec, withReferenceOrder(pageable));
         return PageResponse.of(page, h ->
                 mapper.toSummary(h,
                         returnQueryService.confirmedReturnedByItem(h.getId()),
                         returnQueryService.declaredMissingByItem(h.getId())));
+    }
+
+    /** The list's sort property that means "by reference" (the Code column). Not an entity property: it is turned into the real one below. */
+    private static final String REFERENCE_SORT = "reference";
+
+    /**
+     * "Sort by reference" is by the number inside the reference (9 before 10), never by text and never by internal id (which no longer
+     * follows the order references are issued in). Drafts without a reference come after the numbered handoffs, in creation order.
+     */
+    private static Pageable withReferenceOrder(Pageable pageable) {
+        if (pageable.getSort().stream().noneMatch(o -> REFERENCE_SORT.equals(o.getProperty()))) return pageable;
+        List<Sort.Order> orders = new ArrayList<>();
+        for (Sort.Order o : pageable.getSort()) {
+            orders.add(REFERENCE_SORT.equals(o.getProperty())
+                    ? new Sort.Order(o.getDirection(), "referenceNumber").with(Sort.NullHandling.NULLS_LAST) : o);
+        }
+        orders.add(Sort.Order.asc("id"));
+        return PageRequest.of(pageable.getPageNumber(), pageable.getPageSize(), Sort.by(orders));
     }
 
     @Transactional(readOnly = true)
@@ -510,6 +548,13 @@ public class HandoffService {
 
     private String ownerRef(Handoff handoff) {
         return handoff.getOwner().getEmail();
+    }
+
+    /** Cancelling or disputing a handoff is explained: the reason goes into its history, so it cannot be left empty. */
+    private static void requireReason(String reason, String action) {
+        if (reason == null || reason.isBlank()) {
+            throw new BadRequestException("A reason is required to " + action + ".");
+        }
     }
 
     private String reasonMessage(String base, String reason) {

@@ -103,7 +103,7 @@ public class DocumentCheckService {
                     .map(this::toLine).toList();
             targetFields = deriveHandoffFields(handoff, request.targetFields());
             targetLabel = request.targetLabel() != null ? request.targetLabel()
-                    : "Handoff " + handoff.getPublicCode();
+                    : "Handoff " + (handoff.getPublicCode() == null ? handoff.getTitle() : handoff.getPublicCode());
         } else {
             if (request.targetLines() == null || request.targetLines().isEmpty()) {
                 throw new BadRequestException(

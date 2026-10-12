@@ -258,20 +258,20 @@ class HandoffPrefixAssignmentTest extends ApiTestBase {
         setPlan(a.account(), com.handoffly.user.SubscriptionPlan.MONTHLY);   // registration activates no plan: that is done as test setup
         setPlan(b.account(), com.handoffly.user.SubscriptionPlan.MONTHLY);
 
-        assertThat(reference(createHandoff(a.account()))).isEqualTo("ST-1");
-        assertThat(reference(createHandoff(a.account()))).isEqualTo("ST-2");
-        assertThat(reference(createHandoff(b.account()))).isEqualTo("RK-1");
-        assertThat(reference(createHandoff(b.account()))).isEqualTo("RK-2");
+        assertThat(reference(createAndSubmitHandoff(a.account()))).isEqualTo("ST-1");
+        assertThat(reference(createAndSubmitHandoff(a.account()))).isEqualTo("ST-2");
+        assertThat(reference(createAndSubmitHandoff(b.account()))).isEqualTo("RK-1");
+        assertThat(reference(createAndSubmitHandoff(b.account()))).isEqualTo("RK-2");
 
         // Support changes A's prefix: what A was given stays as it was, and the number carries on.
         String moved = uniquePrefix();
         putPrefix(staff, a.account(), moved).andExpect(status().isOk());
-        assertThat(reference(createHandoff(a.account()))).isEqualTo(moved + "-3");
+        assertThat(reference(createAndSubmitHandoff(a.account()))).isEqualTo(moved + "-3");
         String list = mvc.perform(as(a.account(), get("/api/v1/handoffs").param("size", "10"))).andExpect(status().isOk())
                 .andReturn().getResponse().getContentAsString();
         assertThat((List<String>) JsonPath.read(list, "$.content[*].publicCode")).containsExactlyInAnyOrder("ST-1", "ST-2", moved + "-3");
         // B is untouched by any of it.
-        assertThat(reference(createHandoff(b.account()))).isEqualTo("RK-3");
+        assertThat(reference(createAndSubmitHandoff(b.account()))).isEqualTo("RK-3");
     }
 
     private static String reference(String handoffJson) {

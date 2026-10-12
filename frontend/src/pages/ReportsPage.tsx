@@ -11,7 +11,7 @@ import { ReportAssistant } from '../components/ReportAssistant';
 import { StatusBadge } from '../components/StatusBadge';
 import { EmptyState, ErrorNotice, Gated, Spinner, errorMessage } from '../components/ui';
 import {
-  formatDate, formatDay, presetRange, qty, REPORT_PRESET_LABELS, STATUS_LABELS, ZONE,
+  formatDate, formatDay, presetRange, qty, REFERENCE_PENDING, REPORT_PRESET_LABELS, STATUS_LABELS, ZONE,
 } from '../lib/format';
 import type { ReportPreset } from '../lib/format';
 
@@ -339,7 +339,7 @@ function Row({ h }: { h: HandoffSummary }) {
   );
   return (
     <tr>
-      <td className="small"><Link to={`/handoffs/${h.id}`}>{h.publicCode}</Link></td>
+      <td className="small"><Link to={`/handoffs/${h.id}`}>{h.publicCode ?? REFERENCE_PENDING}</Link></td>
       <td>
         <Link to={`/handoffs/${h.id}`}><strong>{h.title}</strong></Link>
         {h.overdue && <span className="badge badge-danger" style={{ marginLeft: 6 }}>Overdue</span>}

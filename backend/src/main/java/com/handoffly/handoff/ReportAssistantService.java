@@ -240,7 +240,7 @@ public class ReportAssistantService {
         Map<String, Group> groups = new LinkedHashMap<>();
         for (HandoffSummaryResponse h : matching) {
             BigDecimal value = q.metric().measure.apply(h);
-            if (value.signum() <= 0) continue;
+            if (value.signum() <= 0 || h.publicCode() == null) continue;   // a draft has given nothing and has no reference to list
             if (q.groupBy() == Grouping.RECIPIENT) {
                 String key = h.recipientName().trim().toLowerCase(Locale.ROOT);   // a name typed with other capitals or spacing is one recipient
                 groups.merge(key, new Group(h.recipientName().trim(), h, List.of(h.publicCode()), value, 1), (a, b) -> {

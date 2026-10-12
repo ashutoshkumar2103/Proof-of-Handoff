@@ -4,7 +4,7 @@ import type {
   AuthResponse, CompareInput, CompareResult, CreateHandoffInput, CreateReturnInput, CreateTicketInput, DocLineInput,
   DashboardResponse, HandoffDetail, HandoffReport, HandoffStatus, HandoffSummary, Page, RecipientView, RegisterInput, ReportQuery,
   AiItemMatches, AiMapping, ColumnChoice, ReportAssistantAnswer, ReportAssistantSuggestion, ChangePasswordInput, HandoffTemplate, ItemImportPreview, PaymentReceipt, PlanPrice, ProfileInput, ResetPasswordInput, ReturnEvent, ReturnImportResult, SubscriptionPlan, SupportMessageInput, TicketAttachment,
-  TicketDetail, TicketSummary, UpgradeOption, User, Attachment, AttachmentKind, Job, JobHistoryEntry, JobRun, JobType,
+  TicketDetail, TicketSummary, UpgradeOption, User, Attachment, AttachmentKind, Job, JobChange, JobHistoryEntry, JobRun, JobType,
 } from './types';
 
 // --- Auth ---
@@ -39,7 +39,9 @@ export const jobApi = {
   /** Runs all of the customer's jobs once, now. */
   runAll: () => api<JobRun[]>('/account/jobs/run-all', { method: 'POST' }),
   /** The Job History: every run of every job, newest first. */
-  history: (page: number) => api<Page<JobHistoryEntry>>(`/account/jobs/history?page=${page}`),
+  history: (page: number, size: number) => api<Page<JobHistoryEntry>>(`/account/jobs/history?page=${page}&size=${size}`),
+  /** The Configuration Changes: who changed a job's schedule, or paused or resumed it, newest first. */
+  changes: (page: number) => api<Page<JobChange>>(`/account/jobs/changes?page=${page}`),
 };
 
 // --- Handoffs (owner) ---

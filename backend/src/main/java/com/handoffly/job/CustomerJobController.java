@@ -2,6 +2,7 @@ package com.handoffly.job;
 
 import com.handoffly.auth.UserPrincipal;
 import com.handoffly.common.web.PageResponse;
+import com.handoffly.job.dto.JobChangeResponse;
 import com.handoffly.job.dto.JobHistoryResponse;
 import com.handoffly.job.dto.JobResponse;
 import com.handoffly.job.dto.JobRunResponse;
@@ -45,6 +46,13 @@ public class CustomerJobController {
     public PageResponse<JobHistoryResponse> history(@AuthenticationPrincipal UserPrincipal principal,
                                                     @PageableDefault(size = 20) Pageable pageable) {
         return service.history(principal.id(), pageable);
+    }
+
+    /** The caller's Configuration Changes: who changed the schedule of a job, or paused or resumed it, newest first. Only the caller's own. */
+    @GetMapping("/changes")
+    public PageResponse<JobChangeResponse> changes(@AuthenticationPrincipal UserPrincipal principal,
+                                                   @PageableDefault(size = 20) Pageable pageable) {
+        return service.changes(principal.id(), pageable);
     }
 
     /** Runs all five jobs once, now (each is its own run). No schedule changes. */

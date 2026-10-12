@@ -7,10 +7,10 @@ import type { HandoffStatus, HandoffSummary } from '../api/types';
 import { StatusBadge } from '../components/StatusBadge';
 import { EmptyState, ErrorNotice, Spinner, useNoActivePlanModal } from '../components/ui';
 import { getPendingPayment } from '../lib/checkout';
-import { formatDate, qty, STATUS_LABELS } from '../lib/format';
+import { formatDate, qty, REFERENCE_PENDING, STATUS_LABELS } from '../lib/format';
 
 type Filter = HandoffStatus | 'ALL' | 'OVERDUE';
-type SortField = 'id' | 'createdAt' | 'updatedAt';
+type SortField = 'reference' | 'createdAt' | 'updatedAt';
 type SortDir = 'asc' | 'desc';
 
 type Tone = 'danger' | 'warning' | 'info';
@@ -52,8 +52,8 @@ export function DashboardPage() {
   const [filter, setFilter] = useState<Filter>('ALL');
   const [q, setQ] = useState('');
   const [search, setSearch] = useState('');
-  // Default: by code (id) ascending, i.e. HO-1, HO-2, … in sequence.
-  const [sortField, setSortField] = useState<SortField>('id');
+  // Default: by reference ascending, i.e. HO-1, HO-2, … in sequence (the backend orders by the number in the reference; drafts, which have none yet, come last).
+  const [sortField, setSortField] = useState<SortField>('reference');
   const [sortDir, setSortDir] = useState<SortDir>('asc');
 
   const toggleSort = (field: SortField) => {
@@ -172,7 +172,7 @@ export function DashboardPage() {
               <table>
                 <thead>
                   <tr>
-                    <th className="sortable" onClick={() => toggleSort('id')}>Code{sortArrow('id')}</th>
+                    <th className="sortable" onClick={() => toggleSort('reference')}>Reference{sortArrow('reference')}</th>
                     <th>Title</th><th>Recipient</th><th>Status</th>
                     <th className="num">Outgoing</th><th className="num">Returned</th>
                     <th className="num">Missing</th><th className="num">Remaining</th>
@@ -210,7 +210,7 @@ function Row({ h, onOpen }: { h: HandoffSummary; onOpen: () => void }) {
   const remainingOpen = Number(h.totalRemaining) > 0;
   return (
     <tr onClick={onOpen} style={{ cursor: 'pointer' }}>
-      <td className="small muted">{h.publicCode}</td>
+      <td className="small muted">{h.publicCode ?? REFERENCE_PENDING}</td>
       <td>
         <strong>{h.title}</strong>
         {h.overdue && <span className="badge badge-danger" style={{ marginLeft: 6 }}>Overdue</span>}

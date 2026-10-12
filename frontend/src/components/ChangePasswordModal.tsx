@@ -76,7 +76,7 @@ export function ChangePasswordModal({ onClose }: { onClose: () => void }) {
         </div>
         <p className="small muted">Forgot your old password? Sign out and use <em>Forgot password?</em> on the sign-in page.</p>
         <div className="modal-actions">
-          <button type="button" className="btn btn-ghost" onClick={onClose}>{done ? 'Close' : 'Cancel'}</button>
+          <button type="button" className="btn btn-negative" onClick={onClose}>{done ? 'Close' : 'Cancel'}</button>
           <button className="btn btn-primary" disabled={busy}>{busy ? 'Changing…' : 'Change password'}</button>
         </div>
       </form>

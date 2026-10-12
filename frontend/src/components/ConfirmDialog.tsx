@@ -87,7 +87,7 @@ export function ConfirmProvider({ children }: { children: ReactNode }) {
             )}
             <div className="modal-actions">
               {!opts.hideCancel && (
-                <button type="button" className="btn btn-ghost" onClick={() => settle(false)}>
+                <button type="button" className="btn btn-negative" onClick={() => settle(false)}>
                   {opts.cancelText ?? 'Cancel'}
                 </button>
               )}

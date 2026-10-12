@@ -2,6 +2,8 @@
   --bg: #f6f7f9;
   --surface: #ffffff;
   --surface-2: #f0f2f5;
+  --surface-raised: #ffffff;   /* menus and dialogs, which float above the cards */
+  --field: #ffffff;            /* the inside of an input */
   --border: #e2e6ea;
   --text: #1a2027;
   --text-muted: #5b6672;
@@ -24,54 +26,59 @@
   color-scheme: light;
 }
 
-/* Shared dark palette values, applied both by OS preference (unless the user forced a
-   theme) and by an explicit data-theme="dark". "Extreme" near-black surfaces. */
+/* Shared dark palette values, applied both by OS preference (unless the user forced a theme) and by an explicit data-theme="dark".
+   Layers of charcoal rather than black: the page, then cards and the top bar, then what sits inside them (table headings, hover, panels),
+   then what floats above them (dropdowns, dialogs); inputs are a little darker than the card they are on. */
 @media (prefers-color-scheme: dark) {
   :root:not([data-theme="light"]) {
     color-scheme: dark;
-    --bg: #000000;
-    --surface: #0c0c0f;
-    --surface-2: #151519;
-    --border: #26262c;
-    --text: #f2f3f5;
-    --text-muted: #9aa2ad;
+    --bg: #12151a;
+    --surface: #1a1e25;
+    --surface-2: #232831;
+    --surface-raised: #272c36;
+    --field: #14171d;
+    --border: #2f3641;
+    --text: #e8ebf0;
+    --text-muted: #9ca5b3;
     --primary: #5b93ff;
     --primary-hover: #7aa8ff;
-    --primary-soft: #10203c;
-    --success: #35c46b;
-    --success-soft: #0a2216;
-    --warning: #e69a2e;
-    --warning-soft: #241905;
-    --danger: #ff5a5a;
-    --danger-soft: #2a0f0f;
-    --neutral: #8b95a3;
-    --neutral-soft: #17171c;
-    --shadow: 0 1px 2px rgba(0, 0, 0, 0.6);
-    --shadow-lg: 0 10px 30px rgba(0, 0, 0, 0.7);
+    --primary-soft: #1a2a47;
+    --success: #3ecb77;
+    --success-soft: #13301f;
+    --warning: #eba03a;
+    --warning-soft: #33260f;
+    --danger: #ff6464;
+    --danger-soft: #3a1c20;
+    --neutral: #94a0b0;
+    --neutral-soft: #232831;
+    --shadow: 0 1px 2px rgba(0, 0, 0, 0.35), 0 1px 3px rgba(0, 0, 0, 0.25);
+    --shadow-lg: 0 12px 32px rgba(0, 0, 0, 0.5), 0 2px 6px rgba(0, 0, 0, 0.3);
   }
 }
 
 :root[data-theme="dark"] {
   color-scheme: dark;
-  --bg: #000000;
-  --surface: #0c0c0f;
-  --surface-2: #151519;
-  --border: #26262c;
-  --text: #f2f3f5;
-  --text-muted: #9aa2ad;
+  --bg: #12151a;
+  --surface: #1a1e25;
+  --surface-2: #232831;
+  --surface-raised: #272c36;
+  --field: #14171d;
+  --border: #2f3641;
+  --text: #e8ebf0;
+  --text-muted: #9ca5b3;
   --primary: #5b93ff;
   --primary-hover: #7aa8ff;
-  --primary-soft: #10203c;
-  --success: #35c46b;
-  --success-soft: #0a2216;
-  --warning: #e69a2e;
-  --warning-soft: #241905;
-  --danger: #ff5a5a;
-  --danger-soft: #2a0f0f;
-  --neutral: #8b95a3;
-  --neutral-soft: #17171c;
-  --shadow: 0 1px 2px rgba(0, 0, 0, 0.6);
-  --shadow-lg: 0 10px 30px rgba(0, 0, 0, 0.7);
+  --primary-soft: #1a2a47;
+  --success: #3ecb77;
+  --success-soft: #13301f;
+  --warning: #eba03a;
+  --warning-soft: #33260f;
+  --danger: #ff6464;
+  --danger-soft: #3a1c20;
+  --neutral: #94a0b0;
+  --neutral-soft: #232831;
+  --shadow: 0 1px 2px rgba(0, 0, 0, 0.35), 0 1px 3px rgba(0, 0, 0, 0.25);
+  --shadow-lg: 0 12px 32px rgba(0, 0, 0, 0.5), 0 2px 6px rgba(0, 0, 0, 0.3);
 }
 
 * { box-sizing: border-box; }
@@ -155,14 +162,26 @@ h3 { font-size: 1.05rem; }
 .btn-warning { background: var(--warning); border-color: var(--warning); color: #fff; }
 .btn-warning:hover { opacity: 0.9; background: var(--warning); }
 .btn-ghost { background: transparent; border-color: transparent; color: var(--primary); }
+/* A button that says no — Close, Cancel, No, Reject, Delete, Remove, Dismiss — is red; one that says yes (Yes, Confirm, Open, Accept) is blue and never red. */
+.btn-negative { background: transparent; border-color: transparent; color: var(--danger); }
+.btn-negative:hover { background: var(--danger-soft); }
 .btn-sm { padding: 0.3rem 0.6rem; font-size: 0.85rem; }
 .btn-block { width: 100%; }
+/* A back button (BackLink): a compact secondary button with a left arrow. Neutral, so it never competes with the blue primary action. */
+.btn-back { padding: 0.3rem 0.75rem 0.3rem 0.5rem; margin-bottom: 0.6rem; gap: 0.35rem; }
+.btn-back-icon { width: 16px; height: 16px; flex: none; fill: none; stroke: currentColor; stroke-width: 2; stroke-linecap: round; stroke-linejoin: round; transition: transform 0.12s; }
+.btn-back:hover { background: var(--primary-soft); border-color: var(--primary); color: var(--primary); }
+.btn-back:hover .btn-back-icon { transform: translateX(-2px); }
+.btn-back:active { background: var(--primary-soft); border-color: var(--primary); color: var(--primary-hover); transform: translateY(1px); }
+.btn-back:focus-visible { outline: 2px solid var(--primary); outline-offset: 2px; }
+.stack > .btn-back { align-self: flex-start; margin-bottom: 0; }   /* directly in a stack it must not stretch across the page, and the stack's own gap spaces it */
+p > .btn-back { margin-bottom: 0; }                                 /* in a centred line under a form it is just the line */
 
 /* Forms */
 label { display: block; font-weight: 600; font-size: 0.88rem; margin-bottom: 0.3rem; }
 input, select, textarea {
   width: 100%; padding: 0.55rem 0.7rem; border: 1px solid var(--border);
-  border-radius: var(--radius-sm); background: var(--surface); color: var(--text);
+  border-radius: var(--radius-sm); background: var(--field); color: var(--text);
   font: inherit; transition: border-color 0.12s, box-shadow 0.12s;
 }
 input:focus, select:focus, textarea:focus {
@@ -306,7 +325,7 @@ th.sortable:hover { color: var(--text); }
   --menu-gap: 0.4rem;
   position: absolute; left: 0; top: calc(100% + var(--menu-gap)); z-index: 20; min-width: max(100%, 13rem); max-width: calc(100vw - 1rem);
   padding: 0.35rem; display: flex; flex-direction: column; gap: 0.1rem;
-  background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius); box-shadow: var(--shadow-lg);
+  background: var(--surface-raised); border: 1px solid var(--border); border-radius: var(--radius); box-shadow: var(--shadow-lg);
 }
 .menu-panel::before { content: ''; position: absolute; left: 0; right: 0; top: calc(-1 * var(--menu-gap)); height: var(--menu-gap); }
 .menu-item {
@@ -547,7 +566,7 @@ th.sortable:hover { color: var(--text); }
   background: rgba(8, 12, 20, 0.55); backdrop-filter: blur(2px); padding: 1rem;
 }
 .modal {
-  width: 100%; max-width: 420px; background: var(--surface); color: var(--text);
+  width: 100%; max-width: 420px; background: var(--surface-raised); color: var(--text);
   border: 1px solid var(--border); border-radius: var(--radius); box-shadow: var(--shadow-lg);
   padding: 1.25rem;
 }
@@ -588,6 +607,13 @@ th.sortable:hover { color: var(--text); }
   .recipient-page .handoff-head h1 { font-size: 1.45rem; }
   .items-compact th, .items-compact td { padding: 0.55rem 0.5rem; }
   .items-compact td:first-child { min-width: 7.5rem; }
+}
+
+/* Record a return: "Still with recipient" is a column of the table, and on a phone (where the table scrolls sideways) a line under the item name instead. */
+.still-inline { display: none; }
+@media (max-width: 560px) {
+  .still-col { display: none; }
+  .still-inline { display: block; }
 }
 
 /* Account menu in the top bar (an ActionMenu styled as a nav link), and the Dashboard's welcome line */

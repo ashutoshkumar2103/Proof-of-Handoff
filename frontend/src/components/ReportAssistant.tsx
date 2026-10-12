@@ -99,13 +99,13 @@ function AssistantModal({ eligible, onClose }: { eligible: boolean; onClose: () 
     void ask(picked && question === picked.question ? { suggestion: picked.intent } : { question: question.trim() });
   }
 
-  // Closed by Escape, the Close button or a click outside: nothing typed here is worth keeping.
+  // Closed by Escape or the Close buttons, never by a click outside it: a customer in the middle of a question must not lose it to a stray click.
   return (
-    <div className="modal-overlay" onMouseDown={(e) => { if (e.target === e.currentTarget) onClose(); }}>
+    <div className="modal-overlay">
       <div className="modal modal-wide report-assistant" role="dialog" aria-modal="true" aria-labelledby="report-assistant-title">
         <div className="spread" style={{ flexWrap: 'nowrap', alignItems: 'flex-start' }}>
           <h3 className="modal-title" id="report-assistant-title">AI Report Assistant{eligible ? '' : ' 🔒'}</h3>
-          <button type="button" className="btn btn-sm btn-ghost" aria-label="Close" onClick={onClose}>✕</button>
+          <button type="button" className="btn btn-sm btn-negative" aria-label="Close" onClick={onClose}>✕</button>
         </div>
 
         {!eligible ? (
@@ -157,7 +157,7 @@ function AssistantModal({ eligible, onClose }: { eligible: boolean; onClose: () 
         )}
 
         <div className="modal-actions">
-          <button type="button" className="btn btn-ghost" onClick={onClose}>Close</button>
+          <button type="button" className="btn btn-negative" onClick={onClose}>Close</button>
         </div>
       </div>
     </div>

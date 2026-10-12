@@ -5,6 +5,7 @@ import com.handoffly.common.web.PageResponse;
 import com.handoffly.common.web.RateLimiter;
 import com.handoffly.handoff.HandoffActivityService;
 import com.handoffly.handoff.HandoffActivityService.ReminderLine;
+import com.handoffly.job.dto.JobChangeResponse;
 import com.handoffly.job.dto.JobHistoryResponse;
 import com.handoffly.job.dto.JobResponse;
 import com.handoffly.job.dto.JobRunResponse;
@@ -65,9 +66,16 @@ public class CustomerJobService {
     private static final String EMAIL_NOT_SENT = "The email could not be sent. It will be tried again at the next run.";
     private static final String NOT_PREPARED = "Their details could not be prepared for the email. They will be tried again at the next run.";
     private static final DateTimeFormatter DAY = DateTimeFormatter.ofPattern("d MMM yyyy", Locale.ENGLISH);
+    /** What the history says for a run no person started, and for a run whose starter was never recorded (it predates the actor being kept). */
+    private static final String PERFORMED_BY_SYSTEM = "System";
+    private static final String PERFORMED_BY_NOT_RECORDED = "Not recorded";
+    /** How a job's on/off state reads in a recorded change. */
+    private static final String STATE_ACTIVE = "Active";
+    private static final String STATE_PAUSED = "Paused";
 
     private final CustomerJobRepository jobs;
     private final CustomerJobRunRepository runs;
+    private final CustomerJobChangeRepository changes;
     private final UserService users;
     private final JobSchedule schedules;
     private final HandoffActivityService activity;
@@ -76,11 +84,13 @@ public class CustomerJobService {
     private final HandOfflyProperties properties;
     private final TransactionTemplate tx;
 
-    public CustomerJobService(CustomerJobRepository jobs, CustomerJobRunRepository runs, UserService users, JobSchedule schedules,
+    public CustomerJobService(CustomerJobRepository jobs, CustomerJobRunRepository runs, CustomerJobChangeRepository changes,
+                              UserService users, JobSchedule schedules,
                               HandoffActivityService activity, NotificationService notifications, RateLimiter limiter,
                               HandOfflyProperties properties, PlatformTransactionManager transactions) {
         this.jobs = jobs;
         this.runs = runs;
+        this.changes = changes;
         this.users = users;
         this.schedules = schedules;
         this.activity = activity;
@@ -101,25 +111,47 @@ public class CustomerJobService {
                 .map(j -> view(j, now)).toList());
     }
 
-    /** Changes when a job runs. Validated first; saving never runs the job. */
+    /**
+     * Changes when a job runs. Validated first; saving never runs the job. A change is recorded (with who made it) in the same transaction,
+     * so one that does not happen is not recorded; saving the schedule the job already has is not a change and is not recorded.
+     */
     public JobResponse updateSchedule(Long userId, JobType type, String cronExpression, String timezone) {
         Instant now = Instant.now();
         JobSchedule.Valid valid = schedules.validate(cronExpression, timezone, now);
         return tx.execute(s -> {
             CustomerJob job = require(userId, type);
+            String before = scheduleText(job.getCronExpression(), job.getTimezone());
+            String after = scheduleText(valid.cron(), valid.zone().getId());
             job.schedule(valid.cron(), valid.zone().getId(), valid.nextAfter(now));
+            if (!before.equals(after)) {
+                record(job, JobChangeAction.SCHEDULE_CHANGED, before, after, now);
+            }
             return view(job, now);
         });
     }
 
-    /** Pauses or resumes a job; its schedule is untouched. */
+    /** Pauses or resumes a job; its schedule is untouched. Recorded like a schedule change, and only when the job's state really changes. */
     public JobResponse setEnabled(Long userId, JobType type, boolean enabled) {
         Instant now = Instant.now();
         return tx.execute(s -> {
             CustomerJob job = require(userId, type);
+            boolean was = job.isEnabled();
             job.setEnabled(enabled, enabled ? schedules.read(job.getCronExpression(), job.getTimezone()).nextAfter(now) : null);
+            if (was != enabled) {
+                record(job, enabled ? JobChangeAction.RESUMED : JobChangeAction.PAUSED,
+                        was ? STATE_ACTIVE : STATE_PAUSED, enabled ? STATE_ACTIVE : STATE_PAUSED, now);
+            }
             return view(job, now);
         });
+    }
+
+    /** Appends the change to the job's settings, made by the authenticated customer (the account's own user). Part of the caller's transaction. */
+    private void record(CustomerJob job, JobChangeAction action, String previous, String current, Instant at) {
+        changes.save(new CustomerJobChange(job.getUser().getId(), job.getType(), action, previous, current, JobActor.customer(job.getUser()), at));
+    }
+
+    private static String scheduleText(String cron, String zone) {
+        return cron + " · " + zone;
     }
 
     // ------------------------------------------------------------------ running
@@ -137,16 +169,37 @@ public class CustomerJobService {
 
     private JobRunResponse runByHand(Long userId, JobType type, JobTrigger trigger) {
         limiter.hit("job-run:" + userId, properties.getRateLimit().getJobRunsPerUser(), RUN_WINDOW);
-        return execute(userId, type, Instant.now(), trigger);
+        return execute(userId, type, Instant.now(), trigger, JobActor.customer(users.getById(userId)));
     }
 
     /** The customer's runs of every job, newest first — the Job History. */
     public PageResponse<JobHistoryResponse> history(Long userId, Pageable requested) {
-        Pageable page = PageRequest.of(requested.getPageNumber(), Math.min(requested.getPageSize(), MAX_HISTORY_PAGE),
-                Sort.by(Sort.Direction.DESC, "id"));
+        Pageable page = newestFirst(requested);
         return tx.execute(s -> PageResponse.of(runs.findByUserId(userId, page), r -> new JobHistoryResponse(
                 r.getId(), r.getType(), r.getType().title(), r.getTrigger(), r.getRunAt(), r.getStatus(), r.summary(),
-                r.sentRefs(), r.failedRefs(), r.getDetail())));
+                r.sentRefs(), r.failedRefs(), r.getDetail(), performedBy(r))));
+    }
+
+    /** The customer's changes to their jobs' settings, newest first — the Configuration Changes. Kept apart from the runs. */
+    public PageResponse<JobChangeResponse> changes(Long userId, Pageable requested) {
+        Pageable page = newestFirst(requested);
+        return tx.execute(s -> PageResponse.of(changes.findByAccountId(userId, page), c -> new JobChangeResponse(
+                c.getId(), c.getType(), c.getType().title(), c.getAction(), c.getPreviousValue(), c.getNewValue(), c.getActorName(), c.getChangedAt())));
+    }
+
+    private static Pageable newestFirst(Pageable requested) {
+        return PageRequest.of(requested.getPageNumber(), Math.min(requested.getPageSize(), MAX_HISTORY_PAGE), Sort.by(Sort.Direction.DESC, "id"));
+    }
+
+    /**
+     * Who started a run, as the history shows it: the person's name when one was recorded; "System" when the scheduler started it (the
+     * trigger says so for certain); otherwise "Not recorded" — a run pressed by hand before the person was kept is never given a name.
+     */
+    private static String performedBy(CustomerJobRun run) {
+        if (run.getActorName() != null) {
+            return run.getActorName();
+        }
+        return run.getTrigger() == JobTrigger.SCHEDULED ? PERFORMED_BY_SYSTEM : PERFORMED_BY_NOT_RECORDED;
     }
 
     /**
@@ -166,7 +219,7 @@ public class CustomerJobService {
                 Instant next = schedules.read(job.getCronExpression(), job.getTimezone()).nextAfter(now);
                 Integer claimed = tx.execute(s -> jobs.claim(job.getId(), job.getNextRunAt(), next));
                 if (claimed != null && claimed == 1) {
-                    execute(job.getUser().getId(), job.getType(), now, JobTrigger.SCHEDULED);
+                    execute(job.getUser().getId(), job.getType(), now, JobTrigger.SCHEDULED, null);
                     ran++;
                 }
             } catch (RuntimeException e) {
@@ -189,9 +242,9 @@ public class CustomerJobService {
     /**
      * One run of one job: it sends at most ONE email, with the handoffs that could be prepared for it, and writes ONE history row
      * that keeps both sides — what was sent and what was not. If the email itself cannot be sent, nothing was delivered, so the whole
-     * run is FAILED and none of its handoffs counts as sent.
+     * run is FAILED and none of its handoffs counts as sent. {@code actor} is who pressed Run (null when the scheduler started it); it is only recorded.
      */
-    private JobRunResponse execute(Long userId, JobType type, Instant now, JobTrigger trigger) {
+    private JobRunResponse execute(Long userId, JobType type, Instant now, JobTrigger trigger, JobActor actor) {
         Target target = tx.execute(s -> {
             CustomerJob job = require(userId, type);
             User user = job.getUser();
@@ -228,7 +281,7 @@ public class CustomerJobService {
         CustomerJobRun run = tx.execute(s -> {
             CustomerJob job = require(userId, type);
             job.recordRun(now, recordedStatus, sentText, limit(note, MAX_DETAIL));
-            return runs.save(new CustomerJobRun(job.getUser(), type, trigger, now, recordedStatus, sentText, failedText, recordedReason));
+            return runs.save(new CustomerJobRun(job.getUser(), type, trigger, now, recordedStatus, sentText, failedText, recordedReason, actor));
         });
         return new JobRunResponse(type, type.title(), status, sent, now, note, failed, run.summary());
     }

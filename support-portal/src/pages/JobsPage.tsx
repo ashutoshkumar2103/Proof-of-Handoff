@@ -117,7 +117,7 @@ export function JobsPage() {
           <button className="btn btn-sm" disabled={toggle.isPending} onClick={() => toggle.mutate(!j.enabled)}>
             {j.enabled ? 'Pause' : 'Resume'}
           </button>
-          <button className="btn btn-sm" onClick={() => setEditing(!editing)} aria-expanded={editing}>
+          <button className={`btn btn-sm${editing ? ' btn-negative' : ''}`} onClick={() => setEditing(!editing)} aria-expanded={editing}>
             {editing ? 'Close' : 'Edit schedule'}
           </button>
         </div>

@@ -3,6 +3,7 @@
   --bg: #f6f7f9;
   --surface: #ffffff;
   --surface-2: #f0f2f5;
+  --field: #ffffff;   /* the inside of an input */
   --border: #e2e6ea;
   --text: #1a2027;
   --text-muted: #5b6672;
@@ -24,27 +25,29 @@
   color-scheme: light;
 }
 
+/* The same layered charcoal as the customer app (the portal shares no code with it, so the values are repeated here). */
 @media (prefers-color-scheme: dark) {
   :root {
     color-scheme: dark;
-    --bg: #000000;
-    --surface: #0c0c0f;
-    --surface-2: #151519;
-    --border: #26262c;
-    --text: #f2f3f5;
-    --text-muted: #9aa2ad;
+    --bg: #12151a;
+    --surface: #1a1e25;
+    --surface-2: #232831;
+    --field: #14171d;
+    --border: #2f3641;
+    --text: #e8ebf0;
+    --text-muted: #9ca5b3;
     --primary: #5b93ff;
     --primary-hover: #7aa8ff;
-    --primary-soft: #10203c;
-    --success: #35c46b;
-    --success-soft: #0a2216;
-    --warning: #e69a2e;
-    --warning-soft: #241905;
-    --danger: #ff5a5a;
-    --danger-soft: #2a0f0f;
-    --neutral: #8b95a3;
-    --neutral-soft: #17171c;
-    --shadow: 0 1px 2px rgba(0, 0, 0, 0.6);
+    --primary-soft: #1a2a47;
+    --success: #3ecb77;
+    --success-soft: #13301f;
+    --warning: #eba03a;
+    --warning-soft: #33260f;
+    --danger: #ff6464;
+    --danger-soft: #3a1c20;
+    --neutral: #94a0b0;
+    --neutral-soft: #232831;
+    --shadow: 0 1px 2px rgba(0, 0, 0, 0.35), 0 1px 3px rgba(0, 0, 0, 0.25);
   }
 }
 
@@ -97,6 +100,9 @@ p { margin: 0 0 0.5rem; }
 .btn-primary { background: var(--primary); border-color: var(--primary); color: #fff; }
 .btn-primary:hover { background: var(--primary-hover); }
 .btn-ghost { background: transparent; border-color: transparent; color: var(--primary); }
+/* A button that says no — Close, Cancel, No, Reject, Delete, Remove, Dismiss — is red; one that says yes (Yes, Confirm, Open, Accept) is blue and never red. */
+.btn-negative { background: transparent; border-color: transparent; color: var(--danger); }
+.btn-negative:hover { background: var(--danger-soft); }
 .btn-sm { padding: 0.3rem 0.6rem; font-size: 0.85rem; }
 .btn-block { width: 100%; }
 
@@ -104,7 +110,7 @@ p { margin: 0 0 0.5rem; }
 label { display: block; font-weight: 600; font-size: 0.88rem; margin-bottom: 0.3rem; }
 input, select, textarea {
   width: 100%; padding: 0.55rem 0.7rem; border: 1px solid var(--border); border-radius: var(--radius-sm);
-  background: var(--surface); color: var(--text); font: inherit;
+  background: var(--field); color: var(--text); font: inherit;
 }
 input[type="checkbox"] { width: auto; }
 input:focus, select:focus, textarea:focus { outline: none; border-color: var(--primary); box-shadow: 0 0 0 3px var(--primary-soft); }

@@ -1,5 +1,6 @@
 package com.handoffly.job;
 
+import com.handoffly.common.domain.ActorType;
 import com.handoffly.common.domain.BaseEntity;
 import com.handoffly.user.User;
 import jakarta.persistence.Column;
@@ -58,12 +59,25 @@ public class CustomerJobRun extends BaseEntity {
     @Column(updatable = false, length = 500)
     private String detail;
 
+    /** Who pressed Run now / Run All Now. Null for a scheduled run (the scheduler is the actor) and for the runs recorded before this was kept. */
+    @Column(name = "actor_user_id", updatable = false)
+    private Long actorUserId;
+
+    /** The actor's name when they pressed it; a later rename does not rewrite it. */
+    @Column(name = "actor_name", updatable = false, length = 150)
+    private String actorName;
+
+    @Enumerated(EnumType.STRING)
+    @Column(name = "actor_type", updatable = false, length = 20)
+    private ActorType actorType;
+
     protected CustomerJobRun() {
         // JPA
     }
 
+    /** {@code actor} is null for a run the scheduler started. */
     public CustomerJobRun(User user, JobType type, JobTrigger trigger, Instant runAt, JobStatus status,
-                          String sentHandoffs, String failedHandoffs, String detail) {
+                          String sentHandoffs, String failedHandoffs, String detail, JobActor actor) {
         this.user = user;
         this.type = type;
         this.trigger = trigger;
@@ -72,6 +86,11 @@ public class CustomerJobRun extends BaseEntity {
         this.sentHandoffs = sentHandoffs;
         this.failedHandoffs = failedHandoffs;
         this.detail = detail;
+        if (actor != null) {
+            this.actorUserId = actor.id();
+            this.actorName = actor.name();
+            this.actorType = actor.type();
+        }
     }
 
     public User getUser() { return user; }
@@ -80,6 +99,9 @@ public class CustomerJobRun extends BaseEntity {
     public Instant getRunAt() { return runAt; }
     public JobStatus getStatus() { return status; }
     public String getDetail() { return detail; }
+    public Long getActorUserId() { return actorUserId; }
+    public String getActorName() { return actorName; }
+    public ActorType getActorType() { return actorType; }
 
     /** The handoffs this run's email told the customer about. */
     public List<String> sentRefs() { return split(sentHandoffs); }

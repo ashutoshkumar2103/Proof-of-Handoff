@@ -2,7 +2,7 @@ import { useState } from 'react';
 import { Link } from 'react-router-dom';
 import { authApi } from '../api/endpoints';
 import { AuthShell } from '../components/AuthShell';
-import { errorMessage } from '../components/ui';
+import { BackLink, errorMessage } from '../components/ui';
 
 /**
  * Asking for a password reset link. The answer is the same whether or not an account has this email, so the
@@ -53,7 +53,7 @@ export function ForgotPasswordPage() {
             <button className="btn btn-primary btn-block" disabled={busy}>
               {busy ? 'Sending…' : 'Send reset link'}
             </button>
-            <p className="center small mt-3 muted"><Link to="/login">← Back to sign in</Link></p>
+            <p className="center small mt-3 muted"><BackLink to="/login">Back to sign in</BackLink></p>
           </>
         )}
       </form>

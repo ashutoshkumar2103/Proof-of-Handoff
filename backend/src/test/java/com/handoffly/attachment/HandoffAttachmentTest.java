@@ -98,7 +98,7 @@ class HandoffAttachmentTest extends ApiTestBase {
     void aCancelledHandoffTakesNoMoreAttachments() throws Exception {
         Account owner = register();
         long handoffId = newHandoff(owner);
-        mvc.perform(as(owner, post("/api/v1/handoffs/" + handoffId + "/cancel"))).andExpect(status().isOk());
+        mvc.perform(as(owner, post("/api/v1/handoffs/" + handoffId + "/cancel").contentType("application/json").content("{\"reason\":\"Test\"}"))).andExpect(status().isOk());
 
         mvc.perform(as(owner, multipart("/api/v1/handoffs/" + handoffId + "/attachments")
                         .file(new MockMultipartFile("file", "late.txt", "text/plain", NOTE))))

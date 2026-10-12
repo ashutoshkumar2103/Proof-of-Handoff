@@ -105,7 +105,7 @@ public class HandoffExcelService {
     private static int header(Sheet sheet, Styles s, HandoffDetailResponse d, int r) {
         text(sheet.createRow(r++), 0, "HandOffly", s.brand);
         text(sheet.createRow(r++), 0, "Proof of Handoff", s.title);
-        text(sheet.createRow(r++), 0, "Reference: " + clean(d.publicCode()), s.bold);
+        text(sheet.createRow(r++), 0, d.publicCode() == null ? "Reference:" : "Reference: " + clean(d.publicCode()), s.bold);   // empty for a draft not yet submitted
         if (!isBlank(d.title())) text(sheet.createRow(r++), 0, clean(d.title()), s.plain);
         if (d.status() != HandoffStatus.CLOSED) {
             // Said once, so an in-progress copy cannot be mistaken for the final record (as the PDF does).

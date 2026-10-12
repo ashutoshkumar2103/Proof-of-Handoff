@@ -266,7 +266,7 @@ class SupportPlanChangeTest extends ApiTestBase {
         StaffAccount staff = registerStaff(SupportRole.MANAGER);
         Account customer = register();
         String own = prefixOf(customer);
-        String before = createHandoff(customer);
+        String before = createAndSubmitHandoff(customer);
         long handoffId = ((Number) JsonPath.read(before, "$.id")).longValue();
 
         changePlan(staff, customer, "MONTHLY", "YEARLY", null).andExpect(status().isOk())
@@ -274,8 +274,8 @@ class SupportPlanChangeTest extends ApiTestBase {
                 .andExpect(jsonPath("$.customer.handoffPrefix").value(own));
 
         mvc.perform(as(customer, get("/api/v1/handoffs/" + handoffId)))
-                .andExpect(status().isOk()).andExpect(jsonPath("$.publicCode").value(own + "-1")).andExpect(jsonPath("$.status").value("DRAFT"));
-        assertThat(JsonPath.<String>read(createHandoff(customer), "$.publicCode")).isEqualTo(own + "-2");
+                .andExpect(status().isOk()).andExpect(jsonPath("$.publicCode").value(own + "-1")).andExpect(jsonPath("$.status").value("AWAITING_RECIPIENT"));
+        assertThat(JsonPath.<String>read(createAndSubmitHandoff(customer), "$.publicCode")).isEqualTo(own + "-2");
     }
 
     @Test
