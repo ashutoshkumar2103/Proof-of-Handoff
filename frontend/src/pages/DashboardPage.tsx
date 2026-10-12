@@ -7,7 +7,7 @@ import type { HandoffStatus, HandoffSummary } from '../api/types';
 import { StatusBadge } from '../components/StatusBadge';
 import { EmptyState, ErrorNotice, Spinner, useNoActivePlanModal } from '../components/ui';
 import { getPendingPayment } from '../lib/checkout';
-import { formatDate, qty, REFERENCE_PENDING, STATUS_LABELS } from '../lib/format';
+import { DRAFT_REFERENCE_HINT, formatDate, qty, REFERENCE_PENDING, STATUS_LABELS } from '../lib/format';
 
 type Filter = HandoffStatus | 'ALL' | 'OVERDUE';
 type SortField = 'reference' | 'createdAt' | 'updatedAt';
@@ -210,7 +210,7 @@ function Row({ h, onOpen }: { h: HandoffSummary; onOpen: () => void }) {
   const remainingOpen = Number(h.totalRemaining) > 0;
   return (
     <tr onClick={onOpen} style={{ cursor: 'pointer' }}>
-      <td className="small muted">{h.publicCode ?? REFERENCE_PENDING}</td>
+      <td className="small muted" title={h.publicCode ? undefined : DRAFT_REFERENCE_HINT}>{h.publicCode ?? h.draftCode ?? REFERENCE_PENDING}</td>
       <td>
         <strong>{h.title}</strong>
         {h.overdue && <span className="badge badge-danger" style={{ marginLeft: 6 }}>Overdue</span>}

@@ -26,7 +26,7 @@ public final class HandoffSpecifications {
         return (root, query, cb) -> root.get("status").in(statuses);
     }
 
-    /** Case-insensitive match across title, recipient name/email, and public code. */
+    /** Case-insensitive match across title, recipient name/email, public code and draft reference. */
     public static Specification<Handoff> textSearch(String q) {
         if (q == null || q.isBlank()) {
             return (root, query, cb) -> null; // no restriction
@@ -38,6 +38,7 @@ public final class HandoffSpecifications {
             ors.add(cb.like(cb.lower(root.get("recipientName")), like));
             ors.add(cb.like(cb.lower(root.get("recipientEmail")), like));
             ors.add(cb.like(cb.lower(root.get("publicCode")), like));
+            ors.add(cb.like(cb.lower(root.get("draftCode")), like));
             return cb.or(ors.toArray(Predicate[]::new));
         };
     }

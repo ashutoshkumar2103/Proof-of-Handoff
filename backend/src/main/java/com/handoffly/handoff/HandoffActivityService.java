@@ -37,6 +37,9 @@ public class HandoffActivityService {
     /** A handoff still waiting for its recipient to answer: who it is for and when it went out. */
     public record AwaitingLine(String reference, String title, String recipientName, Instant sentAt) {}
 
+    /** What the summary calls a draft that has no reference at all (none should: every draft is given one when it is created). */
+    static final String DRAFT_REFERENCE = "Draft — reference not assigned";
+
     /** A handoff named in the summary. */
     public record Ref(String reference, String title) {}
 
@@ -159,8 +162,13 @@ public class HandoffActivityService {
                 notReturned(h), returns.netMissingTotal(h));
     }
 
+    /**
+     * How the summary names a handoff: by its official reference, or — a draft has none until it is submitted — by its own draft reference
+     * (AKD-3). The summary only reads: it never numbers a draft or issues a reference.
+     */
     private static Ref ref(Handoff h) {
-        return new Ref(h.getPublicCode(), h.getTitle());
+        String reference = h.getPublicCode() != null ? h.getPublicCode() : h.getDraftCode() != null ? h.getDraftCode() : DRAFT_REFERENCE;
+        return new Ref(reference, h.getTitle());
     }
 
     private boolean notFullyReturned(Handoff h) {

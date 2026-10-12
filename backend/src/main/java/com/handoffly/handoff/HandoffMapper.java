@@ -92,6 +92,7 @@ public class HandoffMapper {
         return new HandoffSummaryResponse(
                 handoff.getId(),
                 handoff.getPublicCode(),
+                handoff.getDraftCode(),
                 handoff.getTitle(),
                 handoff.getCategory(),
                 handoff.getStatus(),

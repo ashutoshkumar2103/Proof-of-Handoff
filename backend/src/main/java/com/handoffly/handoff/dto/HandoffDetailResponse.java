@@ -16,6 +16,7 @@ import java.util.List;
 public record HandoffDetailResponse(
         Long id,
         String publicCode,
+        String draftCode,
         String title,
         String purpose,
         String category,

@@ -62,7 +62,7 @@ class ProofOfHandoffPdfExtractionTest {
         }
         List<AuditEventResponse> history = List.of(new AuditEventResponse(1L, AuditEventType.HANDOFF_CREATED, ActorType.USER,
                 "owner@example.com", "Handoff created as draft.", T0));
-        return new HandoffDetailResponse(7L, "AK-12", "Education kit", "Term loan for the school", "OTHER", status,
+        return new HandoffDetailResponse(7L, "AK-12", null, "Education kit", "Term loan for the school", "OTHER", status,
                 "Abhinay Kumar", "Kumar Education Pvt Ltd", "Event Client", "client@example.com", "+91 99999 00000",
                 "Event Client", T0.plusSeconds(600), null, T0.plusSeconds(300), T0.plusSeconds(600), T0.plusSeconds(86400),
                 T0, T0, given, back, remaining, missing, status == HandoffStatus.CLOSED, false, false, null,

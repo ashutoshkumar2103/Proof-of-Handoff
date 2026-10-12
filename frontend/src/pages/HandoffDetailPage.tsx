@@ -12,7 +12,7 @@ import { ReturnForm } from '../components/ReturnForm';
 import { AttachmentsPanel } from '../components/AttachmentsPanel';
 import { BackLink, ErrorNotice, Spinner, errorMessage, useSubscriptionEndedModal, useTransient } from '../components/ui';
 import { useConfirm } from '../components/ConfirmDialog';
-import { CONDITION_LABELS, formatDate, formatDateTime, isFinished, qty, REFERENCE_PENDING } from '../lib/format';
+import { CONDITION_LABELS, DRAFT_REFERENCE_HINT, formatDate, formatDateTime, isFinished, qty, REFERENCE_PENDING } from '../lib/format';
 
 export function HandoffDetailPage() {
   const { id } = useParams();
@@ -240,7 +240,7 @@ export function HandoffDetailPage() {
       {/* What is this handoff, and where is it? */}
       <div className="card handoff-head">
         <div className="row">
-          <span className="handoff-ref">{h.publicCode ?? REFERENCE_PENDING}</span>
+          <span className="handoff-ref" title={h.publicCode ? undefined : DRAFT_REFERENCE_HINT}>{h.publicCode ?? h.draftCode ?? REFERENCE_PENDING}</span>
           {h.category && <span className="badge">{h.category}</span>}
         </div>
         <h1>{h.title}</h1>

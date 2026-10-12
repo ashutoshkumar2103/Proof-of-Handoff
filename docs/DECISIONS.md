@@ -579,3 +579,17 @@ project brief. Each can be revisited.
     run (the trigger proves it, so no column is needed); "Not recorded" for every run from before this was kept, which is never given a guessed name. Customers only ever see their
     own entries. The audit that already exists was not reusable: `audit_event` belongs to a handoff and `support_audit_event` to a staff actor. *Migration V24* is additive (three
     nullable columns, one new table and its index); no existing row is changed.
+
+47. **A draft has a reference of its own, apart from the official one.** A customer with several drafts could not tell them apart, and the Weekly Summary had only
+    "Draft — reference not assigned" to call them. Each new draft now gets `<prefix>D-<n>` (`AKD-1`, `AKD-2`, … for prefix `AK`) when it is created, from a **separate
+    per-account counter** (`app_user.draft_sequence`) taken under the same account-row lock that submission uses, so concurrent creations by one customer get one number
+    each. *Why not the official sequence or `public_code`:* the official reference is the customer's own gap-free number, issued at submission; borrowing it would consume
+    official numbers for drafts that are never sent, and a draft's code must never become, or read as, the official reference. `public_code` and `handoff_sequence` are untouched
+    and submission issues exactly what it did. *Stored, not derived:* `handoff.draft_code` holds the text as issued, so a later support prefix change never renames a draft
+    (new drafts take the new prefix, the counter goes on); it stays on the row after submission, for the record, and is not shown as the reference then. *Never reused:* the
+    counter only goes up and a deleted draft keeps its row and its code. *Uniqueness:* `(owner_user_id, draft_code)` is unique; a number whose text would equal one of the
+    account's own official references (an account that once had prefix `AKD`) is skipped. Across customers the codes differ because prefixes do (the one exception is the
+    legacy accounts that still share `HO`, whose official references already overlap the same way). *Where it shows:* the Weekly Summary (email, HTML, job history), the
+    dashboard's Reference column and the draft's detail page, with a hint that it is a draft reference; dashboard search finds it. A handoff that was numbered when it was created
+    (before V23) keeps its official reference and has no draft one. *Migration V25* is additive (one column on each table and the unique key); it numbers the drafts that exist,
+    deleted ones included, per account in creation order under the account's current prefix, and sets each counter; no existing value is changed.

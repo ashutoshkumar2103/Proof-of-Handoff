@@ -68,6 +68,10 @@ public class User extends BaseEntity {
     @Column(name = "handoff_sequence", nullable = false)
     private long handoffSequence;
 
+    /** The last draft number issued to this account: its own counter, apart from {@link #handoffSequence}; never reset and never reused. */
+    @Column(name = "draft_sequence", nullable = false)
+    private long draftSequence;
+
     /**
      * Which generation of sign-in tokens is current. Every customer token carries the version it was issued
      * under; raising it (a password change or reset) makes all earlier tokens stop working at once.
@@ -137,6 +141,15 @@ public class User extends BaseEntity {
         return PublicCode.handoff(handoffPrefix, handoffSequence);
     }
 
+    /**
+     * Issues this account's next draft reference (AKD-1, AKD-2 ...), under the prefix in force now. It uses the draft counter, never the handoff
+     * counter, so a draft costs no official number. The caller must hold a row lock on this user, as for {@link #nextHandoffReference}.
+     */
+    public String nextDraftReference() {
+        draftSequence++;
+        return PublicCode.draft(handoffPrefix, draftSequence);
+    }
+
     /** The reference the next handoff would get (for display only; does not consume a number). */
     public String peekNextHandoffReference() {
         return PublicCode.handoff(handoffPrefix, handoffSequence + 1);
@@ -183,4 +196,5 @@ public class User extends BaseEntity {
     public Instant getPlanValidUntil() { return planValidUntil; }
     public String getHandoffPrefix() { return handoffPrefix; }
     public long getHandoffSequence() { return handoffSequence; }
+    public long getDraftSequence() { return draftSequence; }
 }

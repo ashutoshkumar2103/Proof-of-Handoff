@@ -81,7 +81,7 @@ class HandoffPdfServiceTest {
             remaining = remaining.add(i.remaining());
             missing = missing.add(i.missing());
         }
-        return new HandoffDetailResponse(987654L, "HO-1042", "Wedding rentals", "Event on Saturday", "EVENT", status,
+        return new HandoffDetailResponse(987654L, "HO-1042", null, "Wedding rentals", "Event on Saturday", "EVENT", status,
                 "Rentals Co", "Rentals Pvt Ltd", "Event Client", "client@example.com", "+91 99999 00000",
                 "Event Client", T0.plusSeconds(600), null, T0.plusSeconds(300), T0.plusSeconds(600), T0.plusSeconds(86400),
                 T0, T0, given, back, remaining, missing, status == HandoffStatus.CLOSED, false, false, null,
@@ -263,7 +263,7 @@ class HandoffPdfServiceTest {
     void missingOptionalFieldsStillRender() throws IOException {
         HandoffItemResponse bare = new HandoffItemResponse(1L, "Laptop", null, null, null, null, null, null, null,
                 BigDecimal.ONE, BigDecimal.ZERO, BigDecimal.ZERO, BigDecimal.ZERO, BigDecimal.ONE);
-        HandoffDetailResponse d = new HandoffDetailResponse(1L, "HO-1", null, null, null, HandoffStatus.DRAFT,
+        HandoffDetailResponse d = new HandoffDetailResponse(1L, "HO-1", null, null, null, null, HandoffStatus.DRAFT,
                 "Sender", null, "Recipient", "r@example.com", null, null, null, null, null, null, null, null, null,
                 BigDecimal.ONE, BigDecimal.ZERO, BigDecimal.ONE, BigDecimal.ZERO, false, false, false,
                 null, null, null, null, null, null, List.of(), List.of(bare), null, null, null);
@@ -295,7 +295,7 @@ class HandoffPdfServiceTest {
     void aDeclinedHandoffSaysDeclinedWithTheReason() throws IOException {
         HandoffDetailResponse base = detail(HandoffStatus.REJECTED, List.of(plainItem(1, "Chairs", 5, 0, 0, ItemCondition.GOOD)),
                 List.of(), List.of(), null);
-        HandoffDetailResponse declined = new HandoffDetailResponse(base.id(), base.publicCode(), base.title(), base.purpose(),
+        HandoffDetailResponse declined = new HandoffDetailResponse(base.id(), base.publicCode(), base.draftCode(), base.title(), base.purpose(),
                 base.category(), base.status(), base.senderName(), base.senderOrganization(), base.recipientName(),
                 base.recipientEmail(), base.recipientPhone(), "Event Client", T0, "Quantity does not match",
                 base.outgoingAt(), null, null, T0, T0, base.totalOutgoing(), base.totalReturned(), base.totalRemaining(),

@@ -34,6 +34,11 @@ public final class PublicCode {
         return accountPrefix + "-" + number;
     }
 
+    /** A draft's own reference, e.g. {@code AKD-3}: the account's prefix, then D for draft. Never the same text as an official reference of that account. */
+    public static String draft(String accountPrefix, long number) {
+        return accountPrefix + "D-" + number;
+    }
+
     /**
      * The number in an account-scoped handoff reference ({@code AV-12} is 12), or null when there is no reference (a draft not yet
      * submitted) or it has no number. This is what puts references in their real order: 9 before 10, whatever the prefix.

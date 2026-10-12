@@ -442,7 +442,8 @@ class CustomerJobTest extends ApiTestBase {
         mvc.perform(as(a, post("/api/v1/handoffs/" + missingId + "/returns").contentType(MediaType.APPLICATION_JSON)
                 .content("{\"lines\":[{\"itemId\":" + itemId + ",\"quantity\":4,\"condition\":\"MISSING\"}]}"))).andExpect(status().isCreated());
         String h3 = codeOf(a, missingId);
-        String h4 = handoffAt(a, "DRAFT", null);          // created only: nothing given, not open
+        handoffAt(a, "DRAFT", null);                      // created only: nothing given, not open, and no official reference yet
+        String h4 = jdbc.queryForObject("SELECT draft_code FROM handoff WHERE owner_user_id = ? AND public_code IS NULL", String.class, a.id());   // so it is named by its draft reference
         handoffAt(b, "PARTIAL", null);                    // another customer's: none of it may count
 
         mvc.perform(as(a, post(JOBS + "/WEEKLY_SUMMARY/run"))).andExpect(status().isOk())
@@ -450,7 +451,7 @@ class CustomerJobTest extends ApiTestBase {
 
         assertThat(mailTo(a)).hasSize(1);
         String body = mailTo(a).get(0).textBody();
-        assertThat(body).contains("Handoffs created: 4 (" + h1 + ", " + h2 + ", " + h3 + ", " + h4 + ")");
+        assertThat(body).contains("Handoffs created: 4 (" + h1 + ", " + h2 + ", " + h3 + ", " + h4 + ")");   // a draft is named by its draft reference, never "null"
         assertThat(body).contains("Handoffs closed: 1 (" + h2 + ")");
         assertThat(body).contains("Handoffs still open: 2 (" + h1 + ", " + h3 + ")");
         assertThat(body).contains("Items given: 30");          // the draft gave nothing

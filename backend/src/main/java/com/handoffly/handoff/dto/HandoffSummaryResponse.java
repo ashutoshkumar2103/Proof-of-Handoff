@@ -12,6 +12,7 @@ import java.time.Instant;
 public record HandoffSummaryResponse(
         Long id,
         String publicCode,
+        String draftCode,
         String title,
         String category,
         HandoffStatus status,

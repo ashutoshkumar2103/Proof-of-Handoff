@@ -198,6 +198,8 @@ export interface HandoffSummary {
   id: number;
   /** Issued when the draft is first submitted: null for a draft that has not been submitted yet. */
   publicCode: string | null;
+  /** The draft's own reference (AKD-3), given when it was created; it is not the official reference. Null for a handoff numbered at creation. */
+  draftCode: string | null;
   title: string;
   category?: string | null;
   status: HandoffStatus;
@@ -287,6 +289,8 @@ export interface HandoffDetail {
   id: number;
   /** Issued when the draft is first submitted: null for a draft that has not been submitted yet. */
   publicCode: string | null;
+  /** The draft's own reference (AKD-3), given when it was created; it is not the official reference. Null for a handoff numbered at creation. */
+  draftCode: string | null;
   title: string;
   purpose?: string | null;
   category?: string | null;

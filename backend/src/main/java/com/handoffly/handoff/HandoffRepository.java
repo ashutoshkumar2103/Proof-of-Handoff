@@ -38,6 +38,9 @@ public interface HandoffRepository
     /** A customer's own handoff by its reference (references are unique per account, not globally). */
     Optional<Handoff> findByOwnerIdAndPublicCodeIgnoreCase(Long ownerId, String publicCode);
 
+    /** Whether the account already has a handoff with this official reference (a new draft's reference must not read as one). */
+    boolean existsByOwnerIdAndPublicCode(Long ownerId, String publicCode);
+
     /** Dashboard status tallies for a given owner. */
     @Query("select h.status as status, count(h) as count from Handoff h "
             + "where h.owner.id = :ownerId group by h.status")

@@ -38,6 +38,14 @@ public class Handoff extends BaseEntity {
     @Column(name = "public_code", length = 20)
     private String publicCode;
 
+    /**
+     * The draft's own reference (e.g. AVD-3), issued when it was created and never changed, even if the account's prefix does. It is not the
+     * official reference and never becomes it; it is only what tells one draft from another before the handoff is submitted. Null for a handoff
+     * that was numbered when it was created (it has its official reference). Unique per owning account.
+     */
+    @Column(name = "draft_code", length = 20)
+    private String draftCode;
+
     /** The number inside {@link #publicCode} (3 for AV-3), so references sort in their real order; null while there is no reference. */
     @Column(name = "reference_number")
     private Long referenceNumber;
@@ -138,6 +146,14 @@ public class Handoff extends BaseEntity {
         this.title = title;
     }
 
+    /** Gives a new draft its own reference, once, when it is created. */
+    public void assignDraftCode(String draftCode) {
+        if (this.draftCode != null) {
+            throw new IllegalStateException("This handoff already has a draft reference.");
+        }
+        this.draftCode = draftCode;
+    }
+
     /** Gives a draft its reference, once, at its first submission. A handoff that already has one never gets another. */
     public void assignReference(String reference, long number) {
         if (this.publicCode != null) {
@@ -167,6 +183,8 @@ public class Handoff extends BaseEntity {
     }
 
     public String getPublicCode() { return publicCode; }
+
+    public String getDraftCode() { return draftCode; }
 
     public Long getReferenceNumber() { return referenceNumber; }
 

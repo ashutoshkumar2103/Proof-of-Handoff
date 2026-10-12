@@ -90,11 +90,14 @@ public class HandoffService {
 
     @Transactional
     public HandoffDetailResponse create(Long userId, CreateHandoffRequest request) {
-        // A new draft has no reference: it is numbered when it is first submitted (see submit), so creating, editing, duplicating
-        // or deleting drafts never uses up a number.
-        User owner = userService.getById(userId);
+        // A new draft has no official reference: it is numbered when it is first submitted (see submit), so creating, editing, duplicating
+        // or deleting drafts never uses up an official number. It does get a draft reference of its own (AKD-3), from the account's separate
+        // draft counter, so the customer can tell their drafts apart. The account row is locked for it, as for submitting, so two drafts
+        // created at once by one customer take their draft numbers one at a time.
+        User owner = userService.getByIdForUpdate(userId);
         userService.requireActiveSubscription(owner);   // the one gate on starting any new handoff: nothing below has run yet
         Handoff handoff = new Handoff(owner, request.title().trim());
+        handoff.assignDraftCode(nextFreeDraftCode(owner));
         applyHeader(handoff, request.purpose(), request.category(), request.senderName(),
                 request.senderOrganization(), request.recipientName(), request.recipientEmail(),
                 request.recipientPhone(), request.dueAt());
@@ -107,6 +110,15 @@ public class HandoffService {
         auditService.record(handoff.getId(), AuditEventType.HANDOFF_CREATED, ActorType.USER,
                 owner.getEmail(), "Handoff created as draft.");
         return toDetail(handoff);
+    }
+
+    /** The account's next draft reference. A number whose reference would read as one of the account's official references is skipped, never reused. */
+    private String nextFreeDraftCode(User owner) {
+        String code;
+        do {
+            code = owner.nextDraftReference();
+        } while (handoffRepository.existsByOwnerIdAndPublicCode(owner.getId(), code));
+        return code;
     }
 
     /**
@@ -472,7 +484,7 @@ public class HandoffService {
         boolean closeable = totalRemaining.signum() == 0 && !unconfirmedMissing;
 
         return new HandoffDetailResponse(
-                handoff.getId(), handoff.getPublicCode(), handoff.getTitle(), handoff.getPurpose(),
+                handoff.getId(), handoff.getPublicCode(), handoff.getDraftCode(), handoff.getTitle(), handoff.getPurpose(),
                 handoff.getCategory(), handoff.getStatus(), handoff.getSenderName(),
                 handoff.getSenderOrganization(), handoff.getRecipientName(), handoff.getRecipientEmail(),
                 handoff.getRecipientPhone(), handoff.getAcknowledgementName(), handoff.getAcknowledgedAt(),
