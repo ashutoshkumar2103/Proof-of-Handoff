@@ -1,6 +1,7 @@
 import { useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { useAuth } from '../auth/AuthContext';
+import { Logo } from '../components/Logo';
 import { errorMessage, useTransient } from '../components/ui';
 
 export function LoginPage() {
@@ -28,7 +29,7 @@ export function LoginPage() {
   return (
     <div className="auth-wrap">
       <form className="card auth-card" onSubmit={onSubmit}>
-        <div className="brand">Hand<span>Offly</span> Support</div>
+        <div className="brand"><Logo /><span className="brand-label">Support</span></div>
         <p className="muted center mb-2">Sign in with your staff account</p>
         {error && <div className="notice notice-error mb-2" role="alert">{error}</div>}
         <div className="field">

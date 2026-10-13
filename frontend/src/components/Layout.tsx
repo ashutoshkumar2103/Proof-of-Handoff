@@ -5,6 +5,7 @@ import { HANDOFFCHECK_PLAN_MESSAGE } from '../lib/format';
 import { ActionMenu } from './ActionMenu';
 import type { ActionMenuItem } from './ActionMenu';
 import { ChangePasswordModal } from './ChangePasswordModal';
+import { Logo } from './Logo';
 import { ThemeToggle } from './ThemeToggle';
 
 /**
@@ -62,7 +63,7 @@ export function Layout() {
   return (
     <div className="app-shell">
       <header className="topbar">
-        <NavLink to="/dashboard" className="brand">Hand<span>Offly</span></NavLink>
+        <NavLink to="/dashboard" className="brand"><Logo /></NavLink>
         <button type="button" className="btn btn-sm nav-toggle" aria-expanded={menuOpen} aria-controls="site-menu"
                 aria-label={menuOpen ? 'Close menu' : 'Open menu'} onClick={() => setMenuOpen(!menuOpen)}>
           <span aria-hidden="true">{menuOpen ? '✕' : '☰'}</span>

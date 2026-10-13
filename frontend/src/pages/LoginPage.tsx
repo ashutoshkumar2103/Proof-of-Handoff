@@ -4,6 +4,7 @@ import { useAuth } from '../auth/AuthContext';
 import { errorMessage } from '../components/ui';
 import { PasswordInput } from '../components/PasswordInput';
 import { AuthShell } from '../components/AuthShell';
+import { Logo } from '../components/Logo';
 import { PendingPaymentNotice } from '../components/PendingPaymentNotice';
 
 export function LoginPage() {
@@ -31,7 +32,7 @@ export function LoginPage() {
   return (
     <AuthShell>
       <form className="card auth-card" onSubmit={onSubmit}>
-        <div className="brand">Hand<span>Offly</span></div>
+        <div className="brand"><Logo variant="full" /></div>
         <p className="muted center mb-2">Welcome back — sign in to continue</p>
         <PendingPaymentNotice action="Sign in" />
         {error &&<div className="notice notice-error mb-2">{error}</div>}

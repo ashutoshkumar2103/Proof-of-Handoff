@@ -4,6 +4,7 @@ import { publicApi } from '../api/endpoints';
 import type { SubscriptionPlan } from '../api/types';
 import { useAuth } from '../auth/AuthContext';
 import { ThemeToggle } from '../components/ThemeToggle';
+import { Logo } from '../components/Logo';
 import { formatMoney, supportHighlights } from '../lib/format';
 
 interface Plan {
@@ -57,7 +58,7 @@ export function LandingPage() {
     <div className="landing">
       <header className="landing-header">
         <div className="landing-header-inner">
-          <Link to="/" className="brand">Hand<span>Offly</span></Link>
+          <Link to="/" className="brand"><Logo /></Link>
           <nav className="landing-nav">
             <a href="#features">Features</a>
             <a href="#how">How it works</a>
@@ -234,7 +235,7 @@ export function LandingPage() {
       <footer className="landing-footer">
         <div className="footer-inner">
           <div className="footer-brand">
-            <div className="brand">Hand<span>Offly</span></div>
+            <div className="brand"><Logo /></div>
             <p className="muted small">Universal proof-of-handoff and return tracking.</p>
           </div>
           <div className="footer-cols">

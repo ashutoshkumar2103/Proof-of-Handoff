@@ -7,6 +7,7 @@ import { StatusBadge } from '../components/StatusBadge';
 import { ItemsTable } from '../components/ItemsTable';
 import { ErrorNotice, Spinner, errorMessage } from '../components/ui';
 import { ThemeToggle } from '../components/ThemeToggle';
+import { Logo } from '../components/Logo';
 import { useConfirm } from '../components/ConfirmDialog';
 import { CONDITION_LABELS, formatDateTime, formatBytes, isFinished, qty } from '../lib/format';
 
@@ -82,7 +83,7 @@ export function RecipientPage() {
     return (
       <div className="auth-wrap">
         <div className="card auth-card center">
-          <div className="brand">Hand<span>Offly</span></div>
+          <div className="brand"><Logo /></div>
           <h1 style={{ fontSize: '1.15rem', margin: '0.5rem 0 0.75rem' }}>This link can’t be opened</h1>
           <div role="alert"><ErrorNotice error={view.error} /></div>
           <p className="muted small mt-2">This link may have expired or is invalid. Please ask the sender to send you a new link.</p>
@@ -97,7 +98,7 @@ export function RecipientPage() {
   return (
     <div className="container recipient-page">
       <div className="spread recipient-top">
-        <div className="recipient-brand">Hand<span>Offly</span></div>
+        <div className="recipient-brand"><Logo /></div>
         <ThemeToggle />
       </div>
 

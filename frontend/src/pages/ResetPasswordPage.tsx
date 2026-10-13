@@ -3,6 +3,7 @@ import { Link, useParams } from 'react-router-dom';
 import { authApi } from '../api/endpoints';
 import { useAuth } from '../auth/AuthContext';
 import { AuthShell } from '../components/AuthShell';
+import { Logo } from '../components/Logo';
 import { PasswordInput } from '../components/PasswordInput';
 import { errorMessage } from '../components/ui';
 
@@ -38,7 +39,7 @@ export function ResetPasswordPage() {
   return (
     <AuthShell>
       <form className="card auth-card" onSubmit={onSubmit}>
-        <div className="brand">Hand<span>Offly</span></div>
+        <div className="brand"><Logo variant="full" /></div>
         <p className="muted center mb-2">Choose a new password</p>
         {done ? (
           <>

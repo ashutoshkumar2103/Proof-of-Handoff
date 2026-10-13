@@ -1,5 +1,6 @@
 import { NavLink, Outlet } from 'react-router-dom';
 import { useAuth } from '../auth/AuthContext';
+import { Logo } from './Logo';
 import { ROLE_LABELS } from '../lib/format';
 
 export function Layout() {
@@ -7,7 +8,7 @@ export function Layout() {
   return (
     <div className="app-shell">
       <header className="topbar">
-        <NavLink to="/dashboard" className="brand">Hand<span>Offly</span> Support</NavLink>
+        <NavLink to="/dashboard" className="brand"><Logo /><span className="brand-label">Support</span></NavLink>
         <nav>
           <NavLink to="/dashboard">Dashboard</NavLink>
           {can('VIEW_CUSTOMERS') && <NavLink to="/customers">Customers</NavLink>}

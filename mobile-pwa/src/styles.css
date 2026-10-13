@@ -124,9 +124,21 @@ button, input, select, textarea { font: inherit; color: inherit; }
   min-height: 48px; padding: env(safe-area-inset-top) max(var(--space-4), env(safe-area-inset-right)) 0 max(var(--space-4), env(safe-area-inset-left));
   background: var(--surface); border-bottom: 1px solid var(--border);
 }
-.brand { font-weight: 700; font-size: var(--fs-heading); color: var(--text); }
-.brand span { color: var(--primary); }
-.brand-lg { font-size: 1.7rem; text-align: center; margin-bottom: var(--space-1); }
+.brand { display: inline-flex; align-items: center; font-weight: 700; font-size: var(--fs-heading); color: var(--text); }
+.brand-lg { display: block; text-align: center; margin-bottom: var(--space-1); }
+/* The HandOffly logo: transparent PNGs from the approved image. The dark-theme variant (lighter wordmark text) shows when the dark theme is on,
+   by the same two switches as the colour tokens below (the OS preference unless a theme was chosen, and an explicit choice). */
+.logo { display: block; max-width: 100%; height: auto; }
+.logo-dark { display: none; }
+.logo-compact { height: 28px; width: auto; }
+.brand-lg .logo-compact { height: 40px; margin: 0 auto; }
+.logo-full { width: min(100%, 13rem); margin: 0 auto; }
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) .logo-light { display: none; }
+  :root:not([data-theme="light"]) .logo-dark { display: block; }
+}
+:root[data-theme="dark"] .logo-light { display: none; }
+:root[data-theme="dark"] .logo-dark { display: block; }
 /* Reports: a blue pill, bold, so it stands out from the plain brand and the quiet nav; filled when you are on it. */
 .topbar-link { display: inline-flex; align-items: center; gap: 6px; min-height: var(--control-h-sm); padding: 0 var(--space-3); border-radius: var(--radius-pill); border: 1px solid var(--primary); background: var(--primary-soft); color: var(--primary); font-weight: 700; font-size: var(--fs-small); }
 .topbar-link .icon { width: 18px; height: 18px; stroke-width: 2.25; }

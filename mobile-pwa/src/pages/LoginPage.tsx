@@ -2,6 +2,7 @@ import { useState } from 'react';
 import { Navigate, useLocation, useNavigate } from 'react-router-dom';
 import { useAuth } from '../auth/AuthContext';
 import { Icon } from '../components/Icon';
+import { Logo } from '../components/Logo';
 import { errorMessage, Spinner } from '../components/ui';
 
 export function LoginPage() {
@@ -33,7 +34,7 @@ export function LoginPage() {
   return (
     <main className="auth-page">
       <form className="card auth-card" onSubmit={onSubmit}>
-        <div className="brand brand-lg">Hand<span>Offly</span></div>
+        <div className="brand brand-lg"><Logo variant="full" /></div>
         <p className="muted center">Sign in to give, track and receive back.</p>
         {error && <div className="notice notice-error" role="alert">{error}</div>}
         <div className="field">

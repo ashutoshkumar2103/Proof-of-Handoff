@@ -1,12 +1,13 @@
 import { defineConfig, minimal2023Preset } from '@vite-pwa/assets-generator/config';
 
-// Run `npm run generate-icons` after changing public/favicon.svg: it writes the PNG and .ico icons next to it.
+// Run `npm run generate-icons` after changing src/assets/brand/logo-mark.png (the HandOffly symbol, from the approved logo): it writes the PNG and .ico
+// icons next to it; move them into public/. The logo was drawn on white, so the maskable and Apple icons, which cannot be transparent, get a white background.
 export default defineConfig({
   preset: {
     ...minimal2023Preset,
-    // The background of the maskable and Apple icons, so the glyph is not cropped on a transparent square.
-    maskable: { ...minimal2023Preset.maskable, resizeOptions: { background: '#2563eb', fit: 'contain' }, padding: 0.3 },
-    apple: { ...minimal2023Preset.apple, resizeOptions: { background: '#2563eb', fit: 'contain' }, padding: 0.2 },
+    // The symbol is wider than it is tall: the padding keeps it inside the safe area that a maskable icon's mask never cuts.
+    maskable: { ...minimal2023Preset.maskable, resizeOptions: { background: '#ffffff', fit: 'contain' }, padding: 0.18 },
+    apple: { ...minimal2023Preset.apple, resizeOptions: { background: '#ffffff', fit: 'contain' }, padding: 0.12 },
   },
-  images: ['public/favicon.svg'],
+  images: ['src/assets/brand/logo-mark.png'],
 });

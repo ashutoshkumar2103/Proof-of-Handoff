@@ -6,6 +6,7 @@ import { recipientApi } from '../api/endpoints';
 import type { HandoffItem } from '../api/types';
 import { OfflineBanner } from '../components/AppShell';
 import { useConfirm } from '../components/ConfirmSheet';
+import { Logo } from '../components/Logo';
 import { errorMessage, ErrorNotice, Spinner, StatusBadge } from '../components/ui';
 import { CONDITION_LABELS, formatBytes, formatDateTime, isFinished, qty } from '../lib/format';
 
@@ -98,7 +99,7 @@ export function RecipientPage() {
     return (
       <main className="auth-page">
         <div className="card auth-card center">
-          <div className="brand brand-lg">Hand<span>Offly</span></div>
+          <div className="brand brand-lg"><Logo /></div>
           <h1>Can’t reach HandOffly</h1>
           <p className="muted">Check your connection, then try again. Your link is fine.</p>
           <button className="btn btn-primary btn-block" onClick={() => void view.refetch()}>Try again</button>
@@ -110,7 +111,7 @@ export function RecipientPage() {
     return (
       <main className="auth-page">
         <div className="card auth-card center">
-          <div className="brand brand-lg">Hand<span>Offly</span></div>
+          <div className="brand brand-lg"><Logo /></div>
           <h1>This link can’t be opened</h1>
           <ErrorNotice error={view.error} />
           <p className="muted small">The link may have expired or be wrong. Please ask the sender to send you a new one.</p>
@@ -126,7 +127,7 @@ export function RecipientPage() {
 
   return (
     <div className="app recipient">
-      <header className="topbar"><span className="brand">Hand<span>Offly</span></span></header>
+      <header className="topbar"><span className="brand"><Logo /></span></header>
       <OfflineBanner />
       <main className="page">
         <div className="stack">

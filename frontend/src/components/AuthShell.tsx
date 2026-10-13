@@ -1,5 +1,4 @@
 import type { ReactNode } from 'react';
-import { Link } from 'react-router-dom';
 import { ThemeToggle } from './ThemeToggle';
 
 const LIFECYCLE = ['Give', 'Acknowledge', 'Active', 'Return', 'Closed'];
@@ -13,9 +12,6 @@ export function AuthShell({ children }: { children: ReactNode }) {
   return (
     <div className="auth-shell">
       <aside className="auth-brand-panel">
-        <div className="auth-brand-top">
-          <Link to="/" className="brand brand-lg">Hand<span>Offly</span></Link>
-        </div>
         <div className="auth-brand-body">
           <h2>Proof of every handoff, tracked until it's returned.</h2>
           <p>

@@ -34,7 +34,7 @@ export default defineConfig(({ mode }) => {
       VitePWA({
         // A new version installs and takes over at once: the app shell is the only thing cached, so there is nothing to migrate.
         registerType: 'autoUpdate',
-        includeAssets: ['favicon.ico', 'apple-touch-icon-180x180.png', 'favicon.svg'],
+        includeAssets: ['favicon.ico', 'apple-touch-icon-180x180.png'],
         manifest: {
           name: 'HandOffly',
           short_name: 'HandOffly',

@@ -593,3 +593,26 @@ project brief. Each can be revisited.
     dashboard's Reference column and the draft's detail page, with a hint that it is a draft reference; dashboard search finds it. A handoff that was numbered when it was created
     (before V23) keeps its official reference and has no draft one. *Migration V25* is additive (one column on each table and the unique key); it numbers the drafts that exist,
     deleted ones included, per account in creation order under the account's current prefix, and sets each counter; no existing value is changed.
+
+48. **The HandOffly logo is the approved image, prepared as transparent PNGs, in three sizes of use.** The wordmark used to be the text `Hand<span>Offly</span>`, set in
+    each app's own font. It is now the supplied logo image, never redrawn or retyped: the white background is removed by colour-to-alpha (so soft edges and fades end in
+    transparency, not a white halo), enclosed light parts of the design (the tape and ridge on the box) are kept opaque, and the result is cropped. *Sizes of use:* the **full**
+    logo (symbol, wordmark, tagline, descriptor) on roomy pages — the sign-in, register, forgot/reset password and checkout cards and the phone's sign-in; the **compact** logo
+    (the supplied symbol and wordmark side by side, no tagline) in every bar and wherever space is short; the **symbol** alone for the favicon and the app icons. The compact lockup
+    is built from the supplied symbol and wordmark pixels, the wordmark scaled as a whole and never stretched, so the letters can be read at bar height. *Dark theme:* the navy
+    wordmark and the tagline are unreadable on a dark page, so the full and compact logos have a dark variant in which only that text is lightened (the symbol and the blue "fly" are
+    untouched); it is shown by the same switch as the colour tokens (OS preference unless a theme was chosen, and an explicit choice), so nothing re-renders when the theme
+    changes. The symbol needs no variant. *Where it is not used:* the blue panel beside the sign-in forms lost its text wordmark rather than get the coloured logo (the blue figure
+    would vanish on the blue gradient, and a white box behind it would look stuck on); the logo is in the form card next to it. Emails, PDFs and the "Powered by HandOffly" line
+    stay text. *Icons:* the mobile app's generator (`npm run generate-icons`) now takes the symbol as its source; the maskable and Apple icons get a white background, the colour the
+    logo was drawn on. The customer app and support portal, which had no favicon, got `favicon.ico` and an Apple touch icon from the same symbol. The support portal follows only
+    the OS colour scheme, so it switches variants by that alone. The apps share no code, so each has its own copy of the files it needs and its own small `Logo` component.
+
+49. **The browser favicon is its own small mark, not the logo's symbol.** The two-people-and-parcel symbol (and, for a while, a parcel-and-arrows icon) read as a blur
+    at 16 px. The favicon is now a flat geometric mark: a deep-navy rounded square holding two bold sides, blue and green, joined across the middle into an H, meeting at one
+    orange chamfered square with a white check ("two sides, one confirmed handoff"). It deliberately has no parcel, people, arrows or text, and no gradients. *Source:* the one SVG
+    master is `docs/brand/favicon.svg`, drawn on a 64-unit grid so that at 16 px every edge falls on a whole pixel; it is not served or bundled. `favicon.ico` in each of the three
+    apps' `public/` folders is rendered from it directly at 16, 32 and 48 px (a vector rendered at each size, never a small bitmap enlarged) and is identical in all three. The orange shape
+    is a chamfered square rather than a hexagon because its edges stay crisp at 16 px. *Cache:* the icon links carry a version (`/favicon.ico?v=3`) because browsers keep favicons apart
+    from the page; bump the number when the artwork changes. *Not changed:* the full and compact logos and the Apple/PWA install icons keep the logo's own symbol (decision 48). Note that
+    `npm run generate-icons` in the mobile app also writes a `favicon.ico` (from the logo symbol): do not move that file into `public/`.

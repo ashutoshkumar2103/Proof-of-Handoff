@@ -4,6 +4,7 @@ import { useQuery } from '@tanstack/react-query';
 import { paymentApi, publicApi } from '../api/endpoints';
 import { useAuth } from '../auth/AuthContext';
 import { AuthShell } from '../components/AuthShell';
+import { Logo } from '../components/Logo';
 import { DemoCardFields } from '../components/DemoCardFields';
 import { BackLink, errorMessage, Spinner } from '../components/ui';
 import { cardProblem, EMPTY_CARD, setPendingPayment } from '../lib/checkout';
@@ -62,7 +63,7 @@ export function CheckoutPage() {
   return (
     <AuthShell>
       <div className="card auth-card">
-        <div className="brand">Hand<span>Offly</span></div>
+        <div className="brand"><Logo variant="full" /></div>
         <p className="muted center mb-2">Checkout</p>
 
         {prices.isLoading ? <Spinner /> : !price ? (

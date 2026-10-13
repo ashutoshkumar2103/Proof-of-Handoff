@@ -67,9 +67,18 @@ p { margin: 0 0 0.5rem; }
   padding: 0.75rem 1.25rem; background: var(--surface); border-bottom: 1px solid var(--border);
   position: sticky; top: 0; z-index: 10;
 }
-.topbar .brand { font-weight: 700; font-size: 1.15rem; color: var(--text); }
-.topbar .brand span { color: var(--primary); }
+.topbar .brand { display: flex; align-items: center; gap: 0.6rem; color: var(--text); }
 .topbar .brand:hover { text-decoration: none; }
+.brand-label { font-weight: 700; font-size: 1.15rem; }
+
+/* The HandOffly logo: a transparent PNG from the approved image, with a variant whose wordmark text is light for the dark theme (shown when the
+   OS is in dark mode, like the colour tokens). Only the height is set, so it keeps the image's own proportions. */
+.logo { display: block; height: 2rem; width: auto; max-width: 100%; }
+.logo-dark { display: none; }
+@media (prefers-color-scheme: dark) {
+  .logo-light { display: none; }
+  .logo-dark { display: block; }
+}
 .topbar nav { display: flex; align-items: center; gap: 0.4rem; flex: 1; margin-left: 1rem; }
 .topbar nav a { color: var(--text-muted); font-weight: 500; padding: 0.4rem 0.65rem; border-radius: var(--radius-sm); }
 .topbar nav a:hover { text-decoration: none; background: var(--surface-2); color: var(--text); }
@@ -179,8 +188,9 @@ tr.clickable:hover td { background: var(--surface-2); }
 /* Sign-in */
 .auth-wrap { min-height: 100vh; display: flex; align-items: center; justify-content: center; padding: 1.25rem; }
 .auth-card { width: 100%; max-width: 400px; }
-.auth-card .brand { font-size: 1.5rem; font-weight: 700; text-align: center; margin-bottom: 0.25rem; }
-.auth-card .brand span { color: var(--primary); }
+.auth-card .brand { display: flex; align-items: center; justify-content: center; gap: 0.6rem; margin-bottom: 0.25rem; }
+.auth-card .brand .logo { height: 2.5rem; }
+.auth-card .brand .brand-label { font-size: 1.3rem; }
 
 @media (max-width: 860px) {
   .two-col { grid-template-columns: minmax(0, 1fr); }

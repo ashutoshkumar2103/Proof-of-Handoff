@@ -2,6 +2,7 @@ import { useState } from 'react';
 import { Link } from 'react-router-dom';
 import { authApi } from '../api/endpoints';
 import { AuthShell } from '../components/AuthShell';
+import { Logo } from '../components/Logo';
 import { BackLink, errorMessage } from '../components/ui';
 
 /**
@@ -31,7 +32,7 @@ export function ForgotPasswordPage() {
   return (
     <AuthShell>
       <form className="card auth-card" onSubmit={onSubmit}>
-        <div className="brand">Hand<span>Offly</span></div>
+        <div className="brand"><Logo variant="full" /></div>
         <p className="muted center mb-2">Forgot your password?</p>
         {sent ? (
           <>

@@ -1,0 +1,13 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64" width="64" height="64">
+  <!-- HandOffly favicon: two sides (blue and green) meeting at one confirmed point (orange, with a white check). Drawn on a 64-unit grid so that at 16 px every edge falls on a whole pixel (4 units = 1 px). Flat colours only. -->
+  <rect width="64" height="64" rx="12" fill="#102A52"/>
+  <!-- the two sides: a bold bar each, joined across the middle, so the whole reads as an H -->
+  <rect x="8" y="12" width="8" height="40" rx="4" fill="#3697FF"/>
+  <rect x="48" y="12" width="8" height="40" rx="4" fill="#16C78A"/>
+  <rect x="16" y="28" width="16" height="8" fill="#3697FF"/>
+  <rect x="32" y="28" width="16" height="8" fill="#16C78A"/>
+  <!-- the meeting point: one orange chamfered square -->
+  <path d="M24 20 H40 L44 24 V40 L40 44 H24 L20 40 V24 Z" fill="#FF9F28"/>
+  <!-- confirmed -->
+  <path d="M26 32 L30 36 L38 28" fill="none" stroke="#FFFFFF" stroke-width="4.5" stroke-linecap="round" stroke-linejoin="round"/>
+</svg>

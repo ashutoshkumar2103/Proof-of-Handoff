@@ -2,6 +2,7 @@ import { useEffect, useState } from 'react';
 import { Link, NavLink, Navigate, Outlet, useLocation } from 'react-router-dom';
 import { useAuth } from '../auth/AuthContext';
 import { Icon } from './Icon';
+import { Logo } from './Logo';
 import { Spinner } from './ui';
 
 /** Says so when the phone has no connection: the app needs the HandOffly server for everything it shows or records. */
@@ -40,7 +41,7 @@ export function AppShell() {
   if (!user && unreachable) {
     return (
       <div className="app">
-        <header className="topbar"><span className="brand">Hand<span>Offly</span></span></header>
+        <header className="topbar"><span className="brand"><Logo /></span></header>
         <OfflineBanner />
         <main className="page stack center">
           <h1>Can’t reach HandOffly</h1>
@@ -56,7 +57,7 @@ export function AppShell() {
   return (
     <div className="app">
       <header className="topbar">
-        <Link to="/" className="brand" aria-label="HandOffly home">Hand<span>Offly</span></Link>
+        <Link to="/" className="brand" aria-label="HandOffly home"><Logo /></Link>
         <Link to="/reports" className={`topbar-link${location.pathname.startsWith('/reports') ? ' active' : ''}`}
               aria-current={location.pathname.startsWith('/reports') ? 'page' : undefined}>
           <Icon name="chart" />Reports
