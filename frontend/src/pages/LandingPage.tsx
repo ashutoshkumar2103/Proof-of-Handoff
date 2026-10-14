@@ -208,6 +208,10 @@ export function LandingPage() {
                     {p.handoffCheck
                       ? <li>HandoffCheck comparison</li>
                       : <li className="off">HandoffCheck comparison — not included</li>}
+                    {/* the AI Report Assistant goes with the plans that include HandoffCheck (see AI_REPORT_PLAN_MESSAGE), so it follows the same flag */}
+                    {p.handoffCheck
+                      ? <li>AI Report Assistant</li>
+                      : <li className="off">AI Report Assistant — not included</li>}
                     {supportHighlights(price.support).map((line) => <li key={line}>{line}</li>)}
                   </ul>
                   <Link to={`/checkout?plan=${p.plan}`} className={`btn btn-block ${p.highlight ? 'btn-primary' : ''}`}>
