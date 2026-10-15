@@ -557,9 +557,25 @@ th.sortable:hover { color: var(--text); }
 .auth-brand-foot { color: rgba(255,255,255,0.75) !important; position: relative; }
 .auth-form-area { position: relative; display: flex; align-items: center; justify-content: center; padding: 1.5rem; background: var(--bg); }
 .auth-form-topbar { position: absolute; top: 1rem; right: 1.25rem; }
+/* FAQs: disclosure elements (keyboard operable), two columns side by side that stack on a phone; the page keeps which one is open. */
+.faq-columns { display: grid; grid-template-columns: 1fr 1fr; gap: 0.6rem 1.25rem; align-items: start; }
+.faq-list { display: grid; gap: 0.6rem; }
+.faq-item { background: var(--bg); border: 1px solid var(--border); border-radius: var(--radius); }
+.faq-item[open] { border-color: var(--primary); }
+.faq-item summary {
+  cursor: pointer; list-style: none; display: flex; justify-content: space-between; align-items: center; gap: 1rem;
+  padding: 0.95rem 1.1rem; font-weight: 600; color: var(--text);
+}
+.faq-item summary::-webkit-details-marker { display: none; }
+.faq-item summary::after { content: '+'; font-size: 1.25rem; font-weight: 500; color: var(--text-muted); flex: none; }
+.faq-item[open] summary::after { content: '\2212'; color: var(--primary); }
+.faq-item summary:focus-visible { outline: 2px solid var(--primary); outline-offset: 2px; border-radius: var(--radius); }
+.faq-item p { margin: 0; padding: 0 1.1rem 1rem; line-height: 1.6; }
+
 .auth-form-area .auth-card { width: 100%; max-width: 400px; box-shadow: var(--shadow-lg); }
 
 @media (max-width: 960px) {
+  .faq-columns { grid-template-columns: 1fr; }
   .hero-inner { grid-template-columns: 1fr; }
   .hero-visual { order: -1; }
   .feature-grid { grid-template-columns: repeat(2, 1fr); }

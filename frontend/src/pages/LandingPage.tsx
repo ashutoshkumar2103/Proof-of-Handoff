@@ -1,3 +1,4 @@
+import { useState } from 'react';
 import { Link } from 'react-router-dom';
 import { useQuery } from '@tanstack/react-query';
 import { publicApi } from '../api/endpoints';
@@ -44,10 +45,33 @@ const STEPS = [
   { n: 4, title: 'Confirm & close', text: 'Confirm any missing items, then close the handoff once everything is accounted for.' },
 ];
 
+// Questions people ask before they sign up. Answers describe what the product does today; plans and prices are not repeated here
+// (they come from the backend, above), and the acknowledgement is never described as a legal signature.
+const FAQS = [
+  { q: 'What is HandOffly?', a: 'HandOffly keeps one record of everything you hand to someone: what was given, who received it, their acknowledgement, and every return until the handoff is closed. It works for rentals, events, tools, IT assets, documents, keys and anything else you give out and expect back.' },
+  { q: 'Is it an inventory system?', a: 'No. HandOffly does not manage stock or warehouses. It tracks each handoff from the moment you give something to the moment it is fully returned.' },
+  { q: 'Does the person receiving the items need an account?', a: 'No. You email them a secure link that opens only that one handoff. They review the items and accept or decline there, with nothing to install or sign up for. The link expires.' },
+  { q: 'Is the recipient’s acknowledgement a legal signature?', a: 'It is a typed acknowledgement: the recipient types their name to confirm they reviewed and accepted the items, and HandOffly records it with the time. It is a record of that confirmation, not a legally binding e-signature. If you need a signature with legal force, check what your own situation requires.' },
+  { q: 'What if only part of the items come back?', a: 'Record each return as it happens, as many times as you need, with the condition and a note. Returns are kept as separate entries on the same handoff, the original quantities are never changed, and HandOffly works out what is still outstanding.' },
+  { q: 'What happens to items that are missing?', a: 'Items reported missing must be confirmed by the recipient before the handoff can be closed, so nothing is closed with an open question.' },
+  { q: 'Can the history be changed or deleted?', a: 'No. Every event (created, sent, opened, accepted, returned, closed) is added to an audit trail and never edited. Once a handoff is closed it is read-only. A draft that was never sent can be deleted.' },
+  { q: 'What is HandoffCheck?', a: 'HandoffCheck compares two files, such as a quotation and a purchase order, or what you gave and what came back, and highlights every difference. It is included in the Half-yearly and Yearly plans.' },
+  { q: 'What does the AI Handoff Creator do?', a: 'You describe a handoff in your own words, typed or spoken, for example “Create a handoff for Rahul with 2 pens and 3 markers”. It prepares a draft for you to review and edit. It only ever prepares a draft: nothing is sent to anyone until you submit it yourself. It is available on every plan.' },
+  { q: 'What happens when my plan ends?', a: 'Your records stay. You can still open your handoffs, record returns, close handoffs and download PDFs. To create new handoffs or send drafts, you need an active plan.' },
+  { q: 'How is my account protected?', a: 'Passwords are stored hashed, recipient links are single-handoff and expire, and you are signed out automatically after 15 minutes of inactivity so an unattended screen does not stay open.' },
+  { q: 'How do I get help?', a: 'Every account can reach us at the contact address in the footer. The support options that come with each plan, such as messages, tickets and calls, are listed in the pricing plans above.' },
+];
+
 const LIFECYCLE = ['Give', 'Acknowledge', 'Active with recipient', 'Partial return', 'Full return', 'Closed'];
+
+/** Two columns of questions side by side (stacked on a phone), so the section stays short. */
+const FAQ_SPLIT = Math.ceil(FAQS.length / 2);
+const FAQ_COLUMNS = [FAQS.slice(0, FAQ_SPLIT), FAQS.slice(FAQ_SPLIT)];
 
 export function LandingPage() {
   const { user } = useAuth();
+  // One question is open at a time: opening another closes the one that was open.
+  const [openFaq, setOpenFaq] = useState<string | null>(null);
   // General contact address for everyone, whatever their plan; hidden if it cannot be loaded.
   const contact = useQuery({ queryKey: ['public-contact'], queryFn: publicApi.contact, retry: false });
   const prices = useQuery({ queryKey: ['public-plans'], queryFn: publicApi.plans, retry: false });
@@ -63,6 +87,7 @@ export function LandingPage() {
             <a href="#features">Features</a>
             <a href="#how">How it works</a>
             <a href="#pricing">Pricing</a>
+            <a href="#faq">FAQs</a>
           </nav>
           <div className="row" style={{ gap: '0.5rem' }}>
             <ThemeToggle />
@@ -225,6 +250,26 @@ export function LandingPage() {
         )}
       </section>
 
+      {/* FAQs */}
+      <section id="faq" className="landing-section alt">
+        <div className="section-head">
+          <h2>Frequently asked questions</h2>
+          <p className="muted">Straight answers before you start.</p>
+        </div>
+        <div className="faq-columns">
+          {FAQ_COLUMNS.map((column, c) => (
+            <div key={c} className="faq-list">
+              {column.map((f) => (
+                <details key={f.q} className="faq-item" open={openFaq === f.q}>
+                  <summary onClick={(e) => { e.preventDefault(); setOpenFaq(openFaq === f.q ? null : f.q); }}>{f.q}</summary>
+                  <p className="muted">{f.a}</p>
+                </details>
+              ))}
+            </div>
+          ))}
+        </div>
+      </section>
+
       {/* CTA */}
       <section className="landing-cta">
         <h2>Start tracking your handoffs today</h2>
@@ -249,6 +294,7 @@ export function LandingPage() {
               <a href="#features">Features</a>
               <a href="#how">How it works</a>
               <a href="#pricing">Pricing</a>
+              <a href="#faq">FAQs</a>
             </div>
             <div>
               <h4>Account</h4>
