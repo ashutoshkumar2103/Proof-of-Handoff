@@ -8,7 +8,7 @@ import type {
 import { BackLink, ErrorNotice, Gated, Spinner, errorMessage, useTransient } from '../components/ui';
 import { AiColumnAssist } from '../components/AiColumnAssist';
 import { AiItemMatchAssist } from '../components/AiItemMatchAssist';
-import { UpgradePlans } from '../components/UpgradePlans';
+import { UpgradePlansModal } from '../components/UpgradePlans';
 import { owed } from '../components/ReturnForm';
 import { isPlanRequired, saveBlob } from '../api/client';
 import { useSubscriptionGate } from '../auth/useSubscriptionGate';
@@ -75,11 +75,12 @@ function HandoffCheckLocked({ plan, onUpgraded }: { plan: SubscriptionPlan; onUp
         <p className="muted small">
           You are on the {PLAN_LABELS[plan]} plan. Move to a plan that includes it and pay only the difference.
         </p>
-        <button type="button" className="btn btn-primary btn-sm" aria-expanded={open} onClick={() => setOpen(!open)}>
-          {open ? 'Hide the plans' : 'See the plans'}
+        <button type="button" className="btn btn-primary btn-sm" aria-haspopup="dialog" onClick={() => setOpen(true)}>
+          See the plans
         </button>
       </div>
-      {open && <UpgradePlans onUpgraded={onUpgraded} />}
+      {open && <UpgradePlansModal title="Upgrade to use HandoffCheck" onClose={() => setOpen(false)}
+                                  onUpgraded={(plan) => { setOpen(false); onUpgraded(plan); }} />}
     </div>
   );
 }

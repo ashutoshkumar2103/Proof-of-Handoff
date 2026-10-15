@@ -3,7 +3,7 @@ import { api, downloadBlob, downloadFile, postForFile, upload } from './client';
 import type {
   AuthResponse, CompareInput, CompareResult, CreateHandoffInput, CreateReturnInput, CreateTicketInput, DocLineInput,
   DashboardResponse, HandoffDetail, HandoffReport, HandoffStatus, HandoffSummary, Page, RecipientView, RegisterInput, ReportQuery,
-  AiItemMatches, AiMapping, ColumnChoice, ReportAssistantAnswer, ReportAssistantSuggestion, ChangePasswordInput, HandoffTemplate, ItemImportPreview, PaymentReceipt, PlanPrice, ProfileInput, ResetPasswordInput, ReturnEvent, ReturnImportResult, SubscriptionPlan, SupportMessageInput, TicketAttachment,
+  AiDraftInput, AssistantPreview, AssistantRequest, AiItemMatches, AiMapping, ColumnChoice, ReportAssistantAnswer, ReportAssistantSuggestion, ChangePasswordInput, HandoffTemplate, ItemImportPreview, PaymentReceipt, PlanPrice, ProfileInput, ResetPasswordInput, ReturnEvent, ReturnImportResult, SubscriptionPlan, SupportMessageInput, TicketAttachment,
   TicketDetail, TicketSummary, UpgradeOption, User, Attachment, AttachmentKind, Job, JobChange, JobHistoryEntry, JobRun, JobType,
 } from './types';
 
@@ -60,6 +60,10 @@ export const handoffApi = {
   /** What a duplicate of this handoff starts from. Creates nothing. */
   template: (id: number) => api<HandoffTemplate>(`/handoffs/${id}/template`),
   create: (body: CreateHandoffInput) => api<HandoffDetail>('/handoffs', { method: 'POST', body }),
+  /** The AI Handoff Creator: understand a message into a preview. Saves nothing. */
+  assistantInterpret: (body: AssistantRequest) => api<AssistantPreview>('/handoffs/assistant/interpret', { method: 'POST', body }),
+  /** The AI Handoff Creator: save the reviewed preview as a DRAFT (saving it twice with the same key gives one draft). */
+  assistantSave: (body: AiDraftInput) => api<HandoffDetail>('/handoffs/assistant/drafts', { method: 'POST', body }),
   update: (id: number, body: Omit<CreateHandoffInput, 'items'>) =>
     api<HandoffDetail>(`/handoffs/${id}`, { method: 'PATCH', body }),
   replaceItems: (id: number, items: CreateHandoffInput['items']) =>

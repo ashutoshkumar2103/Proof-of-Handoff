@@ -56,6 +56,7 @@ export function CreateHandoffPage() {
     <div className="stack page-narrow">
       <h1>New handoff</h1>
       <p className="muted">Create a draft, add the items, then submit to email the recipient a secure link.</p>
+      {fromId === 0 && <p className="small muted">Rather describe it in a sentence? Try the <Link to="/handoffs/ai">AI Handoff Creator</Link>.</p>}
       {fromId > 0 && (t ? (
         <div className="notice notice-info">
           Started from an earlier handoff: its title, items and quantities are filled in. Add who it is for and check

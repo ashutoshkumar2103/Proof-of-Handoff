@@ -185,6 +185,10 @@ public class HandoffService {
         if (handoff.getItems().isEmpty()) {
             throw new ConflictException("Add at least one item before submitting the handoff.");
         }
+        // A draft made by hand always has both, but one prepared with the AI Handoff Creator may not yet: it can never be sent to nobody.
+        if (handoff.getRecipientName().isBlank() || handoff.getRecipientEmail().isBlank()) {
+            throw new ConflictException("Add the recipient's name and email address before submitting the handoff.");
+        }
         // The reference is issued here, the first time the draft is submitted, under the prefix in force now. A draft that was
         // numbered when it was created (before references moved to submission) keeps the reference it has. If anything below
         // fails, the whole transaction rolls back and the number goes back with it.

@@ -3,7 +3,8 @@ import { Link } from 'react-router-dom';
 import { authApi } from '../api/endpoints';
 import { useAuth } from '../auth/AuthContext';
 import { JobMonitoring, JobsPanel } from '../components/JobsPanel';
-import { errorMessage } from '../components/ui';
+import { UpgradePlansModal } from '../components/UpgradePlans';
+import { errorMessage, useTransient } from '../components/ui';
 import { formatDate, lastDay, NO_ACTIVE_SUBSCRIPTION_MESSAGE, PLAN_LABELS, supportHighlights } from '../lib/format';
 
 /**
@@ -120,7 +121,9 @@ function ProfileCard() {
 }
 
 function SubscriptionCard() {
-  const { user } = useAuth();
+  const { user, updateUser } = useAuth();
+  const [plansOpen, setPlansOpen] = useState(false);
+  const [upgraded, setUpgraded] = useTransient<string>();
   const sub = user!.subscription;
   if (!sub.plan) {   // nothing has ever been activated on this account: not a plan that ended
     return (
@@ -142,6 +145,8 @@ function SubscriptionCard() {
   }
   const lapsed = sub.status === 'INACTIVE';
   return (
+    <>
+    {upgraded && <div className="notice notice-success" role="status">{upgraded}</div>}
     <div className="card">
       <h2>Subscription</h2>
       <div className="row">
@@ -162,10 +167,33 @@ function SubscriptionCard() {
       <ul className="price-features">
         {supportHighlights(user!.support).map((line) => <li key={line}>{line}</li>)}
       </ul>
-      <p className="small muted">
-        To change your plan, <Link to="/#pricing">choose one on the pricing page</Link>. Handoffs, returns and PDFs are
-        the same on every plan; HandoffCheck comes with Half-Yearly and Yearly.
-      </p>
+      {lapsed ? (
+        <p className="small muted">
+          To change your plan, <Link to="/#pricing">choose one on the pricing page</Link>. Handoffs, returns and PDFs are
+          the same on every plan; HandoffCheck comes with Half-Yearly and Yearly.
+        </p>
+      ) : (
+        <>
+          <p className="small muted">
+            Handoffs, returns and PDFs are the same on every plan; HandoffCheck comes with Half-Yearly and Yearly. To change your plan,
+            see the plans here and pay only the difference.
+          </p>
+          <button type="button" className="btn btn-primary btn-sm" aria-haspopup="dialog" onClick={() => setPlansOpen(true)}>
+            See the plans
+          </button>
+        </>
+      )}
     </div>
+    {/* The plans open in a modal over the Account page, as they do in HandoffCheck: nothing takes the customer to the public pricing page. */}
+    {!lapsed && plansOpen && (
+      <UpgradePlansModal title="Upgrade your plan" onClose={() => setPlansOpen(false)} onUpgraded={async (plan) => {
+        try {
+          updateUser(await authApi.me());   // the account as the backend now has it, so the plan and what it includes show at once
+        } catch { /* the next page load shows it */ }
+        setPlansOpen(false);
+        setUpgraded(`Your ${PLAN_LABELS[plan]} plan is now active.`);
+      }} />
+    )}
+    </>
   );
 }

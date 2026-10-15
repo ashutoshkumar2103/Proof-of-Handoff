@@ -3,6 +3,7 @@ package com.handoffly.handoff;
 import com.handoffly.attachment.AttachmentKind;
 import com.handoffly.attachment.dto.AttachmentResponse;
 import com.handoffly.common.error.ApiException;
+import com.handoffly.common.error.BadRequestException;
 import com.handoffly.handoff.dto.EmailPdfResponse;
 import com.handoffly.handoff.dto.HandoffDetailResponse;
 import com.handoffly.handoff.dto.HandoffItemResponse;
@@ -110,6 +111,9 @@ public class HandoffPdfService {
     public EmailPdfResponse emailPdf(Long userId, Long handoffId, String to) {
         HandoffDetailResponse detail = handoffService.getDetail(userId, handoffId);
         String destination = to == null || to.isBlank() ? detail.recipientEmail() : to.trim();
+        if (destination == null || destination.isBlank()) {   // a draft prepared with the AI Handoff Creator may have no recipient email yet
+            throw new BadRequestException("This handoff has no recipient email yet. Enter an address to send the PDF to.");
+        }
         PdfFile file = toFile(detail);
         try {
             boolean delivered = notificationService.sendHandoffPdf(destination, detail.recipientName(),

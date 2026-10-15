@@ -38,6 +38,12 @@ public interface HandoffRepository
     /** A customer's own handoff by its reference (references are unique per account, not globally). */
     Optional<Handoff> findByOwnerIdAndPublicCodeIgnoreCase(Long ownerId, String publicCode);
 
+    /** A customer's own handoffs numbered this (more than one if their prefix has changed since: AK-12 and ZZ-12). */
+    List<Handoff> findByOwnerIdAndReferenceNumber(Long ownerId, Long referenceNumber);
+
+    /** A customer's own draft by the draft reference it was given (AKD-3). */
+    Optional<Handoff> findByOwnerIdAndDraftCodeIgnoreCase(Long ownerId, String draftCode);
+
     /** Whether the account already has a handoff with this official reference (a new draft's reference must not read as one). */
     boolean existsByOwnerIdAndPublicCode(Long ownerId, String publicCode);
 

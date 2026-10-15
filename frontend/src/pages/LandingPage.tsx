@@ -205,6 +205,7 @@ export function LandingPage() {
                     <li>Unlimited handoffs</li>
                     <li>Returns & missing tracking</li>
                     <li>Attachments & evidence</li>
+                    <li>AI Handoff Creator</li>
                     {p.handoffCheck
                       ? <li>HandoffCheck comparison</li>
                       : <li className="off">HandoffCheck comparison — not included</li>}

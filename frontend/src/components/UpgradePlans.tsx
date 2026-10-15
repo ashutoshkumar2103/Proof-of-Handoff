@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { useQuery } from '@tanstack/react-query';
 import { HttpError } from '../api/client';
 import { paymentApi } from '../api/endpoints';
@@ -14,9 +14,15 @@ import { ErrorNotice, Spinner, errorMessage } from './ui';
  * The way up from a plan that does not include HandoffCheck, without leaving the page: the plans that include it and cost more than
  * the customer's, each priced as what is left to pay (the plan they are on counts as already paid), and the demo card form to pay it
  * and switch at once. Which plans, and what each costs, is the backend's answer; this only shows it and asks the backend to charge
- * exactly the amount shown. `onUpgraded` is told which plan the customer is now on.
+ * exactly the amount shown. `onUpgraded` is told which plan the customer is now on. `embedded` is for showing it inside a modal that has its own
+ * title and frame; `onBusy` says when a payment is on its way.
  */
-export function UpgradePlans({ onUpgraded }: { onUpgraded: (plan: SubscriptionPlan) => void }) {
+export function UpgradePlans({ onUpgraded, title = 'Upgrade to use HandoffCheck', embedded = false, onBusy }: {
+  onUpgraded: (plan: SubscriptionPlan) => void;
+  title?: string;
+  embedded?: boolean;
+  onBusy?: (busy: boolean) => void;
+}) {
   const { user } = useAuth();
   const options = useQuery({
     queryKey: ['upgrade-options'],
@@ -29,6 +35,7 @@ export function UpgradePlans({ onUpgraded }: { onUpgraded: (plan: SubscriptionPl
   const [card, setCard] = useState<CardInput>(EMPTY_CARD);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  useEffect(() => { onBusy?.(busy); }, [busy, onBusy]);
 
   // Only plans that include HandoffCheck matter here; the backend says which they are.
   const choices = options.data?.filter((o) => o.handoffCheck) ?? [];
@@ -62,8 +69,8 @@ export function UpgradePlans({ onUpgraded }: { onUpgraded: (plan: SubscriptionPl
   }
 
   return (
-    <div className="card">
-      <h2>Upgrade to use HandoffCheck</h2>
+    <div className={embedded ? undefined : 'card'}>
+      {!embedded && <h2>{title}</h2>}
       <p className="muted small">
         Pay only the difference: what you have already paid for your plan counts towards the new one. The new plan starts today.
       </p>
@@ -123,6 +130,52 @@ export function UpgradePlans({ onUpgraded }: { onUpgraded: (plan: SubscriptionPl
           })}
         </div>
       )}
+    </div>
+  );
+}
+
+/**
+ * The plans in a modal, for the places that offer them (HandoffCheck when it is locked, Account → Subscription): the same {@link UpgradePlans},
+ * opened over the page instead of unfolding inside it. It closes with its buttons or Esc — never by a click outside it, so a card number being
+ * typed is not lost to a stray click — and not while a payment is on its way. Focus goes to it when it opens and back to where it came from.
+ */
+export function UpgradePlansModal({ title = 'Upgrade your plan', onUpgraded, onClose }: {
+  title?: string;
+  onUpgraded: (plan: SubscriptionPlan) => void;
+  onClose: () => void;
+}) {
+  const [paying, setPaying] = useState(false);
+  const closeButton = useRef<HTMLButtonElement>(null);
+  const close = () => { if (!paying) onClose(); };
+
+  useEffect(() => {
+    const opener = document.activeElement as HTMLElement | null;
+    closeButton.current?.focus();
+    return () => opener?.focus();
+  }, []);
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => { if (e.key === 'Escape' && !paying) onClose(); };
+    document.addEventListener('keydown', onKey);
+    return () => document.removeEventListener('keydown', onKey);
+  }, [paying, onClose]);
+  useEffect(() => {   // the page behind does not scroll while the modal is open
+    const before = document.body.style.overflow;
+    document.body.style.overflow = 'hidden';
+    return () => { document.body.style.overflow = before; };
+  }, []);
+
+  return (
+    <div className="modal-overlay">
+      <div className="modal modal-wide" role="dialog" aria-modal="true" aria-labelledby="upgrade-plans-title" style={{ maxWidth: 640 }}>
+        <div className="spread" style={{ flexWrap: 'nowrap', alignItems: 'flex-start' }}>
+          <h3 className="modal-title" id="upgrade-plans-title">{title}</h3>
+          <button ref={closeButton} type="button" className="btn btn-sm btn-negative" aria-label="Close" disabled={paying} onClick={close}>✕</button>
+        </div>
+        <UpgradePlans embedded onBusy={setPaying} onUpgraded={onUpgraded} />
+        <div className="modal-actions">
+          <button type="button" className="btn btn-negative" disabled={paying} onClick={close}>Close</button>
+        </div>
+      </div>
     </div>
   );
 }

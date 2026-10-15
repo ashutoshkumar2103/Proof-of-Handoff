@@ -8,6 +8,7 @@ import { LoginPage } from './pages/LoginPage';
 import { RegisterPage } from './pages/RegisterPage';
 import { DashboardPage } from './pages/DashboardPage';
 import { CreateHandoffPage } from './pages/CreateHandoffPage';
+import { AiHandoffCreatorPage } from './pages/AiHandoffCreatorPage';
 import { EditHandoffPage } from './pages/EditHandoffPage';
 import { HandoffDetailPage } from './pages/HandoffDetailPage';
 import { RecipientPage } from './pages/RecipientPage';
@@ -60,6 +61,7 @@ export function App() {
       <Route element={<RequireAuth><Layout /></RequireAuth>}>
         <Route path="/dashboard" element={<DashboardPage />} />
         <Route path="/handoffs/new" element={<CreateHandoffPage />} />
+        <Route path="/handoffs/ai" element={<AiHandoffCreatorPage />} />
         <Route path="/handoffs/:id" element={<HandoffDetailPage />} />
         <Route path="/handoffs/:id/edit" element={<EditHandoffPage />} />
         <Route path="/handoff-check" element={<HandoffCheckPage />} />

@@ -112,6 +112,7 @@ export function DashboardPage() {
         <div className="row">
           {/* Only offered when the plan includes it; the backend enforces the same rule. */}
           {user?.support.contactSupport && <Link to="/support" className="btn">Contact Support</Link>}
+          <Link to="/handoffs/ai" className="btn"><span aria-hidden="true">✦</span> AI Handoff Creator</Link>
           <Link to="/handoffs/new" className="btn btn-primary">+ New handoff</Link>
         </div>
       </div>

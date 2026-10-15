@@ -356,6 +356,50 @@ export interface ItemInput {
   notes?: string;
 }
 
+/** What the AI Handoff Creator prepared: the fields of a draft, as text (an empty one is simply not given yet). Nothing here is saved. */
+export interface AssistantDraft {
+  title: string;
+  category: string;
+  purpose: string;
+  senderName: string;
+  senderOrganization: string;
+  recipientName: string;
+  recipientEmail: string;
+  recipientPhone: string;
+  dueDate: string;
+  items: { name: string; quantity: string; unit: string }[];
+}
+
+export interface AssistantClarification {
+  id: string;
+  question: string;
+  options: { id: string; label: string }[];
+}
+
+/**
+ * READY: nothing is unclear. NEEDS_INPUT: a question must be answered first. UNSUPPORTED: not a handoff request. UNAVAILABLE: the AI gave no answer.
+ * `intent` is what the AI understood; it is sent back, untouched, when the customer answers a question, so that no second AI request is needed.
+ */
+export interface AssistantPreview {
+  status: 'READY' | 'NEEDS_INPUT' | 'UNSUPPORTED' | 'UNAVAILABLE';
+  message: string;
+  draft: AssistantDraft | null;
+  notes: { field: string; text: string }[];
+  clarifications: AssistantClarification[];
+  intent: unknown;
+  /** The customer's message asked to save the draft as well: the page saves it once nothing is left to answer. */
+  saveRequested: boolean;
+}
+
+export interface AssistantRequest {
+  text: string;
+  intent?: unknown;
+  choices?: Record<string, string>;
+}
+
+/** A reviewed AI draft: the ordinary draft fields, plus the key that makes saving it twice give one draft. */
+export type AiDraftInput = CreateHandoffInput & { saveKey: string };
+
 export interface CreateHandoffInput {
   title: string;
   purpose?: string;

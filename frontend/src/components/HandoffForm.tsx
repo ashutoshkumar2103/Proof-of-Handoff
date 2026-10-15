@@ -1,4 +1,5 @@
 import { useRef, useState } from 'react';
+import type { ReactNode } from 'react';
 import type { CreateHandoffInput, ItemCondition, ItemInput } from '../api/types';
 import { localPartsToIso } from '../lib/format';
 import { INVALID_EMAIL_MESSAGE, isValidEmail } from '../lib/validation';
@@ -44,12 +45,19 @@ const CATEGORY_SUGGESTIONS = [
   'DOCUMENT', 'KEYS_ACCESS', 'REPAIR_SERVICE', 'OTHER',
 ];
 
-export function HandoffForm({ initial, submitLabel, onSubmit, busy, error }: {
+export function HandoffForm({ initial, submitLabel, onSubmit, busy, error, incompleteOk = false, actions }: {
   initial: HandoffFormValue;
   submitLabel: string;
   onSubmit: (value: { header: Omit<CreateHandoffInput, 'items'>; items: ItemInput[] }) => void;
   busy?: boolean;
   error?: string | null;
+  /**
+   * For a draft prepared with the AI Handoff Creator, whose recipient may not be known yet: the recipient's name and email may be left empty
+   * (an email that is given must still be valid). The backend still refuses to submit such a draft. Off for the ordinary form.
+   */
+  incompleteOk?: boolean;
+  /** Extra buttons beside the submit button, in the same row (the AI Handoff Creator's Cancel). */
+  actions?: ReactNode;
 }) {
   const [v, setV] = useState<HandoffFormValue>(initial);
   const [importOpen, setImportOpen] = useState(false);
@@ -85,7 +93,8 @@ export function HandoffForm({ initial, submitLabel, onSubmit, busy, error }: {
 
   function submit(e: React.FormEvent) {
     e.preventDefault();
-    if (!isValidEmail(v.recipientEmail.trim())) {   // the browser's own check lets name@ee through; the backend refuses it too
+    const emailGiven = v.recipientEmail.trim() !== '';
+    if ((emailGiven || !incompleteOk) && !isValidEmail(v.recipientEmail.trim())) {   // the browser's own check lets name@ee through; the backend refuses it too
       setEmailError(INVALID_EMAIL_MESSAGE);
       emailRef.current?.focus();
       return;
@@ -170,11 +179,11 @@ export function HandoffForm({ initial, submitLabel, onSubmit, busy, error }: {
         <div className="field-row">
           <div className="field">
             <label>Recipient name</label>
-            <input value={v.recipientName} onChange={(e) => set('recipientName', e.target.value)} required maxLength={200} />
+            <input value={v.recipientName} onChange={(e) => set('recipientName', e.target.value)} required={!incompleteOk} maxLength={200} />
           </div>
           <div className="field">
-            <label>Recipient email</label>
-            <input ref={emailRef} type="email" value={v.recipientEmail} required aria-invalid={emailError !== null}
+            <label>Recipient email{incompleteOk && <span className="muted"> (needed before you can submit)</span>}</label>
+            <input ref={emailRef} type="email" value={v.recipientEmail} required={!incompleteOk} aria-invalid={emailError !== null}
                    aria-describedby={emailError ? 'recipient-email-error' : undefined} className={emailError ? 'input-error' : undefined}
                    onChange={(e) => { set('recipientEmail', e.target.value); setEmailError(null); }} />
             {emailError && <div id="recipient-email-error" className="form-error" role="alert">{emailError}</div>}
@@ -250,6 +259,7 @@ export function HandoffForm({ initial, submitLabel, onSubmit, busy, error }: {
 
       <div className="row">
         <button className="btn btn-primary" disabled={busy}>{busy ? 'Saving…' : submitLabel}</button>
+        {actions}
       </div>
     </form>
   );
