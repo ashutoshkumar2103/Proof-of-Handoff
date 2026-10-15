@@ -9,6 +9,8 @@ export const authApi = {
   login: (body: { email: string; password: string }) =>
     api<StaffAuthResponse>('/support/auth/login', { method: 'POST', body, auth: false }),
   me: () => api<Staff>('/support/auth/me'),
+  /** A member just interacted with the portal (never a timer or a poll): the server restarts the session's inactivity clock and answers with the renewed token. */
+  activity: () => api<Pick<StaffAuthResponse, 'token' | 'expiresAt'>>('/support/auth/activity', { method: 'POST' }),
 };
 
 export interface TicketFilters {

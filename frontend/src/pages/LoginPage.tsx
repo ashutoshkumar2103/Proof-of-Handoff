@@ -1,6 +1,7 @@
 import { useState } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
 import { useAuth } from '../auth/AuthContext';
+import { INACTIVITY_LOGOUT_MESSAGE } from '../auth/inactivity';
 import { errorMessage } from '../components/ui';
 import { PasswordInput } from '../components/PasswordInput';
 import { AuthShell } from '../components/AuthShell';
@@ -8,7 +9,7 @@ import { Logo } from '../components/Logo';
 import { PendingPaymentNotice } from '../components/PendingPaymentNotice';
 
 export function LoginPage() {
-  const { login } = useAuth();
+  const { login, inactivityLogout } = useAuth();
   const navigate = useNavigate();
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
@@ -35,6 +36,7 @@ export function LoginPage() {
         <div className="brand"><Logo variant="full" /></div>
         <p className="muted center mb-2">Welcome back — sign in to continue</p>
         <PendingPaymentNotice action="Sign in" />
+        {inactivityLogout && <div className="notice notice-warning mb-2" role="status">{INACTIVITY_LOGOUT_MESSAGE}</div>}
         {error &&<div className="notice notice-error mb-2">{error}</div>}
         <div className="field">
           <label htmlFor="email">Email</label>

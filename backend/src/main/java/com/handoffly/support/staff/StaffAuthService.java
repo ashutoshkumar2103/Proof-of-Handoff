@@ -31,6 +31,13 @@ public class StaffAuthService {
         this.decoyHash = passwordEncoder.encode("not-a-real-staff-password");
     }
 
+    /** The member did something in the portal: the session's inactivity clock restarts (its overall expiry does not change). */
+    public JwtService.IssuedToken renewSession(String authorization) {
+        JwtService.IssuedToken issued = jwtService.renewStaff(authorization);
+        if (issued == null) throw new UnauthorizedException("Your session has ended.");
+        return issued;
+    }
+
     @Transactional(readOnly = true)
     public StaffAuthResponse login(LoginRequest request) {
         SupportStaff staff = staffRepository.findByEmailIgnoreCase(request.email().trim()).orElse(null);

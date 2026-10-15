@@ -154,6 +154,16 @@ public class AuthService {
                 .orElseThrow(() -> new UnauthorizedException("Account no longer exists."));
     }
 
+    /**
+     * The person did something in the app: the session's inactivity clock restarts (its overall expiry does not change).
+     * The caller's token has already been accepted by the security filter, so a refusal here is only a race with its end.
+     */
+    public JwtService.IssuedToken renewSession(String authorization) {
+        JwtService.IssuedToken issued = jwtService.renewCustomer(authorization);
+        if (issued == null) throw new UnauthorizedException("Your session has ended.");
+        return issued;
+    }
+
     private AuthResponse toAuthResponse(User user) {
         JwtService.IssuedToken issued = jwtService.issueForCustomer(user);
         return new AuthResponse(issued.token(), issued.expiresAt(), UserResponse.from(user, supportPhone));

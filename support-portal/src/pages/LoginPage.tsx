@@ -1,11 +1,12 @@
 import { useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { useAuth } from '../auth/AuthContext';
+import { INACTIVITY_LOGOUT_MESSAGE } from '../auth/inactivity';
 import { Logo } from '../components/Logo';
 import { errorMessage, useTransient } from '../components/ui';
 
 export function LoginPage() {
-  const { login } = useAuth();
+  const { login, inactivityLogout } = useAuth();
   const navigate = useNavigate();
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
@@ -31,6 +32,7 @@ export function LoginPage() {
       <form className="card auth-card" onSubmit={onSubmit}>
         <div className="brand"><Logo /><span className="brand-label">Support</span></div>
         <p className="muted center mb-2">Sign in with your staff account</p>
+        {inactivityLogout && <div className="notice notice-info mb-2" role="status">{INACTIVITY_LOGOUT_MESSAGE}</div>}
         {error && <div className="notice notice-error mb-2" role="alert">{error}</div>}
         <div className="field">
           <label htmlFor="email">Email</label>

@@ -18,6 +18,13 @@ export function getToken(): string | null {
   return authToken;
 }
 
+// Another tab of the portal signed out, or renewed the session: follow it, so that this tab neither keeps using a token that was ended nor an older copy of it.
+window.addEventListener('storage', (e) => {
+  if (e.key !== TOKEN_KEY) return;
+  authToken = e.newValue;
+  if (e.newValue === null) sessionEnded?.();
+});
+
 /** Called when the backend stops accepting this session (expired token, or the account lost staff access). */
 export function onSessionEnded(handler: () => void) {
   sessionEnded = handler;

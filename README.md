@@ -624,6 +624,14 @@ cd support-portal && npm run build    # support portal: type-check + build
   a single handoff. Password-reset links are the same kind of token: hashed, one-time, expiring.
 - Customer sessions are checked against the account on every request, and a password change or reset ends all older
   sessions.
+- **Inactivity.** A customer, support or mobile session ends after **15 minutes without interaction** (a pointer, key, touch or scroll in
+  the page; polling and timers do not count). The apps sign out at 15:00 by the clock, from every tab at once (the last interaction is
+  shared between tabs), with the message "You were logged out after 15 minutes of inactivity for security.", and an interaction that
+  arrives after the limit does not bring the session back. The backend enforces it too: a token carries when its holder last reported
+  activity and is refused (401) once that is more than 15 minutes old (plus the one minute at which the apps report), so an idle token
+  is useless even if the app is bypassed. `POST /auth/activity` and `POST /support/auth/activity` (sent by the apps only after real
+  interaction, at most once a minute) return the same session renewed; the overall session length is not extended. Tokens issued before
+  this existed count as last active when they were issued. Unsaved form content is not kept across this sign-out.
 - Public and sensitive endpoints (sign-in, register, forgot/reset password, recipient links, payments) and manual job runs are
   rate limited (`429` with `Retry-After`). The limiter is **in memory, per backend instance**: a restart clears it and several
   instances each keep their own counts; behind a reverse proxy set `FORWARD_HEADERS_STRATEGY=native` so real client addresses

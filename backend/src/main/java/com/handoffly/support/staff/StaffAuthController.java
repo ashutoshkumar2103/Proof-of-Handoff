@@ -1,13 +1,16 @@
 package com.handoffly.support.staff;
 
 import com.handoffly.auth.dto.LoginRequest;
+import com.handoffly.auth.jwt.JwtService;
 import com.handoffly.support.dto.StaffAuthResponse;
 import com.handoffly.support.dto.StaffResponse;
 import jakarta.validation.Valid;
+import org.springframework.http.HttpHeaders;
 import org.springframework.security.core.annotation.AuthenticationPrincipal;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.RequestBody;
+import org.springframework.web.bind.annotation.RequestHeader;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RestController;
 
@@ -27,6 +30,12 @@ public class StaffAuthController {
     @PostMapping("/login")
     public StaffAuthResponse login(@Valid @RequestBody LoginRequest request) {
         return authService.login(request);
+    }
+
+    /** Called only when the member really interacts: the session's inactivity clock restarts (see the customer {@code /auth/activity}). */
+    @PostMapping("/activity")
+    public JwtService.IssuedToken activity(@RequestHeader(HttpHeaders.AUTHORIZATION) String authorization) {
+        return authService.renewSession(authorization);
     }
 
     @GetMapping("/me")

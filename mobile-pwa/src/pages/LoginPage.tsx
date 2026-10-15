@@ -1,12 +1,13 @@
 import { useState } from 'react';
 import { Navigate, useLocation, useNavigate } from 'react-router-dom';
 import { useAuth } from '../auth/AuthContext';
+import { INACTIVITY_LOGOUT_MESSAGE } from '../auth/inactivity';
 import { Icon } from '../components/Icon';
 import { Logo } from '../components/Logo';
 import { errorMessage, Spinner } from '../components/ui';
 
 export function LoginPage() {
-  const { user, loading, login } = useAuth();
+  const { user, loading, login, inactivityLogout } = useAuth();
   const navigate = useNavigate();
   const from = (useLocation().state as { from?: string } | null)?.from ?? '/';
   const [email, setEmail] = useState('');
@@ -36,6 +37,7 @@ export function LoginPage() {
       <form className="card auth-card" onSubmit={onSubmit}>
         <div className="brand brand-lg"><Logo variant="full" /></div>
         <p className="muted center">Sign in to give, track and receive back.</p>
+        {inactivityLogout && <div className="notice notice-warning" role="status">{INACTIVITY_LOGOUT_MESSAGE}</div>}
         {error && <div className="notice notice-error" role="alert">{error}</div>}
         <div className="field">
           <label htmlFor="email">Email</label>

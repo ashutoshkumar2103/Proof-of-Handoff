@@ -4,6 +4,7 @@ import { useQueryClient } from '@tanstack/react-query';
 import { getToken, isNetworkError, onSessionEnded, setToken } from '../api/client';
 import { authApi } from '../api/endpoints';
 import type { AuthResponse, User } from '../api/types';
+import { hasIdleExpired, readInactivityNotice, startActivityClock, useInactivityLogout, writeInactivityNotice } from './inactivity';
 
 interface AuthState {
   user: User | null;
@@ -19,6 +20,8 @@ interface AuthState {
   /** Takes over a fresh session (after a password change, which ends every other session). */
   startSession: (session: AuthResponse) => void;
   logout: () => void;
+  /** The person was last signed out for inactivity: the sign-in page says so, until they sign in again. */
+  inactivityLogout: boolean;
 }
 
 const AuthContext = createContext<AuthState | undefined>(undefined);
@@ -29,6 +32,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   const [loading, setLoading] = useState(true);
   const [unreachable, setUnreachable] = useState(false);
   const [attempt, setAttempt] = useState(0);
+  const [inactivityLogout, setInactivityLogout] = useState(readInactivityNotice);
 
   // Whoever signs out, or whoever the backend stops accepting, leaves nothing of their data behind for the next person on this phone.
   const endSession = useCallback(() => {
@@ -37,11 +41,32 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     queryClient.clear();
   }, [queryClient]);
 
-  useEffect(() => { onSessionEnded(endSession); }, [endSession]);
+  useEffect(() => {
+    onSessionEnded(() => {
+      endSession();
+      setInactivityLogout(readInactivityNotice());
+    });
+  }, [endSession]);
+
+  // 15 minutes without interaction: the notice first, so that the other windows (told by the token going away) can read it.
+  const endForInactivity = useCallback(() => {
+    writeInactivityNotice(true);
+    setInactivityLogout(true);
+    endSession();
+  }, [endSession]);
+  const reportActivity = useCallback(() => {
+    // Only renews a session that is still there: an answer arriving after sign-out must not bring it back.
+    authApi.activity().then((renewed) => { if (getToken()) setToken(renewed.token); }).catch(() => { /* a refusal already ended the session */ });
+  }, []);
+  useInactivityLogout(user !== null, endForInactivity, reportActivity);
 
   useEffect(() => {
     let active = true;
-    if (getToken()) {
+    if (getToken() && hasIdleExpired()) {
+      // The app was left (closed, in the background) for 15 minutes or more: no data is asked for, the session is over.
+      endForInactivity();
+      setLoading(false);
+    } else if (getToken()) {
       setLoading(true);
       setUnreachable(false);
       authApi.me()
@@ -53,7 +78,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       setLoading(false);
     }
     return () => { active = false; };
-  }, [attempt]);
+  }, [attempt, endForInactivity]);
 
   // The plan can end, or support can renew it, while the app sits in the background: ask again when it comes back to the front.
   useEffect(() => {
@@ -69,6 +94,10 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   const login = useCallback(async (email: string, password: string) => {
     const res = await authApi.login({ email, password });
     queryClient.clear();
+    // A new session: its inactivity clock starts now and the "logged out for inactivity" message is no longer true.
+    writeInactivityNotice(false);
+    setInactivityLogout(false);
+    startActivityClock();
     setToken(res.token);
     setUser(res.user);
   }, [queryClient]);
@@ -79,8 +108,8 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   }, []);
 
   const value = useMemo<AuthState>(
-    () => ({ user, loading, unreachable, retry: () => setAttempt((n) => n + 1), login, updateUser: setUser, startSession, logout: endSession }),
-    [user, loading, unreachable, login, startSession, endSession]);
+    () => ({ user, loading, unreachable, retry: () => setAttempt((n) => n + 1), login, updateUser: setUser, startSession, logout: endSession, inactivityLogout }),
+    [user, loading, unreachable, login, startSession, endSession, inactivityLogout]);
   return <AuthContext.Provider value={value}>{children}</AuthContext.Provider>;
 }
 

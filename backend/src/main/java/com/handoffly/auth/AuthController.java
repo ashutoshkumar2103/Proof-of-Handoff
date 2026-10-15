@@ -8,14 +8,17 @@ import com.handoffly.auth.dto.RegisterRequest;
 import com.handoffly.auth.dto.ResetPasswordRequest;
 import com.handoffly.auth.dto.UpdateProfileRequest;
 import com.handoffly.auth.dto.UserResponse;
+import com.handoffly.auth.jwt.JwtService;
 import jakarta.servlet.http.HttpServletRequest;
 import jakarta.validation.Valid;
+import org.springframework.http.HttpHeaders;
 import org.springframework.http.HttpStatus;
 import org.springframework.security.core.annotation.AuthenticationPrincipal;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.PutMapping;
 import org.springframework.web.bind.annotation.RequestBody;
+import org.springframework.web.bind.annotation.RequestHeader;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.ResponseStatus;
 import org.springframework.web.bind.annotation.RestController;
@@ -53,6 +56,15 @@ public class AuthController {
     public UserResponse updateProfile(@AuthenticationPrincipal UserPrincipal principal,
                                       @Valid @RequestBody UpdateProfileRequest request) {
         return authService.updateProfile(principal.id(), request);
+    }
+
+    /**
+     * The apps call this only when the person really interacts (a click, a key, a touch), never from a timer or a poll: the
+     * session's 15-minute inactivity clock restarts and the answer is the session's renewed token, with the same expiry.
+     */
+    @PostMapping("/activity")
+    public JwtService.IssuedToken activity(@RequestHeader(HttpHeaders.AUTHORIZATION) String authorization) {
+        return authService.renewSession(authorization);
     }
 
     /** Needs the current password. Other sessions end; the response carries a fresh token for this one. */

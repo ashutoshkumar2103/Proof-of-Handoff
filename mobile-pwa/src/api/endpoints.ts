@@ -10,6 +10,8 @@ export const authApi = {
     api<AuthResponse>('/auth/login', { method: 'POST', body, auth: false }),
   /** The signed-in account as it is right now, subscription status included. */
   me: (signal?: AbortSignal) => api<User>('/auth/me', { signal }),
+  /** The person just interacted with the app (never a timer or a poll): the backend restarts the session's inactivity clock and answers with the renewed token. */
+  activity: () => api<Pick<AuthResponse, 'token' | 'expiresAt'>>('/auth/activity', { method: 'POST' }),
   updateProfile: (body: ProfileInput) => api<User>('/auth/me', { method: 'PUT', body }),
   /** Resolves to a fresh session: every other session has ended. */
   changePassword: (body: ChangePasswordInput) => api<AuthResponse>('/auth/change-password', { method: 'POST', body }),
